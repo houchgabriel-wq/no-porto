@@ -78,10 +78,14 @@ export function formatDay(iso: string, withYear = false): string {
 
 // ---------- Chegada ----------
 
-/** Chegada que vale para a invoice: a do BL, quando ela está num BL; senão, a dela. */
+/**
+ * Chegada que vale para a invoice: a previsão é a do BL, quando ela está num BL; a chegada real é a
+ * da própria invoice, quando registrada (os containers de um BL podem chegar em dias diferentes, como
+ * no histórico), e senão a do BL.
+ */
 export function arrivalOf(invoice: Pick<Invoice, 'billId' | 'eta' | 'arrivedAt'>, bills: ReadonlyMap<string, Pick<Bill, 'eta' | 'arrivedAt'>>): { eta: string | null; arrivedAt: string | null } {
   const bill = invoice.billId ? bills.get(invoice.billId) : undefined;
-  return bill ? { eta: bill.eta, arrivedAt: bill.arrivedAt } : { eta: invoice.eta, arrivedAt: invoice.arrivedAt };
+  return bill ? { eta: bill.eta, arrivedAt: invoice.arrivedAt ?? bill.arrivedAt } : { eta: invoice.eta, arrivedAt: invoice.arrivedAt };
 }
 
 export type ArrivalState =

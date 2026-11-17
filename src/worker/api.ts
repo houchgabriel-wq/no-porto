@@ -10,6 +10,7 @@ import type { Env } from './env';
 import { checkMutation, error, HttpError, json, readBody } from './http';
 import { routeOrders } from './orders';
 import { routeShipments } from './shipments';
+import { routeHistory } from './history';
 
 // ---------- Esquemas de entrada ----------
 
@@ -379,6 +380,8 @@ async function routeLoggedIn(
   if (orders) return orders;
   const shipments = await routeShipments(request, env, session, key, path, now);
   if (shipments) return shipments;
+  const history = await routeHistory(request, env, session, key, path, now);
+  if (history) return history;
 
   return error(404, 'Rota não encontrada.');
 }

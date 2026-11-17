@@ -110,9 +110,9 @@ interface BillRow {
   arrived_at: string | null;
 }
 
-/** Chegada real que vale para a invoice: a do BL, ou a dela quando não tem BL. */
+/** Chegada real que vale para a invoice: a dela, quando registrada; senão, a do BL. */
 async function invoiceArrival(env: Env, invoice: InvoiceRow): Promise<string | null> {
-  if (!invoice.bill_of_lading_id) return invoice.arrived_at;
+  if (invoice.arrived_at || !invoice.bill_of_lading_id) return invoice.arrived_at;
   const bill = await env.DB.prepare('SELECT arrived_at FROM bills_of_lading WHERE id = ?').bind(invoice.bill_of_lading_id).first<{ arrived_at: string | null }>();
   return bill?.arrived_at ?? null;
 }
@@ -266,7 +266,8 @@ async function updateBill(request: Request, env: Env, session: Session, id: stri
   ];
   if (next.arrivedAt !== bill.arrived_at) {
     // Chegou (ou deixou de ter chegado): os itens de todas as invoices do BL acompanham.
-    const { results } = await env.DB.prepare('SELECT id FROM invoices WHERE bill_of_lading_id = ?').bind(id).all<{ id: string }>();
+    // As invoices com chegada própria (containers que chegaram em outro dia) não mudam.
+    const { results } = await env.DB.prepare('SELECT id FROM invoices WHERE bill_of_lading_id = ? AND arrived_at IS NULL').bind(id).all<{ id: string }>();
     statements.push(itemsStatusStatement(env, JSON.stringify(results.map((r) => r.id)), next.arrivedAt, at, session.user.id));
   }
   await env.DB.batch(statements);
@@ -316,7 +317,7 @@ async function updateInvoice(request: Request, env: Env, session: Session, id: s
       id,
     ),
   );
-  const after = billId ? billArrived : next.arrivedAt;
+  const after = next.arrivedAt ?? (billId ? billArrived : null);
   if (after !== before) statements.push(itemsStatusStatement(env, JSON.stringify([id]), after, at, session.user.id));
   await env.DB.batch(statements);
   return json({ ok: true });

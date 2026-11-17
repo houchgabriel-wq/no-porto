@@ -307,14 +307,18 @@ async function getData(env: Env, session: Session, now: Date): Promise<Response>
     env.DB.prepare(
       `${ITEM_SELECT}
          LEFT JOIN invoices v ON v.id = i.invoice_id LEFT JOIN bills_of_lading b ON b.id = v.bill_of_lading_id
-        WHERE i.deleted_at IS NULL AND (i.status <> 'entregue' OR COALESCE(b.arrived_at, v.arrived_at) >= ?)
+        WHERE i.deleted_at IS NULL AND (i.status <> 'entregue' OR COALESCE(v.arrived_at, b.arrived_at) >= ?)
         ORDER BY i.created_at, i.rowid`,
     ).bind(cutoff),
-    env.DB.prepare('SELECT id, number, eta, arrived_at, notes FROM bills_of_lading WHERE arrived_at IS NULL OR arrived_at >= ?').bind(cutoff),
+    env.DB.prepare('SELECT id, number, eta, arrived_at, notes FROM bills_of_lading'),
+    // Invoices a caminho e as que chegaram nos últimos 60 dias. As do histórico sem data de chegada
+    // (itens entregues, mas o dia não está na planilha) não voltam para a tela de embarques.
     env.DB.prepare(
       `SELECT v.id, v.number, v.ref, v.supplier_id, v.bill_of_lading_id, v.eta, v.arrived_at, v.notes
          FROM invoices v LEFT JOIN bills_of_lading b ON b.id = v.bill_of_lading_id
-        WHERE COALESCE(b.arrived_at, v.arrived_at) IS NULL OR COALESCE(b.arrived_at, v.arrived_at) >= ?`,
+        WHERE COALESCE(v.arrived_at, b.arrived_at) >= ?
+           OR (COALESCE(v.arrived_at, b.arrived_at) IS NULL
+               AND NOT EXISTS (SELECT 1 FROM order_items i WHERE i.invoice_id = v.id AND i.status = 'entregue' AND i.deleted_at IS NULL))`,
     ).bind(cutoff),
     env.DB.prepare('SELECT id, invoice_id, paid_at, amount_cents, exchange_rate_e4, notes FROM payments ORDER BY created_at, rowid'),
   ]);
@@ -326,14 +330,19 @@ async function getData(env: Env, session: Session, now: Date): Promise<Response>
     notes: r.notes,
   }));
   const items = (i!.results as ItemRow[]).map((r) => itemForViewer(toItem(r), seeValues));
-  const bills: Bill[] = (b!.results as { id: string; number: string; eta: string | null; arrived_at: string | null; notes: string }[]).map((r) => ({
+  const invoiceRows = v!.results as { id: string; number: string; ref: string; supplier_id: string | null; bill_of_lading_id: string | null; eta: string | null; arrived_at: string | null; notes: string }[];
+  // BLs das invoices mostradas, e os BLs vazios ainda a caminho (todas as invoices desfeitas).
+  const usedBills = new Set(invoiceRows.map((r) => r.bill_of_lading_id));
+  const allBills = b!.results as { id: string; number: string; eta: string | null; arrived_at: string | null; notes: string }[];
+  const billsWithInvoices = await env.DB.prepare('SELECT DISTINCT bill_of_lading_id AS id FROM invoices WHERE bill_of_lading_id IS NOT NULL').all<{ id: string }>();
+  const hasInvoices = new Set(billsWithInvoices.results.map((r) => r.id));
+  const bills: Bill[] = allBills.filter((r) => usedBills.has(r.id) || (!hasInvoices.has(r.id) && !r.arrived_at)).map((r) => ({
     id: r.id,
     number: r.number,
     eta: r.eta,
     arrivedAt: r.arrived_at,
     notes: r.notes,
   }));
-  const invoiceRows = v!.results as { id: string; number: string; ref: string; supplier_id: string | null; bill_of_lading_id: string | null; eta: string | null; arrived_at: string | null; notes: string }[];
   const invoices: Invoice[] = invoiceRows.map((r) => ({
     id: r.id,
     number: r.number,

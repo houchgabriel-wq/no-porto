@@ -45,6 +45,8 @@ describe('chegada', () => {
   it('com BL vale a do BL; sem BL, a da invoice', () => {
     expect(arrivalOf({ billId: 'b1', eta: '2026-01-01', arrivedAt: null }, bills)).toEqual({ eta: '2026-11-26', arrivedAt: null });
     expect(arrivalOf({ billId: null, eta: '2026-11-21', arrivedAt: null }, bills)).toEqual({ eta: '2026-11-21', arrivedAt: null });
+    // Chegada registrada na própria invoice vale mais que a do BL (containers em dias diferentes).
+    expect(arrivalOf({ billId: 'b1', eta: null, arrivedAt: '2026-11-20' }, bills)).toEqual({ eta: '2026-11-26', arrivedAt: '2026-11-20' });
   });
 
   it('em liberação, previsto, chegou e sem previsão', () => {
