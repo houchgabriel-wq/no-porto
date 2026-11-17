@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "no-porto",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  // Não apaga variáveis cadastradas no painel a cada deploy.
+  "keep_vars": true,
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  // Sem database_id: o wrangler cria o banco "no-porto" no primeiro deploy.
+  "d1_databases": [
+    { "binding": "DB", "database_name": "no-porto", "migrations_dir": "migrations" }
+  ]
+  // Segredo (painel do Cloudflare → Worker → Configurações → Variáveis e segredos):
+  // SETUP_TOKEN, o código pedido na tela de primeiro acesso.
+}
