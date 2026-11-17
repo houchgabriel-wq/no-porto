@@ -1,5 +1,5 @@
 // Tela Embarques (SPEC.md, seção 5): os BLs e as invoices a caminho, agrupados pela chegada
-// (atrasados primeiro), com o valor no mar e o que falta pagar. Funciona também como a lista de
+// (os em liberação primeiro), com o valor no mar e o que falta pagar. Funciona também como a lista de
 // chegadas. Quem não vê valores (o leitor) vê exemplares e não vê pagamentos.
 
 import { useMemo, useState } from 'react';
@@ -57,7 +57,7 @@ export function ShipmentsView({ data, onOpen, actions }: Props) {
   });
   const groups = new Map<ArrivalGroup, ShipmentUnit[]>();
   for (const u of shown) groups.set(u.group, [...(groups.get(u.group) ?? []), u]);
-  const late = units.filter((u) => u.group === 'atrasados').length;
+  const clearing = units.filter((u) => u.group === 'liberacao').length;
   const onTheWay = units.filter((u) => u.group !== 'chegaram').length;
   const suppliersOnTheWay = data.suppliers.filter((s) => units.some((u) => u.supplierIds.includes(s.id)));
 
@@ -83,13 +83,13 @@ export function ShipmentsView({ data, onOpen, actions }: Props) {
             <span>{onTheWay === 1 ? 'embarque a caminho' : 'embarques a caminho'}</span>
           </div>
         </div>
-        <div className={`emb-stat${late ? ' critico' : ''}`}>
+        <div className={`emb-stat${clearing ? ' alerta' : ''}`}>
           <span className="stat-ic">
             <Icon name="alerta" />
           </span>
           <div>
-            <b>{late}</b>
-            <span>{late === 1 ? 'atrasado' : 'atrasados'}</span>
+            <b>{clearing}</b>
+            <span>em liberação (previsão já passou)</span>
           </div>
         </div>
         {due && (
@@ -143,7 +143,7 @@ export function ShipmentsView({ data, onOpen, actions }: Props) {
             <section key={group} className={`emb-grupo ${group}`} aria-labelledby={`grupo-${group}`}>
               <div className="emb-grupo-topo">
                 <h2 id={`grupo-${group}`}>
-                  {group === 'atrasados' && <Icon name="alerta" />}
+                  {group === 'liberacao' && <Icon name="alerta" />}
                   {ARRIVAL_GROUP_LABELS[group]}
                 </h2>
                 <span className="mudo">{list.length === 1 ? '1 embarque' : `${list.length} embarques`}</span>
@@ -188,7 +188,7 @@ function UnitCard({ unit, ctx }: { unit: ShipmentUnit; ctx: Ctx }) {
       <span className="emb-topo">
         <span className="emb-titulo">{title}</span>
         <span className={`pilula chegada ${state.kind}`}>
-          {state.kind === 'atrasado' && <Icon name="alerta" />}
+          {state.kind === 'liberacao' && <Icon name="alerta" />}
           {arrivalText(state)}
         </span>
       </span>

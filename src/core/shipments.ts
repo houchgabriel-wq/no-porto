@@ -86,24 +86,25 @@ export function arrivalOf(invoice: Pick<Invoice, 'billId' | 'eta' | 'arrivedAt'>
 
 export type ArrivalState =
   | { kind: 'chegou'; on: string }
-  | { kind: 'atrasado'; days: number }
+  /** A previsão já passou e a chegada à editora ainda não foi registrada: em geral, liberação no porto. */
+  | { kind: 'liberacao'; days: number }
   | { kind: 'previsto'; days: number }
   | { kind: 'sem_previsao' };
 
-/** Situação da chegada: chegou, atrasado (previsão no passado sem chegada), previsto ou sem previsão. */
+/** Situação da chegada: chegou, em liberação (previsão no passado sem chegada), previsto ou sem previsão. */
 export function arrivalState(eta: string | null, arrivedAt: string | null, today: string): ArrivalState {
   if (arrivedAt) return { kind: 'chegou', on: arrivedAt };
   if (!eta) return { kind: 'sem_previsao' };
   const days = daysBetween(today, eta);
-  return days < 0 ? { kind: 'atrasado', days: -days } : { kind: 'previsto', days };
+  return days < 0 ? { kind: 'liberacao', days: -days } : { kind: 'previsto', days };
 }
 
 export function arrivalText(state: ArrivalState): string {
   switch (state.kind) {
     case 'chegou':
       return `Chegou em ${formatDay(state.on, true)}`;
-    case 'atrasado':
-      return state.days === 1 ? 'Atrasado 1 dia' : `Atrasado ${state.days} dias`;
+    case 'liberacao':
+      return state.days === 1 ? 'Em liberação · previsão há 1 dia' : `Em liberação · previsão há ${state.days} dias`;
     case 'previsto':
       return state.days === 0 ? 'Chega hoje' : state.days === 1 ? 'Chega amanhã' : `Chega em ${state.days} dias`;
     case 'sem_previsao':
@@ -111,11 +112,11 @@ export function arrivalText(state: ArrivalState): string {
   }
 }
 
-export const ARRIVAL_GROUPS = ['atrasados', 'semana', 'proxima', 'depois', 'sem_previsao', 'chegaram'] as const;
+export const ARRIVAL_GROUPS = ['liberacao', 'semana', 'proxima', 'depois', 'sem_previsao', 'chegaram'] as const;
 export type ArrivalGroup = (typeof ARRIVAL_GROUPS)[number];
 
 export const ARRIVAL_GROUP_LABELS: Record<ArrivalGroup, string> = {
-  atrasados: 'Atrasados',
+  liberacao: 'Em liberação',
   semana: 'Chegam nesta semana',
   proxima: 'Chegam na próxima semana',
   depois: 'Chegam depois',
@@ -136,7 +137,7 @@ export function arrivalGroup(eta: string | null, arrivedAt: string | null, today
   const state = arrivalState(eta, arrivedAt, today);
   if (state.kind === 'chegou') return 'chegaram';
   if (state.kind === 'sem_previsao') return 'sem_previsao';
-  if (state.kind === 'atrasado') return 'atrasados';
+  if (state.kind === 'liberacao') return 'liberacao';
   const weeks = daysBetween(weekStart(today), weekStart(eta!)) / 7;
   return weeks === 0 ? 'semana' : weeks === 1 ? 'proxima' : 'depois';
 }
@@ -227,7 +228,7 @@ export interface ShipmentUnit {
 }
 
 /**
- * Junta as invoices por BL (as sem BL ficam sozinhas) e ordena pela chegada: atrasados e próximos
+ * Junta as invoices por BL (as sem BL ficam sozinhas) e ordena pela chegada: em liberação e próximos
  * primeiro, sem previsão depois e os que chegaram no fim, do mais recente para o mais antigo.
  */
 export function shipmentUnits(bills: readonly Bill[], invoices: readonly Invoice[], today: string): ShipmentUnit[] {

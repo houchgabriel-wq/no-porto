@@ -25,7 +25,7 @@ export function Dashboard({ data, onSupplier, onOrder, onShipment }: Props) {
   const atSea = useMemo(() => totals(data.items.filter((i) => i.status === 'embarcado'), seeValues), [data.items, seeValues]);
   const due = useMemo(() => (seeValues ? totalDue(data.invoices, data.items, data.payments) : null), [seeValues, data]);
   const units = useMemo(() => shipmentUnits(data.bills, data.invoices, data.today).filter((u) => u.group !== 'chegaram'), [data.bills, data.invoices, data.today]);
-  const late = units.filter((u) => u.group === 'atrasados').length;
+  const clearing = units.filter((u) => u.group === 'liberacao').length;
   const bySupplier = useMemo(() => totalsBySupplier(production, data.suppliers, seeValues), [production, data.suppliers, seeValues]);
   const byOrder = useMemo(
     () =>
@@ -65,7 +65,7 @@ export function Dashboard({ data, onSupplier, onOrder, onShipment }: Props) {
             <b className="heroi-valor">{headline(atSea)}</b>
             <span className="heroi-sub">
               {units.length === 1 ? '1 embarque a caminho' : `${units.length} embarques a caminho`}
-              {late > 0 && <span className="critico-texto"> · {late === 1 ? '1 atrasado' : `${late} atrasados`}</span>}
+              {clearing > 0 && <span className="alerta-texto"> · {clearing} em liberação</span>}
             </span>
           </div>
           {due && (
@@ -122,7 +122,7 @@ export function Dashboard({ data, onSupplier, onOrder, onShipment }: Props) {
                         </span>
                       </span>
                       <span className={`pilula chegada ${state.kind}`}>
-                        {state.kind === 'atrasado' && <Icon name="alerta" />}
+                        {state.kind === 'liberacao' && <Icon name="alerta" />}
                         {arrivalText(state)}
                       </span>
                     </button>

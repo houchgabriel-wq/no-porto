@@ -47,13 +47,13 @@ describe('chegada', () => {
     expect(arrivalOf({ billId: null, eta: '2026-11-21', arrivedAt: null }, bills)).toEqual({ eta: '2026-11-21', arrivedAt: null });
   });
 
-  it('atrasado, previsto, chegou e sem previsão', () => {
+  it('em liberação, previsto, chegou e sem previsão', () => {
     const today = '2026-11-17';
-    expect(arrivalState('2026-11-13', null, today)).toEqual({ kind: 'atrasado', days: 4 });
+    expect(arrivalState('2026-11-13', null, today)).toEqual({ kind: 'liberacao', days: 4 });
     expect(arrivalState('2026-11-17', null, today)).toEqual({ kind: 'previsto', days: 0 });
     expect(arrivalState('2026-11-26', '2026-11-25', today)).toEqual({ kind: 'chegou', on: '2026-11-25' });
     expect(arrivalState(null, null, today)).toEqual({ kind: 'sem_previsao' });
-    expect(arrivalText({ kind: 'atrasado', days: 4 })).toBe('Atrasado 4 dias');
+    expect(arrivalText({ kind: 'liberacao', days: 4 })).toBe('Em liberação · previsão há 4 dias');
     expect(arrivalText({ kind: 'previsto', days: 1 })).toBe('Chega amanhã');
     expect(arrivalText({ kind: 'previsto', days: 9 })).toBe('Chega em 9 dias');
   });
@@ -61,7 +61,7 @@ describe('chegada', () => {
   it('grupos da lista de chegadas, por semana (segunda a domingo)', () => {
     // 17/11/2026 é uma terça-feira.
     const today = '2026-11-17';
-    expect(arrivalGroup('2026-11-13', null, today)).toBe('atrasados');
+    expect(arrivalGroup('2026-11-13', null, today)).toBe('liberacao');
     expect(arrivalGroup('2026-11-22', null, today)).toBe('semana');
     expect(arrivalGroup('2026-11-23', null, today)).toBe('proxima');
     expect(arrivalGroup('2026-12-10', null, today)).toBe('depois');
@@ -142,7 +142,7 @@ describe('tela de embarques', () => {
       today,
     );
     expect(units.map((u) => [u.key, u.group, u.invoices.map((i) => i.id)])).toEqual([
-      ['bl:b2', 'atrasados', ['55']],
+      ['bl:b2', 'liberacao', ['55']],
       ['bl:b4', 'semana', ['46a', '46b']],
       ['inv:108', 'semana', ['108']],
       ['bl:b1', 'depois', ['w1']],

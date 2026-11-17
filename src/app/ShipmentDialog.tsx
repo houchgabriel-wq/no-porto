@@ -91,7 +91,7 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
     <Dialog title={title} open onClose={onClose} wide className="dlg-embarque">
       <div className="dlg-corpo">
         <p className={`pilula chegada ${state.kind} alinha-inicio`}>
-          {state.kind === 'atrasado' && <Icon name="alerta" />}
+          {state.kind === 'liberacao' && <Icon name="alerta" />}
           {arrivalText(state)}
         </p>
         <form className="emb-chegada" onSubmit={(e) => saveArrival(e)}>

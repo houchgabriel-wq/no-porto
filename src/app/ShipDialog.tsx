@@ -207,7 +207,7 @@ export function ShipDialog({ items, data, production, onClose, onDone }: Props) 
             const v = data.invoices.find((x) => x.id === invoiceId);
             const a = v ? arrivalOf(v, billsById) : null;
             const state = a ? arrivalState(a.eta, a.arrivedAt, data.today) : null;
-            return state?.kind === 'atrasado' ? <p className="dica">Esta invoice está com a chegada atrasada.</p> : null;
+            return state?.kind === 'liberacao' ? <p className="dica">A previsão de chegada desta invoice já passou (em liberação).</p> : null;
           })()}
           <FormError message={error} />
         </div>
