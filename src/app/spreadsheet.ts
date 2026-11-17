@@ -35,29 +35,52 @@ function cellText(sheet: Worksheet, row: number, col: number): string {
   return cell.text ?? '';
 }
 
-/**
- * Lê uma aba da planilha como texto, linha a linha. Sem a aba pedida, devolve o nome das abas que
- * existem, para a mensagem de erro.
- */
-export async function readSheetRows(file: ArrayBuffer, sheetName: string): Promise<{ rows: string[][] } | { missing: string[] }> {
+async function loadWorkbook(file: ArrayBuffer): Promise<Workbook> {
   const wb = await newWorkbook();
   try {
     await wb.xlsx.load(file);
   } catch {
     throw new Error('Não foi possível ler o arquivo. Envie uma planilha .xlsx (no Google Planilhas: Arquivo → Fazer download → Microsoft Excel).');
   }
-  const want = sheetName.normalize('NFC').toLowerCase();
-  const sheet = wb.worksheets.find((w) => w.name.normalize('NFC').trim().toLowerCase() === want);
-  if (!sheet) return { missing: wb.worksheets.map((w) => w.name) };
+  return wb;
+}
+
+function sheetRows(sheet: Worksheet, maxRows: number): string[][] {
   const cols = Math.min(sheet.columnCount, 40);
-  const last = Math.min(sheet.rowCount, IMPORT_MAX_ROWS);
+  const last = Math.min(sheet.rowCount, maxRows);
   const rows: string[][] = [];
   for (let r = 1; r <= last; r++) {
     const row: string[] = [];
     for (let c = 1; c <= cols; c++) row.push(cellText(sheet, r, c));
     rows.push(row);
   }
-  return { rows };
+  return rows;
+}
+
+const sheetKey = (name: string) => name.normalize('NFC').trim().toLowerCase();
+
+/**
+ * Lê as abas pedidas da planilha como texto, linha a linha, abrindo o arquivo uma vez só. A aba que
+ * não existe vem como null; `names` traz todas as abas do arquivo, para a mensagem de erro.
+ */
+export async function readSheets<N extends string>(file: ArrayBuffer, wanted: readonly N[]): Promise<{ sheets: Record<N, string[][] | null>; names: string[] }> {
+  const wb = await loadWorkbook(file);
+  const sheets = {} as Record<N, string[][] | null>;
+  for (const name of wanted) {
+    const sheet = wb.worksheets.find((w) => sheetKey(w.name) === sheetKey(name));
+    sheets[name] = sheet ? sheetRows(sheet, IMPORT_MAX_ROWS) : null;
+  }
+  return { sheets, names: wb.worksheets.map((w) => w.name) };
+}
+
+/**
+ * Lê uma aba da planilha como texto, linha a linha. Sem a aba pedida, devolve o nome das abas que
+ * existem, para a mensagem de erro.
+ */
+export async function readSheetRows(file: ArrayBuffer, sheetName: string): Promise<{ rows: string[][] } | { missing: string[] }> {
+  const { sheets, names } = await readSheets(file, [sheetName]);
+  const rows = sheets[sheetName];
+  return rows ? { rows } : { missing: names };
 }
 
 /**
@@ -65,23 +88,8 @@ export async function readSheetRows(file: ArrayBuffer, sheetName: string): Promi
  * packing list e a invoice em abas diferentes). Lê no máximo 2.000 linhas e 40 colunas por aba.
  */
 export async function readWorkbook(file: ArrayBuffer): Promise<{ name: string; rows: string[][] }[]> {
-  const wb = await newWorkbook();
-  try {
-    await wb.xlsx.load(file);
-  } catch {
-    throw new Error('Não foi possível ler o arquivo. Envie uma planilha .xlsx (no Google Planilhas: Arquivo → Fazer download → Microsoft Excel).');
-  }
-  return wb.worksheets.map((sheet) => {
-    const cols = Math.min(sheet.columnCount, 40);
-    const last = Math.min(sheet.rowCount, 2_000);
-    const rows: string[][] = [];
-    for (let r = 1; r <= last; r++) {
-      const row: string[] = [];
-      for (let c = 1; c <= cols; c++) row.push(cellText(sheet, r, c));
-      rows.push(row);
-    }
-    return { name: sheet.name, rows };
-  });
+  const wb = await loadWorkbook(file);
+  return wb.worksheets.map((sheet) => ({ name: sheet.name, rows: sheetRows(sheet, 2_000) }));
 }
 
 export interface ExportColumn<T> {

@@ -12,6 +12,7 @@ import { Dashboard } from './Dashboard';
 import { downloadXlsx } from './download';
 import { ForcedPasswordScreen, LoginScreen, PasswordForm, SetupScreen } from './Entry';
 import { Icon } from './icons';
+import { FullImportDialog } from './FullImport';
 import { ImportDialog, type ImportSheet } from './ImportDialog';
 import { ItemDialog, type ItemDialogState } from './ItemDialog';
 import { useProduction } from './production';
@@ -170,7 +171,7 @@ export function App() {
   }
 }
 
-function UserMenu({ user, onPassword, onLogout, onBackup }: { user: Me; onPassword: () => void; onLogout: () => void; onBackup?: () => void }) {
+function UserMenu({ user, onPassword, onLogout, onBackup, onFullImport }: { user: Me; onPassword: () => void; onLogout: () => void; onBackup?: () => void; onFullImport?: () => void }) {
   const isAdmin = can(user.role, 'manage_users');
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(readTheme);
@@ -249,6 +250,18 @@ function UserMenu({ user, onPassword, onLogout, onBackup }: { user: Me; onPasswo
               Baixar cópia completa
             </button>
           )}
+          {onFullImport && (
+            <button
+              className="menu-item"
+              onClick={() => {
+                setOpen(false);
+                onFullImport();
+              }}
+            >
+              <Icon name="atualizar" />
+              Carga completa da planilha
+            </button>
+          )}
           <button
             className="menu-item"
             onClick={() => {
@@ -278,7 +291,7 @@ function Welcome({ user, onImport, onNew }: { user: Me; onImport?: () => void; o
         O No Porto acompanha cada item desde a PO no fornecedor até a chegada à editora, com os embarques, as invoices e os pagamentos no
         caminho.{' '}
         {onImport
-          ? 'Para começar, faça a carga da aba Produção da planilha status_importações.'
+          ? 'Para começar, faça a carga completa da planilha status_importações: as abas Produção, Embarques e Entregues entram de uma vez.'
           : onNew
             ? 'Cadastre o primeiro item, ou peça ao admin para fazer a carga da planilha.'
             : 'Os itens aparecem aqui assim que o admin fizer a carga da planilha.'}
@@ -288,7 +301,7 @@ function Welcome({ user, onImport, onNew }: { user: Me; onImport?: () => void; o
           {onImport && (
             <button type="button" className="btn primario" onClick={onImport}>
               <Icon name="arquivo" />
-              Carga da planilha
+              Carga completa da planilha
             </button>
           )}
           {onNew && (
@@ -335,6 +348,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [shipment, setShipment] = useState<string | null>(null);
   const [upload, setUpload] = useState<'pedido' | 'embarque' | null>(null);
   const [arrival, setArrival] = useState<string[] | null>(null);
+  const [fullImport, setFullImport] = useState(false);
   const [product, setProduct] = useState<string | null>(null);
   const [lastBackup, setLastBackup] = useState(readLastBackup);
   const [backingUp, setBackingUp] = useState(false);
@@ -614,7 +628,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
               <span className="rot">Novo item</span>
             </button>
           )}
-          <UserMenu user={user} onPassword={() => setChangingPassword(true)} onLogout={onLogout} onBackup={canImport ? () => void downloadFullCopy() : undefined} />
+          <UserMenu user={user} onPassword={() => setChangingPassword(true)} onLogout={onLogout} onBackup={canImport ? () => void downloadFullCopy() : undefined} onFullImport={canImport ? () => setFullImport(true) : undefined} />
         </div>
       </header>
 
@@ -676,7 +690,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                 </p>
               )
             ) : data.items.length === 0 && data.invoices.length === 0 ? (
-              <Welcome user={user} onImport={canImport ? () => setImporting('Produção') : undefined} onNew={canEdit ? () => setDialog({ mode: 'new' }) : undefined} />
+              <Welcome user={user} onImport={canImport ? () => setFullImport(true) : undefined} onNew={canEdit ? () => setDialog({ mode: 'new' }) : undefined} />
             ) : current === 'painel' ? (
               <>
               {canImport && backupDue(lastBackup, data.today) && (
@@ -730,6 +744,21 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
           onClose={() => {
             if (importing === 'Entregues' && current === 'historico') void loadHistory();
             setImporting(null);
+          }}
+          onToast={showToast}
+        />
+      )}
+      {canImport && data && (
+        <FullImportDialog
+          open={fullImport}
+          hasData={data.suppliers.length > 0}
+          production={production}
+          backingUp={backingUp}
+          onBackup={() => void downloadFullCopy()}
+          onClose={() => {
+            setFullImport(false);
+            if (current === 'historico') void loadHistory();
+            void loadSuppliers();
           }}
           onToast={showToast}
         />

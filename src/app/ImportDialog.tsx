@@ -15,7 +15,40 @@ import type { Production } from './production';
 
 export type ImportSheet = 'Produção' | 'Embarques' | 'Entregues';
 
-type Report = ImportReport | ShipmentImportReport | HistoryImportReport;
+export type Report = ImportReport | ShipmentImportReport | HistoryImportReport;
+
+export interface SaveResult {
+  inserted: number;
+  skipped: number;
+  withoutOrder: string[];
+}
+
+/** Lê uma aba já convertida em texto; erro quando a aba não tem cabeçalho ou itens. */
+export function parseSheet(sheet: ImportSheet, rows: string[][]): Report | { error: string } {
+  const report = sheet === 'Produção' ? parseProductionRows(rows) : sheet === 'Embarques' ? parseShipmentRows(rows) : parseHistoryRows(rows, spDate(new Date()));
+  if ('error' in report) return report;
+  if (report.items.length === 0) return { error: `A aba "${sheet}" não tem itens.` };
+  return report;
+}
+
+/** Grava os itens de uma aba em partes de 500, avisando o andamento depois de cada parte. */
+export async function saveSheet(sheet: ImportSheet, items: Report['items'], onProgress: (done: number, sofar: SaveResult) => void): Promise<SaveResult> {
+  const result: SaveResult = { inserted: 0, skipped: 0, withoutOrder: [] };
+  for (let i = 0; i < items.length; i += IMPORT_BATCH) {
+    const part = items.slice(i, i + IMPORT_BATCH);
+    const res =
+      sheet === 'Produção'
+        ? await api.importProduction(part as ImportReport['items'])
+        : sheet === 'Embarques'
+          ? { ...(await api.importShipments(part as ShipmentImportReport['items'])), withoutOrder: [] }
+          : { ...(await api.importHistory(part as HistoryImportReport['items'])), withoutOrder: [] };
+    result.inserted += res.inserted;
+    result.skipped += res.skipped;
+    result.withoutOrder.push(...res.withoutOrder);
+    onProgress(Math.min(items.length, i + IMPORT_BATCH), result);
+  }
+  return result;
+}
 
 type Step =
   | { kind: 'escolher' }
@@ -43,9 +76,8 @@ export function ImportDialog({ sheet, production, onClose, onToast }: { sheet: I
       const { readSheetRows } = await import('./spreadsheet');
       const res = await readSheetRows(await file.arrayBuffer(), SHEET);
       if ('missing' in res) throw new Error(`A planilha não tem a aba "${SHEET}". Abas encontradas: ${res.missing.join(', ') || 'nenhuma'}.`);
-      const report = SHEET === 'Produção' ? parseProductionRows(res.rows) : SHEET === 'Embarques' ? parseShipmentRows(res.rows) : parseHistoryRows(res.rows, spDate(new Date()));
+      const report = parseSheet(SHEET, res.rows);
       if ('error' in report) throw new Error(report.error);
-      if (report.items.length === 0) throw new Error(`A aba "${SHEET}" não tem itens.`);
       setStep({ kind: 'conferir', file: file.name, report });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Não foi possível ler a planilha.');
@@ -61,21 +93,14 @@ export function ImportDialog({ sheet, production, onClose, onToast }: { sheet: I
     setError(null);
     setStep({ kind: 'gravando', done: 0, total: items.length });
     try {
-      await production.write(async () => {
-        for (let i = 0; i < items.length; i += IMPORT_BATCH) {
-          const part = items.slice(i, i + IMPORT_BATCH);
-          const res =
-            SHEET === 'Produção'
-              ? await api.importProduction(part as ImportReport['items'])
-              : SHEET === 'Embarques'
-                ? { ...(await api.importShipments(part as ShipmentImportReport['items'])), withoutOrder: [] }
-                : { ...(await api.importHistory(part as HistoryImportReport['items'])), withoutOrder: [] };
-          inserted += res.inserted;
-          skipped += res.skipped;
-          withoutOrder.push(...res.withoutOrder);
-          setStep({ kind: 'gravando', done: Math.min(items.length, i + IMPORT_BATCH), total: items.length });
-        }
-      });
+      await production.write(() =>
+        saveSheet(SHEET, items, (done, res) => {
+          inserted = res.inserted;
+          skipped = res.skipped;
+          withoutOrder.splice(0, withoutOrder.length, ...res.withoutOrder);
+          setStep({ kind: 'gravando', done, total: items.length });
+        }),
+      );
       setStep({ kind: 'pronto', inserted, skipped, withoutOrder });
       onToast(`${inserted} itens gravados.`);
     } catch (e) {
@@ -160,11 +185,10 @@ export function ImportDialog({ sheet, production, onClose, onToast }: { sheet: I
   );
 }
 
-function Review({ report, file, error, onBack, onSave }: { report: ImportReport; file: string; error: string | null; onBack: () => void; onSave: () => void }) {
+export function ProductionSummary({ report, file }: { report: ImportReport; file: string }) {
   const summary = summarizeImport(report.items);
   return (
     <>
-      <div className="dlg-corpo">
         <p className="dica-texto">
           {file && (
             <>
@@ -235,6 +259,15 @@ function Review({ report, file, error, onBack, onSave }: { report: ImportReport;
           </details>
         )}
         <p className="dica">Itens já cadastrados (mesma PO, produto, quantidade e preço) são pulados.</p>
+    </>
+  );
+}
+
+function Review({ report, file, error, onBack, onSave }: { report: ImportReport; file: string; error: string | null; onBack: () => void; onSave: () => void }) {
+  return (
+    <>
+      <div className="dlg-corpo">
+        <ProductionSummary report={report} file={file} />
         <FormError message={error} />
       </div>
       <div className="dlg-pe">
@@ -284,11 +317,10 @@ function Notes({ report }: { report: Report }) {
   );
 }
 
-function ShipmentReview({ report, file, error, onBack, onSave }: { report: ShipmentImportReport; file: string; error: string | null; onBack: () => void; onSave: () => void }) {
+export function ShipmentSummary({ report, file }: { report: ShipmentImportReport; file: string }) {
   const summary = summarizeShipments(report.items);
   return (
     <>
-      <div className="dlg-corpo">
         <p className="dica-texto">
           {file && (
             <>
@@ -340,6 +372,15 @@ function ShipmentReview({ report, file, error, onBack, onSave }: { report: Shipm
         </div>
         <Notes report={report} />
         <p className="dica">Itens já cadastrados (mesma invoice, produto, quantidade e preço) são pulados. Invoice marcada como paga entra como paga, sem data e sem câmbio.</p>
+    </>
+  );
+}
+
+function ShipmentReview({ report, file, error, onBack, onSave }: { report: ShipmentImportReport; file: string; error: string | null; onBack: () => void; onSave: () => void }) {
+  return (
+    <>
+      <div className="dlg-corpo">
+        <ShipmentSummary report={report} file={file} />
         <FormError message={error} />
       </div>
       <div className="dlg-pe">
@@ -354,11 +395,10 @@ function ShipmentReview({ report, file, error, onBack, onSave }: { report: Shipm
   );
 }
 
-function HistoryReview({ report, file, error, onBack, onSave }: { report: HistoryImportReport; file: string; error: string | null; onBack: () => void; onSave: () => void }) {
+export function HistorySummary({ report, file }: { report: HistoryImportReport; file: string }) {
   const summary = summarizeHistory(report.items);
   return (
     <>
-      <div className="dlg-corpo">
         <p className="dica-texto">
           {file && (
             <>
@@ -405,6 +445,15 @@ function HistoryReview({ report, file, error, onBack, onSave }: { report: Histor
         )}
         <Notes report={report} />
         <p className="dica">Itens já cadastrados (mesma invoice, produto, quantidade e preço) são pulados. O texto original da chegada fica anotado na invoice.</p>
+    </>
+  );
+}
+
+function HistoryReview({ report, file, error, onBack, onSave }: { report: HistoryImportReport; file: string; error: string | null; onBack: () => void; onSave: () => void }) {
+  return (
+    <>
+      <div className="dlg-corpo">
+        <HistorySummary report={report} file={file} />
         <FormError message={error} />
       </div>
       <div className="dlg-pe">

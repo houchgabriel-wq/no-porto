@@ -125,6 +125,7 @@ export const api = {
   receiveShipment: (body: { supplierId: string; invoice: { number: string; ref: string; bill: string | null; eta: string | null }; lines: DocumentLine[] }) =>
     request<{ invoiceId: string; taken: number; extra: number }>('POST', '/api/shipments', body),
   registerArrival: (invoiceIds: string[], arrivedAt: string) => request<{ invoices: number }>('POST', '/api/arrivals', { invoiceIds, arrivedAt }),
+  reset: (confirm: string) => request<{ items: number }>('POST', '/api/reset', { confirm }),
   importShipments: (items: ImportedShipmentItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/shipments', { items }),
   history: () => request<{ items: Item[]; invoices: InvoiceInfo[]; seeValues: boolean }>('GET', '/api/history'),
   product: (id: string) =>
