@@ -1137,3 +1137,22 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
 .grupo-cab .grupo-pag { margin-left: 0; flex-basis: 100%; }
 .item-cartao-pag { display: flex; }
 .grupo-pag .mudo { color: var(--tinta-2); }
+/* Novo embarque: BL com arquivo e um cartão por container. */
+.btn-texto.arquivo { border: 0; padding: 0 4px; min-height: 32px; border-radius: 6px; color: var(--acento); }
+.arquivo-linha { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 44px; }
+.arquivo-nome { display: inline-flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.conteineres-topo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
+.conteineres-topo h3 { margin: 0; }
+.conteiner { border: 1px solid var(--fio); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 12px; background: var(--folha); }
+.conteiner-topo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.conteiner-topo h4 { margin: 0; font-size: 15px; }
+.conteiner-topo .btn-texto { margin-left: auto; }
+.conteiner-arquivos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
+.conteiner-arquivo { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 10px; border-radius: 10px; background: var(--sulco); font-size: 13.5px; }
+.conteiner-arquivo .rotulo { flex-basis: 100%; margin: 0; }
+.conteiner-arquivo .mudo { color: var(--tinta-2); }
+.lista-simples { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.bl-arquivo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 12px; border: 1px solid var(--fio); border-radius: 12px; }
+@media (max-width: 640px) {
+  .conteiner-arquivos { grid-template-columns: minmax(0, 1fr); }
+}

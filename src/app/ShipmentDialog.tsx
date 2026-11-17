@@ -14,6 +14,7 @@ import {
   paymentSummary,
   shipmentUnits,
   spDate,
+  type Bill,
   type Invoice,
   type Payment,
 } from '../core/shipments';
@@ -141,6 +142,7 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
             </div>
           )}
         </form>
+        {unit.bill && <BillFile bill={unit.bill} canEdit={canEdit} canDownload={data.seeValues} busy={busy} run={run} onError={setError} />}
         <FormError message={error} />
       </div>
 
@@ -413,5 +415,85 @@ function InvoiceForm({
         </button>
       </div>
     </form>
+  );
+}
+
+const BL_TYPES = ['application/pdf', 'image/png', 'image/jpeg'];
+
+/** Arquivo do BL: baixar (quem vê valores), anexar, trocar ou tirar (editor e admin). */
+function BillFile({
+  bill,
+  canEdit,
+  canDownload,
+  busy,
+  run,
+  onError,
+}: {
+  bill: Bill;
+  canEdit: boolean;
+  canDownload: boolean;
+  busy: boolean;
+  run: (action: () => Promise<unknown>, done: string) => Promise<void>;
+  onError: (msg: string | null) => void;
+}) {
+  const doc = bill.document ?? null;
+  if (!doc && !canEdit) return null;
+
+  function attach(f: File | undefined) {
+    if (!f) return;
+    if (!BL_TYPES.includes(f.type)) return onError('Envie o BL em PDF, PNG ou JPG.');
+    if (f.size > 5_000_000) return onError('O arquivo do BL pode ter no máximo 5 MB.');
+    void run(async () => {
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
+        reader.onerror = () => reject(new Error('Não foi possível ler o arquivo.'));
+        reader.readAsDataURL(f);
+      });
+      await api.putBillDocument(bill.id, { name: f.name, contentType: f.type, data });
+    }, doc ? 'Arquivo do BL trocado.' : 'Arquivo do BL anexado.');
+  }
+
+  return (
+    <div className="bl-arquivo">
+      <span className="rotulo">Arquivo do BL</span>
+      {doc ? (
+        <span className="arquivo-nome">
+          <Icon name="arquivo" />
+          {canDownload ? (
+            <a href={`/api/bills/${encodeURIComponent(bill.id)}/document`} download={doc.name}>
+              {doc.name}
+            </a>
+          ) : (
+            doc.name
+          )}
+          <span className="mudo">{Math.max(1, Math.round(doc.size / 1024))} KB</span>
+        </span>
+      ) : (
+        <span className="mudo">Nenhum arquivo anexado.</span>
+      )}
+      {canEdit && (
+        <>
+          <label className="btn-texto arquivo">
+            {doc ? 'Trocar' : 'Anexar'}
+            <span className="so-leitor"> o arquivo do BL</span>
+            <input
+              type="file"
+              accept={BL_TYPES.join(',')}
+              disabled={busy}
+              onChange={(e) => {
+                attach(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
+          </label>
+          {doc && (
+            <button type="button" className="btn-texto" disabled={busy} onClick={() => void run(() => api.deleteBillDocument(bill.id), 'Arquivo do BL tirado.')}>
+              Tirar
+            </button>
+          )}
+        </>
+      )}
+    </div>
   );
 }

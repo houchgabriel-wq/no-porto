@@ -1,11 +1,10 @@
-// Documentos dos fornecedores (SPEC.md, seção 3): Novo pedido (a PO em Excel entra na produção), Novo
-// embarque (a invoice ou packing list tira os itens da produção do mesmo fornecedor, a mais antiga
-// primeiro) e Registrar chegada (as invoices que chegaram vão para o histórico). Antes de gravar, a
+// Documentos dos fornecedores (SPEC.md, seção 3): Novo pedido (a PO em Excel entra na produção) e
+// Registrar chegada (as invoices que chegaram vão para o histórico). O Novo embarque fica em
+// NewShipment.tsx. Antes de gravar, a
 // pessoa confere o que foi lido e o que vai acontecer.
 
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
-import { allocateShipment, guessSupplier, type LineAllocation } from '../core/allocation';
-import { parseInvoiceDocument, parseOrderDocument, type DocumentLine, type DocumentNote, type InvoiceDocument, type OrderDocument } from '../core/documents';
+import { parseOrderDocument, type DocumentLine, type DocumentNote, type OrderDocument } from '../core/documents';
 import { NO_SUPPLIER, normalizeOrderCode, searchKey } from '../core/items';
 import { formatQuantity, formatUnitPrice, formatUsd, itemTotalCents } from '../core/money';
 import { arrivalOf, formatDay, shipmentUnits } from '../core/shipments';
@@ -16,16 +15,16 @@ import type { Production } from './production';
 
 const XLSX = '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-async function readFile(file: File) {
+export async function readFile(file: File) {
   const { readWorkbook } = await import('./spreadsheet');
   return readWorkbook(await file.arrayBuffer());
 }
 
-function linesValue(lines: readonly DocumentLine[]): number {
+export function linesValue(lines: readonly DocumentLine[]): number {
   return lines.reduce((s, l) => s + (l.unitPriceMicros === null ? 0 : itemTotalCents(l.quantity, l.unitPriceMicros)), 0);
 }
 
-function FilePicker({ busy, label, onFile }: { busy: boolean; label: string; onFile: (f: File) => void }) {
+export function FilePicker({ busy, label, onFile }: { busy: boolean; label: string; onFile: (f: File) => void }) {
   return (
     <label className="btn primario arquivo">
       <Icon name="arquivo" />
@@ -44,7 +43,7 @@ function FilePicker({ busy, label, onFile }: { busy: boolean; label: string; onF
   );
 }
 
-function Notes({ notes }: { notes: DocumentNote[] }) {
+export function Notes({ notes }: { notes: DocumentNote[] }) {
   if (!notes.length) return null;
   return (
     <details className="conferir">
@@ -239,254 +238,6 @@ export function OrderUploadDialog({
         </form>
       )}
     </Dialog>
-  );
-}
-
-// ---------- Novo embarque ----------
-
-export function ShipmentUploadDialog({
-  open,
-  data,
-  production,
-  onClose,
-  onDone,
-}: {
-  open: boolean;
-  data: ProductionData;
-  production: Production;
-  onClose: () => void;
-  onDone: (msg: string) => void;
-}) {
-  const ids = useId();
-  const [doc, setDoc] = useState<InvoiceDocument | null>(null);
-  const [file, setFile] = useState('');
-  const [supplierId, setSupplierId] = useState('');
-  const [number, setNumber] = useState('');
-  const [ref, setRef] = useState('');
-  const [bill, setBill] = useState('');
-  const [eta, setEta] = useState('');
-  const [reading, setReading] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    setDoc(null);
-    setError(null);
-    setBusy(false);
-    setReading(false);
-  }, [open]);
-
-  async function read(f: File) {
-    setReading(true);
-    setError(null);
-    try {
-      const parsed = parseInvoiceDocument(await readFile(f), f.name);
-      if ('error' in parsed) throw new Error(parsed.error);
-      setDoc(parsed);
-      setFile(f.name);
-      setSupplierId(guessSupplier(parsed.lines, parsed.headerText, data.items, data.suppliers) ?? '');
-      setNumber(parsed.number ?? '');
-      setRef('');
-      setBill('');
-      setEta('');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Não foi possível ler o arquivo.');
-    } finally {
-      setReading(false);
-    }
-  }
-
-  const openBills = useMemo(() => data.bills.filter((b) => !b.arrivedAt), [data.bills]);
-  const knownBill = openBills.find((b) => b.number.toUpperCase() === bill.trim().toUpperCase());
-  const allocation = useMemo(() => (doc && supplierId ? allocateShipment(doc.lines, data.items, data.orders, supplierId) : null), [doc, supplierId, data.items, data.orders]);
-  const supplierName = data.suppliers.find((s) => s.id === supplierId)?.name ?? NO_SUPPLIER;
-  const duplicate = data.invoices.find((v) => v.supplierId === supplierId && v.number.toUpperCase() === number.trim().toUpperCase());
-
-  async function save(e: FormEvent) {
-    e.preventDefault();
-    if (!doc) return;
-    if (!supplierId) return setError('Escolha o fornecedor que mandou a invoice.');
-    if (!number.trim()) return setError('Informe o número da invoice.');
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await production.write(() =>
-        api.receiveShipment({ supplierId, invoice: { number: number.trim(), ref: ref.trim(), bill: bill.trim() || null, eta: knownBill ? null : eta || null }, lines: doc.lines }),
-      );
-      onDone(
-        `Invoice ${number.trim()} embarcada: ${formatQuantity(res.taken)} ex. saíram da produção${res.extra ? `; ${formatQuantity(res.extra)} ex. não estavam na produção e entraram para conferir` : ''}.`,
-      );
-      onClose();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Não foi possível gravar.');
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Dialog title="Novo embarque" open={open} onClose={onClose} wide>
-      {!doc ? (
-        <div className="dlg-corpo">
-          <p className="dica-texto">
-            Envie a invoice ou a packing list do fornecedor em .xlsx. O que ela traz sai da produção <b>do mesmo fornecedor</b>, a produção mais antiga primeiro, e vai para os
-            embarques. Antes de gravar, você confere de qual PO sai cada item.
-          </p>
-          <FilePicker busy={reading} label="Escolher a invoice" onFile={(f) => void read(f)} />
-          <FormError message={error} />
-        </div>
-      ) : (
-        <form onSubmit={save} noValidate>
-          <div className="dlg-corpo">
-            <p className="dica-texto">
-              <b>{file}</b>: {doc.lines.length} {doc.lines.length === 1 ? 'linha' : 'linhas'}, {formatQuantity(doc.lines.reduce((s, l) => s + l.quantity, 0))} ex.
-              {data.seeValues && linesValue(doc.lines) > 0 && ` · ${formatUsd(linesValue(doc.lines))}`}
-            </p>
-            <fieldset className="grade-campos tres" disabled={busy}>
-              <legend className="so-leitor">Dados do embarque</legend>
-              <div className="grupo">
-                <label className="rotulo" htmlFor={`${ids}-forn`}>
-                  Fornecedor
-                </label>
-                <select id={`${ids}-forn`} className="campo" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
-                  <option value="">Escolha…</option>
-                  {data.suppliers.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grupo">
-                <label className="rotulo" htmlFor={`${ids}-num`}>
-                  Número da invoice
-                </label>
-                <input id={`${ids}-num`} className="campo" value={number} onChange={(e) => setNumber(e.target.value)} />
-              </div>
-              <div className="grupo">
-                <label className="rotulo" htmlFor={`${ids}-ref`}>
-                  Ref. do embarque
-                </label>
-                <input id={`${ids}-ref`} className="campo" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Opcional" />
-              </div>
-              <div className="grupo">
-                <label className="rotulo" htmlFor={`${ids}-bl`}>
-                  BL
-                </label>
-                <input id={`${ids}-bl`} className="campo" list={`${ids}-bls`} value={bill} onChange={(e) => setBill(e.target.value)} placeholder="Sem BL por enquanto" />
-                <datalist id={`${ids}-bls`}>
-                  {openBills.map((b) => (
-                    <option key={b.id} value={b.number} label={b.eta ? `chega ${formatDay(b.eta)}` : undefined} />
-                  ))}
-                </datalist>
-              </div>
-              <div className="grupo">
-                <label className="rotulo" htmlFor={`${ids}-eta`}>
-                  Chegada prevista
-                </label>
-                {knownBill ? (
-                  <p className="campo-fixo" id={`${ids}-eta`}>
-                    {knownBill.eta ? `${formatDay(knownBill.eta, true)} (a do BL)` : 'O BL ainda não tem previsão'}
-                  </p>
-                ) : (
-                  <input id={`${ids}-eta`} className="campo" type="date" value={eta} onChange={(e) => setEta(e.target.value)} />
-                )}
-              </div>
-            </fieldset>
-            {duplicate && (
-              <p className="aviso alerta">
-                <Icon name="alerta" />
-                <span>
-                  A invoice {duplicate.number} da {supplierName} já foi registrada.
-                </span>
-              </p>
-            )}
-            {!supplierId ? (
-              <p className="dica">Não deu para saber o fornecedor pelo arquivo. Escolha acima para ver o que sai da produção.</p>
-            ) : (
-              allocation && <AllocationTable doc={doc} allocation={allocation} data={data} supplierName={supplierName} />
-            )}
-            <Notes notes={doc.warnings} />
-            <FormError message={error} />
-          </div>
-          <div className="dlg-pe">
-            <button type="button" className="btn" onClick={() => setDoc(null)} disabled={busy}>
-              Outro arquivo
-            </button>
-            <button type="submit" className="btn primario" disabled={busy || !supplierId || Boolean(duplicate)}>
-              {busy ? 'Gravando…' : 'Embarcar'}
-            </button>
-          </div>
-        </form>
-      )}
-    </Dialog>
-  );
-}
-
-function AllocationTable({ doc, allocation, data, supplierName }: { doc: InvoiceDocument; allocation: LineAllocation[]; data: ProductionData; supplierName: string }) {
-  const items = useMemo(() => new Map(data.items.map((i) => [i.id, i])), [data.items]);
-  const codes = useMemo(() => new Map(data.orders.map((o) => [o.id, o.code])), [data.orders]);
-  const taken = allocation.reduce((s, a) => s + a.takes.reduce((t, k) => t + k.quantity, 0), 0);
-  const extra = allocation.reduce((s, a) => s + a.extra, 0);
-  const extraLines = allocation.filter((a) => a.extra > 0).length;
-  return (
-    <>
-      <p className={`aviso ${extra ? 'alerta' : 'ok'}`}>
-        <Icon name={extra ? 'alerta' : 'check'} />
-        <span>
-          {formatQuantity(taken)} ex. saem da produção da {supplierName}.
-          {extra > 0 &&
-            ` ${formatQuantity(extra)} ex. (${extraLines} ${extraLines === 1 ? 'linha' : 'linhas'}) não estão na produção da ${supplierName}: entram embarcados, sem PO, com uma observação para conferir.`}
-        </span>
-      </p>
-      <div className="tabela-caixa resumo-caixa" tabIndex={0} role="region" aria-label="O que sai da produção">
-        <table className="tabela-resumo tabela-alocacao tabela-empilha">
-          <thead>
-            <tr>
-              <th>Produto</th>
-              <th className="num">Na invoice</th>
-              <th>Sai da produção</th>
-            </tr>
-          </thead>
-          <tbody>
-            {doc.lines.map((l, index) => {
-              const a = allocation[index]!;
-              return (
-                <tr key={l.row}>
-                  <td>
-                    {l.description}
-                    <span className="t-isbn">
-                      {l.isbn ?? 'Sem ISBN'}
-                      {l.orderCode && ` · a invoice cita a ${l.orderCode}`}
-                    </span>
-                  </td>
-                  <td className="num" data-rot="Na invoice">{formatQuantity(l.quantity)}</td>
-                  <td data-rot="Sai da produção">
-                    <ul className="alocacao">
-                      {a.takes.map((t) => {
-                        const item = items.get(t.itemId)!;
-                        const code = item.purchaseOrderId ? (codes.get(item.purchaseOrderId) ?? 'Sem PO') : 'Sem PO';
-                        return (
-                          <li key={t.itemId}>
-                            <b>{code}</b> {formatQuantity(t.quantity)}
-                            <span className="mudo">{t.whole ? ' (tudo)' : ` de ${formatQuantity(item.quantity)}`}</span>
-                          </li>
-                        );
-                      })}
-                      {a.extra > 0 && (
-                        <li className="alerta-texto">
-                          <Icon name="alerta" /> {formatQuantity(a.extra)} fora da produção
-                        </li>
-                      )}
-                    </ul>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </>
   );
 }
 

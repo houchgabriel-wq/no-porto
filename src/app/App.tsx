@@ -19,7 +19,8 @@ import { useProduction } from './production';
 import { ProductionView } from './Production';
 import { HistoryView, type HistoryData } from './History';
 import { ProductDialog } from './ProductDialog';
-import { ArrivalDialog, OrderUploadDialog, ShipmentUploadDialog } from './Documents';
+import { ArrivalDialog, OrderUploadDialog } from './Documents';
+import { NewShipmentDialog } from './NewShipment';
 import { ShipDialog } from './ShipDialog';
 import { SupplierDialog, SuppliersView, type SuppliersData } from './Suppliers';
 import { ShipmentDialog } from './ShipmentDialog';
@@ -852,7 +853,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
               goToProduction({ orderId });
             }}
           />
-          <ShipmentUploadDialog open={upload === 'embarque'} data={data} production={production} onClose={() => setUpload(null)} onDone={showToast} />
+          <NewShipmentDialog open={upload === 'embarque'} data={data} production={production} onClose={() => setUpload(null)} onDone={showToast} />
           <ArrivalDialog open={arrival !== null} initial={arrival ?? []} data={data} production={production} onClose={() => setArrival(null)} onDone={showToast} />
         </>
       )}
