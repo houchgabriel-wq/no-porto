@@ -1156,3 +1156,10 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
 @media (max-width: 640px) {
   .conteiner-arquivos { grid-template-columns: minmax(0, 1fr); }
 }
+/* Excluir embarque ou invoice: confirmação dentro da ficha. */
+.alinha-esquerda { margin-right: auto; }
+.confirma-corpo { padding-top: 0; }
+.confirma-exclusao { border: 1px solid var(--critico); background: var(--critico-suave); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.confirma-exclusao p { margin: 0; color: var(--tinta); }
+.confirma-acoes { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.btn.perigo:not(:disabled):hover { border-color: var(--critico); }

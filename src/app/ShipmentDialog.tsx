@@ -33,6 +33,11 @@ interface Props {
   onOpenItem: (item: Item) => void;
 }
 
+/** "a, b e c". */
+function listPt(parts: string[]): string {
+  return parts.length <= 1 ? (parts[0] ?? '') : `${parts.slice(0, -1).join(', ')} e ${parts.at(-1)}`;
+}
+
 const reais = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
 function message(e: unknown, fallback: string) {
@@ -42,7 +47,9 @@ function message(e: unknown, fallback: string) {
 export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast, onOpenItem }: Props) {
   const unit = unitKey ? shipmentUnits(data.bills, data.invoices, data.today).find((u) => u.key === unitKey) : undefined;
   const canEdit = can(me.role, 'edit');
+  const canDelete = can(me.role, 'delete');
   const ids = useId();
+  const [confirming, setConfirming] = useState(false);
   const [number, setNumber] = useState('');
   const [eta, setEta] = useState('');
   const [arrivedAt, setArrivedAt] = useState('');
@@ -57,6 +64,7 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
     setArrivedAt(target?.arrivedAt ?? '');
     setError(null);
     setBusy(false);
+    setConfirming(false);
     // Ao abrir outro embarque, ou quando os dados salvos mudam.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unitKey, target?.eta, target?.arrivedAt, unit?.bill?.number]);
@@ -74,6 +82,20 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
       setError(message(e, 'Não foi possível salvar.'));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function removeUnit() {
+    setBusy(true);
+    setError(null);
+    try {
+      await production.write<unknown>(() => (unit!.bill ? api.deleteBill(unit!.bill.id) : api.deleteInvoice(unit!.invoices[0]!.id)));
+      onToast('Embarque excluído. O que tinha saído da produção voltou para ela.');
+      onClose();
+    } catch (e) {
+      setError(message(e, 'Não foi possível excluir.'));
+      setBusy(false);
+      setConfirming(false);
     }
   }
 
@@ -147,9 +169,36 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
       </div>
 
       {unit.invoices.map((v) => (
-        <InvoiceSection key={v.id} invoice={v} me={me} data={data} production={production} onToast={onToast} onOpenItem={onOpenItem} arrived={Boolean(unit.arrivedAt)} />
+        <InvoiceSection
+          key={v.id}
+          invoice={v}
+          me={me}
+          data={data}
+          production={production}
+          onToast={onToast}
+          onOpenItem={onOpenItem}
+          arrived={Boolean(unit.arrivedAt)}
+          lastOfBill={Boolean(unit.bill) && unit.invoices.length === 1}
+        />
       ))}
+      {confirming && (
+        <div className="dlg-corpo confirma-corpo">
+          <ConfirmDelete
+            title={unit.bill ? `Excluir o BL ${unit.bill.number} e ${unit.invoices.length === 1 ? 'a invoice' : `as ${unit.invoices.length} invoices`}?` : `Excluir a invoice ${unit.invoices[0]!.number}?`}
+            text={`O que saiu da produção volta para a produção. ${listPt(['O que não estava na produção', ...(data.seeValues ? ['os pagamentos'] : []), ...(unit.bill?.document ? ['o arquivo do BL'] : [])])} são apagados.`}
+            busy={busy}
+            onCancel={() => setConfirming(false)}
+            onConfirm={() => void removeUnit()}
+          />
+        </div>
+      )}
       <div className="dlg-pe">
+        {canDelete && !unit.arrivedAt && !confirming && (
+          <button type="button" className="btn perigo alinha-esquerda" onClick={() => setConfirming(true)} disabled={busy}>
+            <Icon name="lixeira" />
+            Excluir embarque
+          </button>
+        )}
         <button type="button" className="btn" onClick={onClose}>
           Fechar
         </button>
@@ -166,6 +215,7 @@ function InvoiceSection({
   onToast,
   onOpenItem,
   arrived,
+  lastOfBill,
 }: {
   invoice: Invoice;
   me: Me;
@@ -174,6 +224,8 @@ function InvoiceSection({
   onToast: (msg: string) => void;
   onOpenItem: (item: Item) => void;
   arrived: boolean;
+  /** Única invoice do BL: excluí-la leva o BL junto. */
+  lastOfBill: boolean;
 }) {
   const canEdit = can(me.role, 'edit');
   const canDelete = can(me.role, 'delete');
@@ -183,7 +235,9 @@ function InvoiceSection({
   const pay = data.seeValues ? paymentSummary(total, payments) : null;
   const supplier = data.suppliers.find((s) => s.id === invoice.supplierId)?.name ?? NO_SUPPLIER;
   const [editing, setEditing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const invoiceArrived = arrived || Boolean(invoice.arrivedAt);
 
   async function act(action: () => Promise<unknown>, done: string) {
     setError(null);
@@ -211,7 +265,22 @@ function InvoiceSection({
             Alterar
           </button>
         )}
+        {canDelete && !invoiceArrived && !confirming && (
+          <button type="button" className="btn-texto perigo" onClick={() => setConfirming(true)}>
+            Excluir
+            <span className="so-leitor"> a invoice {invoice.number}</span>
+          </button>
+        )}
       </div>
+      {confirming && (
+        <ConfirmDelete
+          title={`Excluir a invoice ${invoice.number}?`}
+          text={`O que saiu da produção volta para a produção. O que não estava na produção${pay ? ' e os pagamentos desta invoice' : ''} são apagados.${lastOfBill ? ' É a única invoice do BL: o BL sai junto.' : ''}`}
+          busy={false}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => void act(() => api.deleteInvoice(invoice.id), 'Invoice excluída. O que tinha saído da produção voltou para ela.').then(() => setConfirming(false))}
+        />
+      )}
       {editing && <InvoiceForm invoice={invoice} data={data} onCancel={() => setEditing(false)} onSave={async (body) => (await act(() => api.updateInvoice(invoice.id, body), 'Invoice salva.')) && setEditing(false)} />}
 
       <ul className="emb-itens">
@@ -494,6 +563,26 @@ function BillFile({
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/** Confirmação de exclusão, dentro da ficha, com o que vai acontecer. */
+function ConfirmDelete({ title, text, busy, onCancel, onConfirm }: { title: string; text: string; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="confirma-exclusao" role="alertdialog" aria-label={title}>
+      <p>
+        <b>{title}</b> {text}
+      </p>
+      <div className="confirma-acoes">
+        <button type="button" className="btn" onClick={onCancel} disabled={busy} autoFocus>
+          Cancelar
+        </button>
+        <button type="button" className="btn perigo" onClick={onConfirm} disabled={busy}>
+          <Icon name="lixeira" />
+          {busy ? 'Excluindo…' : 'Excluir'}
+        </button>
+      </div>
     </div>
   );
 }

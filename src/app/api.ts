@@ -127,6 +127,8 @@ export const api = {
   putBillDocument: (billId: string, body: { name: string; contentType: string; data: string }) =>
     request<{ document: { name: string; size: number } }>('PUT', `/api/bills/${encodeURIComponent(billId)}/document`, body),
   deleteBillDocument: (billId: string) => request<{ ok: true }>('DELETE', `/api/bills/${encodeURIComponent(billId)}/document`),
+  deleteInvoice: (id: string) => request<{ back: number; merged: number; removed: number; billRemoved: boolean }>('DELETE', `/api/invoices/${encodeURIComponent(id)}`),
+  deleteBill: (id: string) => request<{ back: number; merged: number; removed: number; invoices: number }>('DELETE', `/api/bills/${encodeURIComponent(id)}`),
   registerArrival: (invoiceIds: string[], arrivedAt: string) => request<{ invoices: number }>('POST', '/api/arrivals', { invoiceIds, arrivedAt }),
   reset: (confirm: string) => request<{ items: number }>('POST', '/api/reset', { confirm }),
   importShipments: (items: ImportedShipmentItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/shipments', { items }),
