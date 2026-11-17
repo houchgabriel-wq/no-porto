@@ -1,5 +1,6 @@
 // Chamadas à API. Erros viram ApiError com a mensagem em português vinda do servidor.
 
+import type { DocumentLine } from '../core/documents';
 import type { ImportedItem } from '../core/importProduction';
 import type { ImportedShipmentItem } from '../core/importShipments';
 import type { ImportedHistoryItem } from '../core/importHistory';
@@ -119,6 +120,11 @@ export const api = {
   addPayment: (invoiceId: string, body: { paidAt: string | null; amountCents: number; exchangeRateE4: number | null; notes: string }) =>
     request<{ id: string }>('POST', `/api/invoices/${encodeURIComponent(invoiceId)}/payments`, body),
   deletePayment: (id: string) => request<{ ok: true }>('DELETE', `/api/payments/${encodeURIComponent(id)}`),
+  createOrder: (body: { code: string; supplier: string; orderedAt: string | null; items: Omit<DocumentLine, 'orderCode'>[] }) =>
+    request<{ orderId: string; inserted: number }>('POST', '/api/orders', body),
+  receiveShipment: (body: { supplierId: string; invoice: { number: string; ref: string; bill: string | null; eta: string | null }; lines: DocumentLine[] }) =>
+    request<{ invoiceId: string; taken: number; extra: number }>('POST', '/api/shipments', body),
+  registerArrival: (invoiceIds: string[], arrivedAt: string) => request<{ invoices: number }>('POST', '/api/arrivals', { invoiceIds, arrivedAt }),
   importShipments: (items: ImportedShipmentItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/shipments', { items }),
   history: () => request<{ items: Item[]; invoices: InvoiceInfo[]; seeValues: boolean }>('GET', '/api/history'),
   product: (id: string) =>

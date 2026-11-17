@@ -18,6 +18,7 @@ import { useProduction } from './production';
 import { ProductionView } from './Production';
 import { HistoryView, type HistoryData } from './History';
 import { ProductDialog } from './ProductDialog';
+import { ArrivalDialog, OrderUploadDialog, ShipmentUploadDialog } from './Documents';
 import { ShipDialog } from './ShipDialog';
 import { SupplierDialog, SuppliersView, type SuppliersData } from './Suppliers';
 import { ShipmentDialog } from './ShipmentDialog';
@@ -332,6 +333,8 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [shipping, setShipping] = useState<string[] | null>(null);
   const [shipment, setShipment] = useState<string | null>(null);
+  const [upload, setUpload] = useState<'pedido' | 'embarque' | null>(null);
+  const [arrival, setArrival] = useState<string[] | null>(null);
   const [product, setProduct] = useState<string | null>(null);
   const [lastBackup, setLastBackup] = useState(readLastBackup);
   const [backingUp, setBackingUp] = useState(false);
@@ -490,6 +493,12 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
 
   const actions = (
     <>
+      {canEdit && (
+        <button type="button" className="btn" onClick={() => setUpload('pedido')}>
+          <Icon name="arquivo" />
+          <span className="rot">Novo pedido</span>
+        </button>
+      )}
       <button type="button" className="btn" onClick={() => void exportItems()} disabled={exporting}>
         <Icon name="arquivo" />
         <span className="rot">{exporting ? 'Gerando…' : 'Baixar .xlsx'}</span>
@@ -550,6 +559,18 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   ) : null;
   const shipmentActions = (
     <>
+      {canEdit && (
+        <>
+          <button type="button" className="btn" onClick={() => setUpload('embarque')}>
+            <Icon name="navio" />
+            <span className="rot">Novo embarque</span>
+          </button>
+          <button type="button" className="btn" onClick={() => setArrival([])}>
+            <Icon name="check" />
+            <span className="rot">Registrar chegada</span>
+          </button>
+        </>
+      )}
       <button type="button" className="btn" onClick={() => void exportShipments()} disabled={exporting}>
         <Icon name="arquivo" />
         <span className="rot">{exporting ? 'Gerando…' : 'Baixar .xlsx'}</span>
@@ -740,6 +761,22 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
             showToast(msg);
           }}
         />
+      )}
+      {data && canEdit && (
+        <>
+          <OrderUploadDialog
+            open={upload === 'pedido'}
+            data={data}
+            production={production}
+            onClose={() => setUpload(null)}
+            onDone={(msg, orderId) => {
+              showToast(msg);
+              goToProduction({ orderId });
+            }}
+          />
+          <ShipmentUploadDialog open={upload === 'embarque'} data={data} production={production} onClose={() => setUpload(null)} onDone={showToast} />
+          <ArrivalDialog open={arrival !== null} initial={arrival ?? []} data={data} production={production} onClose={() => setArrival(null)} onDone={showToast} />
+        </>
       )}
       {data && (
         <ShipmentDialog

@@ -1095,3 +1095,30 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
 .lembrete-copia { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; background: var(--acento-suave); border: 1px solid color-mix(in srgb, var(--acento) 30%, transparent); border-radius: 14px; padding: 10px 14px; margin: 0 0 14px; font-weight: 600; }
 .lembrete-copia > .ic { color: var(--acento); width: 20px; height: 20px; flex: none; }
 .lembrete-copia span { flex: 1 1 280px; }
+
+/* ---------- Documentos dos fornecedores: novo pedido, novo embarque, registrar chegada ---------- */
+.grade-campos.tres { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grupo.estreito { max-width: 220px; }
+.alocacao { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.alocacao .icone, .alocacao svg { width: 14px; height: 14px; vertical-align: -2px; }
+.tabela-alocacao td { vertical-align: top; }
+.lista-chegada { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; max-height: min(52vh, 460px); overflow-y: auto; }
+.chegada-unidade { border: 1px solid var(--fio); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.chegada-unidade-topo { margin: 0 0 4px; }
+.chegada-invoice { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 2px 4px; border-radius: 8px; cursor: pointer; }
+.chegada-invoice:hover { background: var(--sulco); }
+.chegada-invoice input { width: 18px; height: 18px; accent-color: var(--acento); flex: none; }
+@media (max-width: 640px) {
+  .grade-campos.tres { grid-template-columns: minmax(0, 1fr); }
+  .grupo.estreito { max-width: none; }
+}
+/* Tabelas de conferência no celular: cada linha vira um bloco, com o rótulo antes de cada valor. */
+@media (max-width: 600px) {
+  .tabela-empilha { min-width: 0; }
+  .tabela-empilha thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .tabela-empilha tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; padding: 10px 14px; border-bottom: 1px solid var(--fio); }
+  .tabela-empilha td { display: block; padding: 0; border: 0; text-align: left; }
+  .tabela-empilha td:first-child { grid-column: 1 / -1; }
+  .tabela-empilha td[data-rot]::before { content: attr(data-rot); display: block; font-size: 12px; color: var(--tinta-3); }
+}
+.chegada-invoice .mudo { color: var(--tinta-2); }
