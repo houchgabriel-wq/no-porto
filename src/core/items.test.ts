@@ -5,6 +5,7 @@ import {
   itemForViewer,
   normalizeOrderCode,
   searchKey,
+  sortItems,
   totals,
   totalsByOrder,
   totalsBySupplier,
@@ -130,5 +131,27 @@ describe('códigos e textos', () => {
 
   it('chave de busca sem acento e sem espaço sobrando', () => {
     expect(searchKey('  Livro   Alice no País das\nMaravilhas ')).toBe('livro alice no pais das maravilhas');
+  });
+});
+
+describe('ordenação da tabela', () => {
+  it('por total, do maior para o menor, com os sem preço no fim', () => {
+    const sorted = sortItems(items, { key: 'total', dir: -1 }, orders, suppliers).map((i) => i.description);
+    expect(sorted.slice(0, 2)).toEqual(['Café com Aristóteles', 'Cartilha Mágica 01 - Alfabeto']);
+    expect(sorted.slice(2).every((d) => d.startsWith('Por que') || d.startsWith('Patrulha'))).toBe(true);
+  });
+
+  it('por PO em ordem natural, com "Sem PO" no fim nos dois sentidos', () => {
+    const up = sortItems(items, { key: 'order', dir: 1 }, orders, suppliers);
+    const down = sortItems(items, { key: 'order', dir: -1 }, orders, suppliers);
+    expect(up[0]!.purchaseOrderId).toBe('o9');
+    expect(up.at(-1)!.purchaseOrderId).toBeNull();
+    expect(down[0]!.purchaseOrderId).toBe('o63');
+    expect(down.at(-1)!.purchaseOrderId).toBeNull();
+  });
+
+  it('por produto, sem acento', () => {
+    const sorted = sortItems(items, { key: 'description', dir: 1 }, orders, suppliers).map((i) => i.description[0]);
+    expect(sorted).toEqual(['C', 'C', 'P', 'P']);
   });
 });

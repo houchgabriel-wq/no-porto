@@ -1,5 +1,7 @@
 // Chamadas à API. Erros viram ApiError com a mensagem em português vinda do servidor.
 
+import type { ImportedItem } from '../core/importProduction';
+import type { Item, PurchaseOrder, Supplier } from '../core/items';
 import type { Role } from '../core/roles';
 
 export interface Me {
@@ -19,6 +21,26 @@ export interface UserSummary {
   active: boolean;
   createdAt: string;
   lastLoginAt: string | null;
+}
+
+export interface ProductionData {
+  suppliers: Supplier[];
+  orders: PurchaseOrder[];
+  items: Item[];
+  /** O perfil vê preços e valores? (o leitor não vê) */
+  seeValues: boolean;
+}
+
+/** Campos de um item, como o formulário manda: fornecedor e PO pelo nome e código. */
+export interface ItemInput {
+  description: string;
+  isbn: string | null;
+  supplier: string | null;
+  orderCode: string | null;
+  quantity: number;
+  piecesPerCarton: number | null;
+  unitPriceMicros: number | null;
+  notes: string;
 }
 
 export class ApiError extends Error {
@@ -72,4 +94,9 @@ export const api = {
     request<{ user: UserSummary }>('PATCH', `/api/users/${encodeURIComponent(id)}`, body),
   resetPassword: (id: string) =>
     request<{ tempPassword: string }>('POST', `/api/users/${encodeURIComponent(id)}/reset-password`),
+  production: () => request<ProductionData>('GET', '/api/production'),
+  createItem: (body: ItemInput) => request<{ item: Item }>('POST', '/api/items', body),
+  updateItem: (id: string, body: Partial<ItemInput>) => request<{ item: Item }>('PATCH', `/api/items/${encodeURIComponent(id)}`, body),
+  deleteItem: (id: string) => request<{ ok: true }>('DELETE', `/api/items/${encodeURIComponent(id)}`),
+  importProduction: (items: ImportedItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/production', { items }),
 };

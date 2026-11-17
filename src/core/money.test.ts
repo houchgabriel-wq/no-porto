@@ -3,6 +3,7 @@ import {
   formatUnitPrice,
   formatUsd,
   formatUsdShort,
+  formatUsdWhole,
   itemTotalCents,
   looksLikeReais,
   parseCents,
@@ -83,7 +84,13 @@ describe('formatos', () => {
     expect(formatUsd(5)).toBe('US$ 0,05');
   });
 
-  it('forma curta para o destaque', () => {
+  it('dólares inteiros para o destaque', () => {
+    expect(formatUsdWhole(304_205_646)).toBe('US$ 3.042.056');
+    expect(formatUsdWhole(3_192_960)).toBe('US$ 31.930');
+    expect(formatUsdWhole(0)).toBe('US$ 0');
+  });
+
+  it('forma curta', () => {
     expect(formatUsdShort(608_411_300)).toBe('US$ 6,1 mi');
     expect(formatUsdShort(84_512_300)).toBe('US$ 845 mil');
     expect(formatUsdShort(98_000)).toBe('US$ 980');

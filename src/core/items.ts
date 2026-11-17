@@ -207,3 +207,42 @@ export function normalizeOrderCode(text: string): string | null {
   if (!m) return null;
   return `PO-${m[1]!.padStart(3, '0')}`;
 }
+
+export const SORT_KEYS = ['description', 'order', 'supplier', 'quantity', 'price', 'total'] as const;
+export type SortKey = (typeof SORT_KEYS)[number];
+export interface ItemSort {
+  key: SortKey;
+  dir: 1 | -1;
+}
+
+/**
+ * Ordena a tabela. Itens sem preço ou sem PO vão sempre para o fim, nos dois sentidos, para não
+ * esconder os itens com dados no começo da lista.
+ */
+export function sortItems(items: readonly Item[], sort: ItemSort, orders: readonly PurchaseOrder[], suppliers: readonly Supplier[]): Item[] {
+  const codes = new Map(orders.map((o) => [o.id, o.code]));
+  const names = new Map(suppliers.map((s) => [s.id, s.name]));
+  const value = (item: Item): string | number | null => {
+    switch (sort.key) {
+      case 'description':
+        return searchKey(item.description);
+      case 'order':
+        return item.purchaseOrderId ? (codes.get(item.purchaseOrderId) ?? null) : null;
+      case 'supplier':
+        return item.supplierId ? searchKey(names.get(item.supplierId) ?? '') : null;
+      case 'quantity':
+        return item.quantity;
+      case 'price':
+        return item.unitPriceMicros ?? null;
+      case 'total':
+        return item.totalCents ?? totalOf(item);
+    }
+  };
+  return [...items].sort((a, b) => {
+    const x = value(a);
+    const y = value(b);
+    if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1;
+    const c = typeof x === 'number' && typeof y === 'number' ? x - y : compareOrderCodes(String(x), String(y));
+    return c * sort.dir;
+  });
+}

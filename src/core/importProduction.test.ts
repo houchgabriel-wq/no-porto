@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { importKey, parseProductionRows, summarizeImport, type ImportReport } from './importProduction';
+import { importKey, newImportItems, parseProductionRows, summarizeImport, type ImportReport } from './importProduction';
 
 // Linhas como saem da planilha status_importações de 17/11/2026, já em texto (a primeira coluna e a
 // coluna da PO não têm título).
@@ -122,9 +122,22 @@ describe('resumo da carga', () => {
     expect(s.orders).toBe(5);
   });
 
-  it('a chave de repetição junta PO, produto, quantidade e preço', () => {
+  it('a chave de repetição junta PO, ISBN, nome do produto, quantidade e preço', () => {
     const [a] = parse().items;
-    expect(importKey(a!)).toBe('|9786560950856|6000|575000');
-    expect(importKey({ ...a!, isbn: null, description: 'Café  com Aristóteles' })).toBe('|cafe com aristoteles|6000|575000');
+    expect(importKey(a!)).toBe('|9786560950856|livro cafe com aristoteles|6000|575000');
+    expect(importKey({ ...a!, isbn: null, description: 'Café  com Aristóteles' })).toBe('||cafe com aristoteles|6000|575000');
+  });
+
+  it('produtos diferentes com o mesmo ISBN não são repetição', () => {
+    const box = { orderCode: 'PO-053', isbn: '9786597585427', description: 'Coleção Estratégia - Da Vinci - Box com 3 Livros', quantity: 10000, unitPriceMicros: null };
+    const book = { ...box, description: 'O Livro dos Cinco Anéis - Da Vinci' };
+    expect(newImportItems([box, book], [])).toEqual([0, 1]);
+  });
+
+  it('linhas iguais na planilha entram todas; o que já existe é pulado uma vez por item cadastrado', () => {
+    const x = { orderCode: 'PO-001', isbn: null, description: 'Livro', quantity: 100, unitPriceMicros: 1 };
+    expect(newImportItems([x, x], [])).toEqual([0, 1]);
+    expect(newImportItems([x, x], [importKey(x)])).toEqual([1]);
+    expect(newImportItems([x, x], [importKey(x), importKey(x)])).toEqual([]);
   });
 });

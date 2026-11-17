@@ -91,6 +91,12 @@ export function reaisCents(amountCents: number, exchangeRateE4: number): number 
 
 const usd = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const usdShort = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 });
+const usdWhole = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 });
+
+/** Dólares inteiros, para os números em destaque: "US$ 3.042.056". */
+export function formatUsdWhole(cents: number): string {
+  return `US$ ${usdWhole.format(Math.round(cents / 100))}`;
+}
 
 /** "US$ 3.450,00". */
 export function formatUsd(cents: number): string {

@@ -26,8 +26,8 @@ export function Brand({ subtitle = true }: { subtitle?: boolean }) {
   );
 }
 
-/** Matiz estável a partir do id, para cada pessoa ter sempre a mesma cor. */
-function hueFor(id: string): number {
+/** Matiz estável a partir do id, para cada pessoa (e cada fornecedor) ter sempre a mesma cor. */
+export function hueFor(id: string): number {
   // FNV-1a: espalha bem mesmo quando os ids diferem só em poucos caracteres.
   let h = 0x811c9dc5;
   for (const ch of id) h = Math.imul(h ^ ch.charCodeAt(0), 0x01000193);

@@ -202,9 +202,28 @@ export function summarizeImport(items: readonly ImportedItem[]): { bySupplier: I
 }
 
 /**
- * Chave de um item para não repetir a carga: mesma PO, produto (ISBN ou título), quantidade e preço.
- * O servidor usa a mesma chave para pular o que já está cadastrado.
+ * Chave de um item para não repetir a carga: mesma PO, ISBN, nome do produto, quantidade e preço. O
+ * nome entra porque a planilha tem produtos diferentes com o mesmo ISBN (na PO-053, o box "Coleção
+ * Estratégia" e "O Livro dos Cinco Anéis"). O servidor usa a mesma chave para pular o que já está
+ * cadastrado.
  */
 export function importKey(item: { orderCode: string | null; isbn: string | null; description: string; quantity: number; unitPriceMicros: number | null }): string {
-  return [item.orderCode ?? '', item.isbn ?? searchKey(item.description), item.quantity, item.unitPriceMicros ?? ''].join('|');
+  return [item.orderCode ?? '', item.isbn ?? '', searchKey(item.description), item.quantity, item.unitPriceMicros ?? ''].join('|');
+}
+
+/**
+ * Quais itens da carga entram: linhas repetidas na planilha entram todas; o que já está cadastrado
+ * é pulado uma vez para cada item igual que existe. Devolve as posições dos itens que entram.
+ */
+export function newImportItems<T extends Parameters<typeof importKey>[0]>(incoming: readonly T[], existingKeys: readonly string[]): number[] {
+  const left = new Map<string, number>();
+  for (const k of existingKeys) left.set(k, (left.get(k) ?? 0) + 1);
+  const keep: number[] = [];
+  incoming.forEach((item, i) => {
+    const key = importKey(item);
+    const n = left.get(key) ?? 0;
+    if (n > 0) left.set(key, n - 1);
+    else keep.push(i);
+  });
+  return keep;
 }

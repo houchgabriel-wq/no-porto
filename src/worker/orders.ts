@@ -2,7 +2,7 @@
 // Toda rota confere o perfil; preço e total saem das respostas para quem não vê valores.
 
 import { z } from 'zod';
-import { IMPORT_BATCH, importKey } from '../core/importProduction';
+import { IMPORT_BATCH, importKey, newImportItems } from '../core/importProduction';
 import { isbnDigits, isbnProblem } from '../core/isbn';
 import { itemForViewer, normalizeOrderCode, searchKey, titleKey, type Item, type ItemStatus, type PurchaseOrder, type Supplier } from '../core/items';
 import { can } from '../core/roles';
@@ -349,19 +349,15 @@ async function importProduction(request: Request, env: Env, session: Session, no
        FROM order_items i JOIN products p ON p.id = i.product_id LEFT JOIN purchase_orders o ON o.id = i.purchase_order_id
       WHERE i.deleted_at IS NULL AND i.status = 'producao'`,
   ).all<{ order_code: string | null; isbn: string | null; description: string; quantity: number; unit_price_micros: number | null }>();
-  const seen = new Set(
-    existing.results.map((r) => importKey({ orderCode: r.order_code, isbn: r.isbn, description: r.description, quantity: r.quantity, unitPriceMicros: r.unit_price_micros })),
+  const keys = existing.results.map((r) =>
+    importKey({ orderCode: r.order_code, isbn: r.isbn, description: r.description, quantity: r.quantity, unitPriceMicros: r.unit_price_micros }),
   );
+  const keep = newImportItems(body.items, keys);
+  const skipped = body.items.length - keep.length;
 
   const statements: D1PreparedStatement[] = [];
-  let skipped = 0;
-  for (const input of body.items) {
-    const key = importKey(input);
-    if (seen.has(key)) {
-      skipped++;
-      continue;
-    }
-    seen.add(key);
+  for (const index of keep) {
+    const input = body.items[index]!;
     const id = crypto.randomUUID();
     const links = { productId: refs.product(input.isbn, input.description), supplierId: refs.supplier(input.supplier), orderId: refs.order(input.orderCode) };
     statements.push(insertItem(env, id, input, links, session.user.id, at));

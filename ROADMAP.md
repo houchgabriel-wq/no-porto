@@ -12,6 +12,7 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
 - [ ] **Marco 2: POs em produção.**
   Fornecedores, produtos e POs com itens. Tabela com busca e filtros. Carga da aba Produção.
   *Teste do Gabriel:* conferir se o total em produção por fornecedor bate com a planilha.
+  *Pronto para o teste em 17/11/2026:* tela Produção com os totais por fornecedor, busca, filtros, agrupamento por PO, ficha do item e Baixar .xlsx; carga da aba Produção pelo admin; painel só com a produção, por enquanto. Com a planilha de 17/11/2026, a carga dá 524 itens, 4.796.377 exemplares e US$ 3.042.056,46.
 
 - [ ] **Marco 3: embarques e chegadas.**
   BLs (número e chegada prevista) com suas invoices; embarcar itens da PO (inteiros ou em parte); marcar entregue; lista de chegadas com atraso. Pagamentos por invoice com câmbio. Carga da aba Embarques.

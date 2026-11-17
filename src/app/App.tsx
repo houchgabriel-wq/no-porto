@@ -1,14 +1,40 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { itemExportRows } from '../core/exportItems';
+import { EMPTY_FILTERS, filterItems, sortItems, type ItemFilters, type ItemSort } from '../core/items';
 import { can, ROLE_LABELS } from '../core/roles';
 import { api, ApiError, setUnauthorizedHandler, type Me } from './api';
 import { Avatar, Brand, Dialog, FormError, hueStyle, STATUS_PREVIEW, useToast } from './components';
+import { Dashboard } from './Dashboard';
+import { downloadXlsx } from './download';
 import { ForcedPasswordScreen, LoginScreen, PasswordForm, SetupScreen } from './Entry';
 import { Icon } from './icons';
+import { ImportDialog } from './ImportDialog';
+import { ItemDialog, type ItemDialogState } from './ItemDialog';
+import { useProduction } from './production';
+import { ProductionView } from './Production';
 import { UpdateNotice } from './update';
 import { UsersScreen } from './Users';
 
 type Theme = 'sistema' | 'claro' | 'escuro';
 const THEME_KEY = 'no-porto:tema';
+const GROUP_KEY = 'no-porto:agrupar-po';
+
+function readGrouped(): boolean {
+  try {
+    return localStorage.getItem(GROUP_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function saveGrouped(on: boolean) {
+  try {
+    if (on) localStorage.setItem(GROUP_KEY, '1');
+    else localStorage.removeItem(GROUP_KEY);
+  } catch {
+    // Só não lembra a escolha.
+  }
+}
 
 function readTheme(): Theme {
   try {
@@ -32,7 +58,7 @@ function applyTheme(theme: Theme) {
   }
 }
 
-const VIEWS = ['painel', 'usuarios'] as const;
+const VIEWS = ['painel', 'producao', 'usuarios'] as const;
 type View = (typeof VIEWS)[number];
 
 function viewFromHash(): View {
@@ -202,15 +228,36 @@ function UserMenu({ user, onPassword, onLogout }: { user: Me; onPassword: () => 
   );
 }
 
-/** Início enquanto não há POs: explica o caminho dos itens e o que vem a seguir. */
-function Welcome({ user }: { user: Me }) {
+/** Início enquanto não há itens: explica o caminho dos itens e como começar. */
+function Welcome({ user, onImport, onNew }: { user: Me; onImport?: () => void; onNew?: () => void }) {
   return (
     <section className="vazio" aria-labelledby="boas-vindas">
-      <h2 id="boas-vindas">Olá, {user.name.split(' ')[0]}. Ainda não há pedidos cadastrados.</h2>
+      <h2 id="boas-vindas">Olá, {user.name.split(' ')[0]}. Ainda não há itens em produção.</h2>
       <p>
         O No Porto acompanha cada item desde a PO no fornecedor até a chegada à editora, com os embarques, as invoices e os pagamentos no
-        caminho. A carga da planilha de importação chega nas próximas versões.
+        caminho.{' '}
+        {onImport
+          ? 'Para começar, faça a carga da aba Produção da planilha status_importações.'
+          : onNew
+            ? 'Cadastre o primeiro item, ou peça ao admin para fazer a carga da planilha.'
+            : 'Os itens aparecem aqui assim que o admin fizer a carga da planilha.'}
       </p>
+      {(onImport || onNew) && (
+        <div className="vazio-acoes">
+          {onImport && (
+            <button type="button" className="btn primario" onClick={onImport}>
+              <Icon name="arquivo" />
+              Carga da planilha
+            </button>
+          )}
+          {onNew && (
+            <button type="button" className={onImport ? 'btn' : 'btn primario'} onClick={onNew}>
+              <Icon name="mais" />
+              Novo item
+            </button>
+          )}
+        </div>
+      )}
       <h3>O caminho de cada item</h3>
       <ol className="caminho">
         {STATUS_PREVIEW.map((s, i) => (
@@ -224,11 +271,26 @@ function Welcome({ user }: { user: Me }) {
   );
 }
 
+const TABS: { view: View; label: string; icon: 'inicio' | 'caixa' }[] = [
+  { view: 'painel', label: 'Painel', icon: 'inicio' },
+  { view: 'producao', label: 'Produção', icon: 'caixa' },
+];
+
 function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [view, setView] = useState<View>(viewFromHash);
   const [changingPassword, setChangingPassword] = useState(false);
   const [toast, showToast] = useToast();
+  const [filters, setFilters] = useState<ItemFilters>(EMPTY_FILTERS);
+  const [sort, setSort] = useState<ItemSort>({ key: 'order', dir: -1 });
+  const [grouped, setGrouped] = useState(readGrouped);
+  const [dialog, setDialog] = useState<ItemDialogState>(null);
+  const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const production = useProduction();
+  const data = production.data;
   const isAdmin = can(user.role, 'manage_users');
+  const canEdit = can(user.role, 'edit');
+  const canImport = can(user.role, 'import');
 
   useEffect(() => {
     const onHash = () => setView(viewFromHash());
@@ -238,9 +300,58 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
 
   const current: View = view === 'usuarios' && !isAdmin ? 'painel' : view;
 
+  function goToProduction(f: Partial<ItemFilters>) {
+    setFilters({ ...EMPTY_FILTERS, ...f });
+    location.hash = 'producao';
+  }
+
+  async function exportItems() {
+    if (!data) return;
+    setExporting(true);
+    try {
+      const shown = sortItems(filterItems(data.items, filters, data.orders, data.suppliers), sort, data.orders, data.suppliers);
+      const rows = itemExportRows(shown, data.orders, data.suppliers, data.seeValues);
+      const { buildExport } = await import('./spreadsheet');
+      type Row = (typeof rows)[number];
+      const columns: { header: string; width: number; value: (r: Row) => string | number | null; numFmt?: string }[] = [
+        { header: 'PO', width: 10, value: (r) => r.po },
+        { header: 'Fornecedor', width: 14, value: (r) => r.supplier },
+        { header: 'Produto', width: 60, value: (r) => r.description },
+        { header: 'ISBN', width: 16, value: (r) => r.isbn },
+        { header: 'Quantidade', width: 12, value: (r) => r.quantity, numFmt: '#,##0' },
+        { header: 'pcs/ctn', width: 9, value: (r) => r.piecesPerCarton },
+      ];
+      if (data.seeValues) {
+        columns.push({ header: '$ unitário', width: 12, value: (r) => r.unitPrice ?? null, numFmt: '0.00####' });
+        columns.push({ header: '$ total', width: 14, value: (r) => r.total ?? null, numFmt: '#,##0.00' });
+      }
+      columns.push({ header: 'Observações', width: 40, value: (r) => r.notes });
+      downloadXlsx(await buildExport('Produção', columns, rows), `producao-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch {
+      showToast('Não foi possível gerar a planilha.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const actions = (
+    <>
+      <button type="button" className="btn" onClick={() => void exportItems()} disabled={exporting}>
+        <Icon name="arquivo" />
+        <span className="rot">{exporting ? 'Gerando…' : 'Baixar .xlsx'}</span>
+      </button>
+      {canImport && (
+        <button type="button" className="btn" onClick={() => setImporting(true)}>
+          <Icon name="atualizar" />
+          <span className="rot">Carga da planilha</span>
+        </button>
+      )}
+    </>
+  );
+
   return (
     <div className="pagina">
-      {/* Não muda o endereço: as visões usam o trecho depois do # (#usuarios). */}
+      {/* Não muda o endereço: as visões usam o trecho depois do # (#producao, #usuarios). */}
       <a
         className="pular"
         href="#conteudo"
@@ -254,20 +365,74 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
       <header className="topo">
         <Brand />
         <nav className="abas" aria-label="Visões">
-          <a className="aba" href="#painel" aria-current={current === 'painel' ? 'page' : undefined}>
-            <Icon name="inicio" />
-            Painel
-          </a>
+          {TABS.map((t) => (
+            <a key={t.view} className="aba" href={`#${t.view}`} aria-current={current === t.view ? 'page' : undefined}>
+              <Icon name={t.icon} />
+              {t.label}
+            </a>
+          ))}
         </nav>
         <div className="acoes">
+          {canEdit && current !== 'usuarios' && data && (
+            <button className="btn primario" onClick={() => setDialog({ mode: 'new' })} aria-label="Novo item">
+              <Icon name="mais" />
+              <span className="rot">Novo item</span>
+            </button>
+          )}
           <UserMenu user={user} onPassword={() => setChangingPassword(true)} onLogout={onLogout} />
         </div>
       </header>
 
       <main id="conteudo" tabIndex={-1}>
-        {current === 'usuarios' ? <UsersScreen me={user} /> : <Welcome user={user} />}
+        {current === 'usuarios' ? (
+          <UsersScreen me={user} />
+        ) : !data ? (
+          production.loadError ? (
+            <div className="erro-carga">
+              <FormError message={production.loadError} />
+              <button className="btn" onClick={() => void production.reload()}>
+                Tentar de novo
+              </button>
+            </div>
+          ) : (
+            <p className="carregando" role="status">
+              Carregando a produção…
+            </p>
+          )
+        ) : (
+          <>
+            {production.loadError && (
+              <p className="aviso alerta" role="status">
+                <Icon name="alerta" />
+                <span>Sem conexão com o servidor. Os dados podem estar desatualizados.</span>
+              </p>
+            )}
+            {data.items.length === 0 ? (
+              <Welcome user={user} onImport={canImport ? () => setImporting(true) : undefined} onNew={canEdit ? () => setDialog({ mode: 'new' }) : undefined} />
+            ) : current === 'painel' ? (
+              <Dashboard data={data} onSupplier={(id) => goToProduction({ supplierId: id })} onOrder={(id) => goToProduction({ orderId: id })} />
+            ) : (
+              <ProductionView
+                data={data}
+                filters={filters}
+                onFilters={setFilters}
+                sort={sort}
+                onSort={setSort}
+                grouped={grouped}
+                onGrouped={(g) => {
+                  setGrouped(g);
+                  saveGrouped(g);
+                }}
+                onOpen={(item) => setDialog({ mode: 'edit', item })}
+                actions={actions}
+              />
+            )}
+          </>
+        )}
       </main>
 
+      {data && <ItemDialog state={dialog} me={user} data={data} production={production} onClose={() => setDialog(null)} onToast={showToast} />}
+      {canImport && <ImportDialog open={importing} production={production} onClose={() => setImporting(false)} onToast={showToast} />}
       <Dialog title="Trocar senha" open={changingPassword} onClose={() => setChangingPassword(false)}>
         <div className="dlg-corpo">
           <PasswordForm

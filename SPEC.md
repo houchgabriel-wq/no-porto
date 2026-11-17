@@ -17,7 +17,7 @@ Hoje o controle é a planilha `status_importações`, no Google Drive do Gabriel
 
 Colunas comuns: ref. do embarque, produto, ISBN, peças por caixa, quantidade, preço unitário (US$), total (US$), fornecedor. Fornecedores atuais: Sara, Claire, Nicola, Sally, Kaushik, Ricky; no histórico também Apurv, XACT, Lilian, Jean, Alligator e Mohinder.
 
-O que a planilha mostra sobre a relação entre os dados (conferido em 17/11/2026): cada invoice é de um fornecedor e está num BL só; cada BL é de um fornecedor e tem uma chegada só; um BL junta várias invoices (por exemplo, `2026-47A`, `47B` e `47C` no mesmo BL); a ref. do embarque quase sempre corresponde a uma invoice.
+O que a planilha mostra sobre a relação entre os dados (conferido em 17/11/2026): uma PO pode juntar itens de mais de um fornecedor (a PO-063 tem Sara e Claire; a PO-067, Sara e Nicola), por isso o fornecedor fica no item; cada invoice é de um fornecedor e está num BL só; cada BL é de um fornecedor e tem uma chegada só; um BL junta várias invoices (por exemplo, `2026-47A`, `47B` e `47C` no mesmo BL); a ref. do embarque quase sempre corresponde a uma invoice.
 
 ## 2. Decisões
 
@@ -69,7 +69,8 @@ O servidor tira preços, totais, câmbio e pagamentos das respostas para o leito
 ## 5. Telas (proposta)
 
 - **Painel**: valor em produção, no mar e a pagar, em destaque; os mesmos valores por fornecedor; chegadas das próximas semanas; BLs atrasados (chegada prevista no passado sem entrega registrada); POs abertas há mais tempo.
-- **POs**: lista de POs com fornecedor, data, número de itens, valor e quanto já embarcou. A ficha da PO mostra os itens e permite embarcar os marcados.
+- **Produção** (feita no marco 2): os itens em produção, com o total e um cartão por fornecedor em destaque (o cartão filtra a lista), busca, filtros por fornecedor e PO, "Agrupar por PO" com o subtotal de cada PO, tabela ordenável (cartões no celular), ficha do item e Baixar .xlsx. Fornecedor e PO são digitados na ficha, com sugestão dos que existem; os novos são criados ao salvar.
+- **POs**: lista de POs com fornecedores, data, número de itens, valor e quanto já embarcou. A ficha da PO mostra os itens e permite embarcar os marcados. (No marco 2, as POs aparecem agrupadas na tela Produção; a ficha da PO com o embarque vem no marco 3.)
 - **Embarques**: BLs com número, fornecedor, chegada prevista e chegada real; dentro de cada BL, as invoices (número, ref., total, pagamentos) e os itens. Marcar o BL como entregue registra a data de chegada.
 - **Chegadas**: lista por semana do que chega, com atraso em destaque.
 - **Produtos**: busca por título ou ISBN; a ficha do produto mostra todas as compras desde 2023, com data, fornecedor, quantidade, preço unitário e situação, e a variação do preço.
@@ -86,6 +87,7 @@ Em `src/core`, com teste, como no No Prelo:
 - Valor em reais de um pagamento = valor em dólar × taxa de câmbio daquele pagamento.
 - ISBN: mesmas regras do No Prelo (ISBN-13 ou ISBN-10, dígito verificador conferido). Produto sem ISBN é aceito, identificado pelo título.
 - Dólar guardado em centavos e preço unitário em milionésimos de dólar (a planilha tem preços como 0,575 e 2,674), para não errar arredondamento. Taxa de câmbio com quatro casas.
+- Nos números em destaque (painel e totais por fornecedor), dólares inteiros, como US$ 3.042.056, para dar para comparar com a planilha; na tabela e na ficha, com centavos.
 - Permissões, inclusive o que o leitor não pode ver.
 
 ## 7. Carga da planilha (proposta)
@@ -97,9 +99,13 @@ Em `src/core`, com teste, como no No Prelo:
   - ISBN com hífens: vale, sem os hífens. ISBN como "TBC", "new" ou com o dígito verificador errado: o item entra sem ISBN e o texto original vai para as observações.
   - Sem fornecedor (1 linha): entra como "Sem fornecedor", para corrigir na tela.
   - Peças por caixa que não são um número (como "24\n14"): ficam em branco, com o texto original nas observações.
+  - Preço calculado com muitas casas (2 linhas, como 0,653924268502582): arredondado para seis casas, com aviso.
+  - Produtos diferentes com o mesmo ISBN (na PO-053, o box "Coleção Estratégia" e "O Livro dos Cinco Anéis"): entram os dois; ficam ligados ao mesmo produto até alguém corrigir o ISBN na ficha.
   - A linha de soma no fim da aba (produto "]") é ignorada.
+  - Conferido com a planilha de 17/11/2026: 524 itens em 43 POs, 4.796.377 exemplares e US$ 3.042.056,46, iguais à linha de soma da aba.
 - Cada item guarda a descrição como está na linha, e o produto é reconhecido pelo ISBN (ou, sem ISBN, pelo título). Assim, os nomes diferentes que o mesmo ISBN tem ao longo dos anos ficam preservados, e a ficha do produto junta todas as compras.
-- Mandar a mesma planilha de novo não repete itens: um item igual (mesma PO, produto, quantidade e preço) já cadastrado é pulado.
+- Mandar a mesma planilha de novo não repete itens: um item igual (mesma PO, ISBN, nome do produto, quantidade e preço) já cadastrado é pulado. Linhas iguais dentro da mesma planilha entram todas.
+- A carga é feita na tela Produção, pelo admin, em "Carga da planilha": o navegador lê a aba, mostra o resumo por fornecedor, as linhas com aviso e as que não entram, e só grava depois da confirmação, em partes de 500 itens.
 - **Embarques**: cada linha vira um item embarcado; invoice e BL criam as invoices e os BLs; "Chegada" é a chegada prevista do BL; "Pago" vira um pagamento sem data e sem câmbio, a completar.
 - **Entregues**: cada linha vira um item entregue. A chegada está como texto sem ano ("chegada 29/08", "chegou 29/04") ou como data. O ano sai da referência do embarque, do BL (ROECHN**25**… ou ROECHN**26**…) ou da ordem das linhas; o que não der para deduzir fica sem data e vai para uma lista de conferência.
 - Linhas sem fornecedor e sem produto (subtotais) são ignoradas. As abas cute e Sheet1 ficam de fora.
@@ -123,14 +129,14 @@ Segredo previsto: só o `SETUP_TOKEN`, pedido na tela de primeiro acesso. Fica n
 ```
 suppliers        id, name, notes
 products         id, isbn (único quando existe), title
-purchase_orders  id, code ("PO-063"), supplier_id, ordered_at, notes
+purchase_orders  id, code ("PO-063"), ordered_at, notes    (sem fornecedor: ele fica no item)
 bills_of_lading  id, number ("ROECHN26101769"), supplier_id, eta, arrived_at, notes
 invoices         id, number ("2026-47B"), ref ("2026-10-13 (2)"), supplier_id, bill_of_lading_id, notes
 payments         id, invoice_id, paid_at, amount_cents, exchange_rate, notes
-order_items      id, product_id, supplier_id, purchase_order_id, invoice_id, status
+order_items      id, product_id, description, supplier_id, purchase_order_id, invoice_id, status
                  (producao | embarcado | entregue), quantity, pieces_per_carton,
                  unit_price_micros, notes
-events           histórico automático de mudanças, como no No Prelo
+events           histórico automático de mudanças (entity, entity_id, type, detail), como no No Prelo
 users, sessions, login_attempts   como no No Prelo
 ```
 
