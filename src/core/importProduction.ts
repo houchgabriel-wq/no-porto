@@ -3,7 +3,7 @@
 // monta o resumo que o Gabriel compara com a planilha antes de gravar.
 
 import { isbnDigits, isbnProblem } from './isbn';
-import { searchKey, normalizeOrderCode, NO_SUPPLIER } from './items';
+import { searchKey, normalizeOrderCode, NO_SUPPLIER, orderOwners } from './items';
 import { itemTotalCents, looksLikeReais, parseCents, parseSheetUnitPrice } from './money';
 
 /** Itens por envio ao servidor; a planilha vai em partes deste tamanho. */
@@ -151,7 +151,7 @@ export function parseProductionRows(rows: readonly string[][]): ImportReport | {
         warn(`"${description}": preço "${priceText}" não reconhecido; entra sem preço.`);
       } else {
         unitPriceMicros = price.micros;
-        if (price.rounded) warn(`"${description}": preço ${priceText} arredondado para seis casas.`);
+        if (price.rounded) warn(`"${description}": preço ${priceText} arredondado para três casas.`);
       }
     }
     if (unitPriceMicros !== null) {
@@ -171,7 +171,38 @@ export function parseProductionRows(rows: readonly string[][]): ImportReport | {
 
     report.items.push({ row: line, description, isbn, supplier, orderCode, quantity, piecesPerCarton, unitPriceMicros, notes: notes.join('\n') });
   }
+  const separated = separateMixedOrders(report.items, new Map());
+  report.items = separated.items;
+  report.warnings.push(...separated.moved);
+  report.warnings.sort((a, b) => a.row - b.row);
   return report;
+}
+
+/**
+ * Uma PO tem um fornecedor só. Os itens cuja PO é de outro fornecedor entram sem PO, com a PO da
+ * planilha nas observações, para o Gabriel acertar o número depois. O dono de cada PO vem de `known`
+ * (POs já cadastradas, código → nome do fornecedor) ou, para as novas, do fornecedor com mais itens
+ * nela na planilha.
+ */
+export function separateMixedOrders<T extends Pick<ImportedItem, 'row' | 'description' | 'supplier' | 'orderCode' | 'notes'>>(
+  items: readonly T[],
+  known: ReadonlyMap<string, string>,
+): { items: T[]; moved: RowNote[] } {
+  const fresh = orderOwners(items.filter((i) => !i.orderCode || !known.has(i.orderCode.toUpperCase())).map((i) => ({ order: i.orderCode?.toUpperCase() ?? null, supplier: i.supplier ? searchKey(i.supplier) : null })));
+  const names = new Map<string, string>();
+  for (const i of items) if (i.supplier && !names.has(searchKey(i.supplier))) names.set(searchKey(i.supplier), i.supplier);
+  const moved: RowNote[] = [];
+  const out = items.map((item) => {
+    if (!item.orderCode || !item.supplier) return item;
+    const code = item.orderCode.toUpperCase();
+    const knownOwner = known.get(code);
+    const owner = knownOwner !== undefined ? knownOwner : names.get(fresh.get(code) ?? '');
+    if (!owner || searchKey(owner) === searchKey(item.supplier)) return item;
+    moved.push({ row: item.row, message: `"${item.description}": a ${item.orderCode} é de ${owner} e este item é de ${item.supplier}; entra sem PO.` });
+    const note = `PO na planilha: ${item.orderCode} (a PO é de ${owner})`;
+    return { ...item, orderCode: null, notes: item.notes ? `${item.notes}\n${note}` : note };
+  });
+  return { items: out, moved };
 }
 
 export interface ImportSummaryRow {

@@ -17,7 +17,7 @@ Hoje o controle é a planilha `status_importações`, no Google Drive do Gabriel
 
 Colunas comuns: ref. do embarque, produto, ISBN, peças por caixa, quantidade, preço unitário (US$), total (US$), fornecedor. Fornecedores atuais: Sara, Claire, Nicola, Sally, Kaushik, Ricky; no histórico também Apurv, XACT, Lilian, Jean, Alligator e Mohinder.
 
-O que a planilha mostra sobre a relação entre os dados (conferido em 17/11/2026): uma PO pode juntar itens de mais de um fornecedor (a PO-063 tem Sara e Claire; a PO-067, Sara e Nicola), por isso o fornecedor fica no item; cada invoice é de um fornecedor e está num BL só; cada BL é de um fornecedor e tem uma chegada só; um BL junta várias invoices (por exemplo, `2026-47A`, `47B` e `47C` no mesmo BL); a ref. do embarque quase sempre corresponde a uma invoice.
+O que a planilha mostra sobre a relação entre os dados (conferido em 17/11/2026): a planilha tem POs com itens de mais de um fornecedor (a PO-063 tem Sara e Claire; a PO-067, Sara e Nicola), o que o Gabriel decidiu que não pode acontecer (seção 2); cada invoice é de um fornecedor e está num BL só; cada BL é de um fornecedor e tem uma chegada só; um BL junta várias invoices (por exemplo, `2026-47A`, `47B` e `47C` no mesmo BL); a ref. do embarque quase sempre corresponde a uma invoice.
 
 ## 2. Decisões
 
@@ -34,6 +34,8 @@ O que a planilha mostra sobre a relação entre os dados (conferido em 17/11/202
 | BL | Um BL pode ter vários containers. Registra-se o número do BL e a chegada prevista; os containers não são cadastrados. A data de saída, pedida na primeira rodada, ficou de fora: vale a chegada prevista no lugar dela (17/11/2026) |
 | Pagamento | Por invoice, com a taxa de câmbio do pagamento (17/11/2026) |
 | Pagamentos antigos | O que a planilha marca como "pago" entra como pago, sem data e sem câmbio, por enquanto (17/11/2026) |
+| Preço unitário | No máximo três casas decimais (17/11/2026). Na carga, o que tem mais casas é arredondado na terceira (meio para cima), com aviso; os preços já cadastrados foram arredondados pela migração `0003`, com registro no histórico de cada item |
+| Uma PO, um fornecedor | Uma PO não pode ter itens de fornecedores diferentes (17/11/2026). A ficha do item recusa a mistura, com a explicação. Proposta para os casos que já existem: o dono da PO é o fornecedor com mais itens nela (no empate, o do item mais antigo); os itens de outro fornecedor ficam "Sem PO", com a PO original nas observações ("PO na planilha: PO-063 (a PO é de Sara)"), para alguém acertar o número. A carga faz o mesmo, e a migração `0003` aplicou a regra aos itens já cadastrados (10 itens da Claire na PO-063 e 1 da Nicola na PO-067, na planilha de 17/11/2026) |
 | Moeda | Todos os preços são em dólar. Os "R$" das PO-067 e PO-068 da Nicola eram erro de digitação; o Gabriel corrige na planilha (17/11/2026) |
 | Previsão de embarque | A coluna "jun / aug / oct" da Produção é a previsão de embarque, mas fica de fora (17/11/2026) |
 | Histórico | Entra tudo da aba Entregues, desde 2023 (17/11/2026) |
@@ -87,7 +89,8 @@ Em `src/core`, com teste, como no No Prelo:
 - Valores do painel: somas por situação, fornecedor e mês de chegada.
 - Valor em reais de um pagamento = valor em dólar × taxa de câmbio daquele pagamento.
 - ISBN: mesmas regras do No Prelo (ISBN-13 ou ISBN-10, dígito verificador conferido). Produto sem ISBN é aceito, identificado pelo título.
-- Dólar guardado em centavos e preço unitário em milionésimos de dólar (a planilha tem preços como 0,575 e 2,674), para não errar arredondamento. Taxa de câmbio com quatro casas.
+- Dólar guardado em centavos e preço unitário em milionésimos de dólar, sempre com no máximo três casas (0,575 é guardado como 575.000), para não errar arredondamento. Taxa de câmbio com quatro casas.
+- Uma PO, um fornecedor: o dono da PO e a recusa de item de outro fornecedor.
 - Nos números em destaque (painel e totais por fornecedor), dólares inteiros, como US$ 3.042.056, para dar para comparar com a planilha; na tabela e na ficha, com centavos.
 - Permissões, inclusive o que o leitor não pode ver.
 
@@ -100,7 +103,8 @@ Em `src/core`, com teste, como no No Prelo:
   - ISBN com hífens: vale, sem os hífens. ISBN como "TBC", "new" ou com o dígito verificador errado: o item entra sem ISBN e o texto original vai para as observações.
   - Sem fornecedor (1 linha): entra como "Sem fornecedor", para corrigir na tela.
   - Peças por caixa que não são um número (como "24\n14"): ficam em branco, com o texto original nas observações.
-  - Preço calculado com muitas casas (2 linhas, como 0,653924268502582): arredondado para seis casas, com aviso.
+  - Preço com mais de três casas (3 linhas, como 0,653924268502582 e 0,6539): arredondado na terceira casa (0,654), com aviso. Por isso o total do sistema fica US$ 6,53 acima da soma da planilha de 17/11/2026, até os preços serem arredondados lá também.
+  - Item cuja PO é de outro fornecedor: entra sem PO, com a PO original nas observações (veja "Uma PO, um fornecedor" na seção 2).
   - Produtos diferentes com o mesmo ISBN (na PO-053, o box "Coleção Estratégia" e "O Livro dos Cinco Anéis"): entram os dois; ficam ligados ao mesmo produto até alguém corrigir o ISBN na ficha.
   - A linha de soma no fim da aba (produto "]") é ignorada.
   - Conferido com a planilha de 17/11/2026: 524 itens em 43 POs, 4.796.377 exemplares e US$ 3.042.056,46, iguais à linha de soma da aba.

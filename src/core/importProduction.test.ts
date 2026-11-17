@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { importKey, newImportItems, parseProductionRows, summarizeImport, type ImportReport } from './importProduction';
+import { importKey, newImportItems, parseProductionRows, separateMixedOrders, summarizeImport, type ImportReport } from './importProduction';
 
 // Linhas como saem da planilha status_importações de 17/11/2026, já em texto (a primeira coluna e a
 // coluna da PO não têm título).
@@ -95,11 +95,11 @@ describe('carga da aba Produção', () => {
     expect(r.warnings[0]!.message).toContain('não bate');
   });
 
-  it('arredonda preço calculado com muitas casas, com aviso', () => {
+  it('arredonda o preço para três casas, com aviso', () => {
     const r = parseProductionRows([HEADER, ['', 'Livro Noites Brancas - Série Ouro', '', '', '30000', '0.653924268502582', '19617.72806', 'Claire', '', '', 'PO-050', '']]);
     if ('error' in r) throw new Error(r.error);
-    expect(r.items[0]!.unitPriceMicros).toBe(653_924);
-    expect(r.warnings.map((w) => w.message)).toEqual(['"Livro Noites Brancas - Série Ouro": preço 0.653924268502582 arredondado para seis casas.']);
+    expect(r.items[0]!.unitPriceMicros).toBe(654_000);
+    expect(r.warnings.map((w) => w.message)).toEqual(['"Livro Noites Brancas - Série Ouro": preço 0.653924268502582 arredondado para três casas.']);
   });
 
   it('recusa quantidade inválida', () => {
@@ -111,6 +111,34 @@ describe('carga da aba Produção', () => {
 
   it('avisa quando não acha o cabeçalho', () => {
     expect(parseProductionRows([['a', 'b'], ['1', '2']])).toEqual({ error: expect.stringContaining('cabeçalho') });
+  });
+});
+
+describe('uma PO, um fornecedor, na carga', () => {
+  const row = (r: number, supplier: string, orderCode: string | null) => ({ row: r, description: `Livro ${r}`, supplier, orderCode, notes: '' });
+
+  it('o item de outro fornecedor entra sem PO, com a PO da planilha nas observações', () => {
+    const { items, moved } = separateMixedOrders([row(2, 'Sara', 'PO-063'), row(3, 'Claire', 'PO-063'), row(4, 'Sara', 'PO-063')], new Map());
+    expect(items.map((i) => i.orderCode)).toEqual(['PO-063', null, 'PO-063']);
+    expect(items[1]!.notes).toBe('PO na planilha: PO-063 (a PO é de Sara)');
+    expect(moved).toEqual([{ row: 3, message: '"Livro 3": a PO-063 é de Sara e este item é de Claire; entra sem PO.' }]);
+  });
+
+  it('PO já cadastrada: vale o fornecedor dela', () => {
+    const { items } = separateMixedOrders([row(2, 'Claire', 'PO-063'), row(3, 'claire', 'PO-063')], new Map([['PO-063', 'Sara']]));
+    expect(items.map((i) => i.orderCode)).toEqual([null, null]);
+  });
+
+  it('a leitura da aba já separa as POs com dois fornecedores', () => {
+    const r = parseProductionRows([
+      HEADER,
+      ['', 'Livro A', '', '', '1000', '0.5', '500', 'Sara', '', '', 'PO-067', ''],
+      ['', 'Livro B', '', '', '1000', '0.5', '500', 'Sara', '', '', 'PO-067', ''],
+      ['', 'Livro C', '', '', '1000', '0.5', '500', 'Nicola', '', '', 'PO-067', ''],
+    ]);
+    if ('error' in r) throw new Error(r.error);
+    expect(r.items.map((i) => i.orderCode)).toEqual(['PO-067', 'PO-067', null]);
+    expect(r.warnings[0]!.row).toBe(4);
   });
 });
 

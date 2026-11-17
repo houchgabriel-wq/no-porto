@@ -1,9 +1,9 @@
 // Ficha do item: cadastrar, alterar, ver (leitor, sem preço) e excluir (admin). Fornecedor e PO são
 // digitados, com sugestão dos que já existem; os novos são criados ao salvar.
 
-import { useEffect, useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { isbnProblem } from '../core/isbn';
-import { NO_ORDER, NO_SUPPLIER, normalizeOrderCode, STATUS_LABELS, type Item } from '../core/items';
+import { NO_ORDER, NO_SUPPLIER, normalizeOrderCode, orderOwners, STATUS_LABELS, type Item } from '../core/items';
 import { formatQuantity, formatUsd, itemTotalCents, parseUnitPrice, unitPriceInput } from '../core/money';
 import { can } from '../core/roles';
 import { api, ApiError, type ItemInput, type Me, type ProductionData } from './api';
@@ -64,7 +64,7 @@ function validate(d: Draft, seeValues: boolean): { input: ItemInput } | { error:
   let price: number | null = null;
   if (seeValues && d.unitPrice.trim()) {
     price = parseUnitPrice(d.unitPrice);
-    if (price === null) return { error: 'Preço unitário inválido. Use até seis casas decimais, como 0,575.', field: 'unitPrice' };
+    if (price === null) return { error: 'Preço unitário inválido. Use até três casas decimais, como 0,575.', field: 'unitPrice' };
   }
   return {
     input: {
@@ -90,6 +90,12 @@ export function ItemDialog({ state, me, data, production, onClose, onToast }: Pr
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const ids = useId();
+  // De quem é cada PO, para a sugestão mostrar ("PO-063 · Sara") e evitar misturar fornecedores.
+  const owners = useMemo(() => {
+    const byId = orderOwners(data.items.map((i) => ({ order: i.purchaseOrderId, supplier: i.supplierId })));
+    const names = new Map(data.suppliers.map((s) => [s.id, s.name]));
+    return new Map([...byId].map(([orderId, supplierId]) => [orderId, names.get(supplierId) ?? '']));
+  }, [data.items, data.suppliers]);
 
   useEffect(() => {
     setDraft(draftFrom(item, data));
@@ -176,7 +182,7 @@ export function ItemDialog({ state, me, data, production, onClose, onToast }: Pr
             <input className="campo" {...field('orderCode')} list={`${ids}-pos`} value={draft.orderCode} onChange={(e) => set('orderCode')(e.target.value)} placeholder={NO_ORDER} />
             <datalist id={`${ids}-pos`}>
               {data.orders.map((o) => (
-                <option key={o.id} value={o.code} />
+                <option key={o.id} value={o.code} label={owners.get(o.id) ? `${o.code} · ${owners.get(o.id)}` : o.code} />
               ))}
             </datalist>
           </div>

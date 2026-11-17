@@ -39,7 +39,8 @@ npm run deploy            publica (quem roda é o Cloudflare, a cada push em mai
 
 - **Permissão se verifica no servidor.** Toda rota confere o perfil antes de ler ou gravar. A interface só esconde o que o perfil não pode usar.
 - **Leitor não vê valores.** Preços, totais, câmbio e pagamentos saem das respostas da API para o leitor; esconder na tela não basta.
-- **Dinheiro sem ponto flutuante.** Dólar em centavos, preço unitário em milionésimos de dólar, câmbio com quatro casas guardado como inteiro.
+- **Dinheiro sem ponto flutuante.** Dólar em centavos, preço unitário em milionésimos de dólar (com no máximo três casas decimais, então sempre múltiplo de 1.000), câmbio com quatro casas guardado como inteiro.
+- **Uma PO, um fornecedor.** Toda gravação que muda a PO ou o fornecedor de um item confere a regra no servidor.
 - **Segredos fora do repositório.** Nada de senha, token ou `.dev.vars` em commit. Segredos ficam no painel do Cloudflare.
 - **Senhas:** só hash com sal, nunca em texto, nunca em log.
 - **Regra de negócio mora em `src/core`**, sem depender de banco nem de navegador, e tem teste. Situação dos itens, atraso, saldo da PO, situação de pagamento, somas do painel e permissões são regras de negócio.

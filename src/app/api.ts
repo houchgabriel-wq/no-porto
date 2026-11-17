@@ -98,5 +98,5 @@ export const api = {
   createItem: (body: ItemInput) => request<{ item: Item }>('POST', '/api/items', body),
   updateItem: (id: string, body: Partial<ItemInput>) => request<{ item: Item }>('PATCH', `/api/items/${encodeURIComponent(id)}`, body),
   deleteItem: (id: string) => request<{ ok: true }>('DELETE', `/api/items/${encodeURIComponent(id)}`),
-  importProduction: (items: ImportedItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/production', { items }),
+  importProduction: (items: ImportedItem[]) => request<{ inserted: number; skipped: number; withoutOrder: string[] }>('POST', '/api/import/production', { items }),
 };

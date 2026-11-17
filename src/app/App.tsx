@@ -322,7 +322,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
         { header: 'pcs/ctn', width: 9, value: (r) => r.piecesPerCarton },
       ];
       if (data.seeValues) {
-        columns.push({ header: '$ unitário', width: 12, value: (r) => r.unitPrice ?? null, numFmt: '0.00####' });
+        columns.push({ header: '$ unitário', width: 12, value: (r) => r.unitPrice ?? null, numFmt: '0.00#' });
         columns.push({ header: '$ total', width: 14, value: (r) => r.total ?? null, numFmt: '#,##0.00' });
       }
       columns.push({ header: 'Observações', width: 40, value: (r) => r.notes });

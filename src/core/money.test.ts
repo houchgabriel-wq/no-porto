@@ -4,6 +4,7 @@ import {
   formatUsd,
   formatUsdShort,
   formatUsdWhole,
+  isValidUnitPrice,
   itemTotalCents,
   looksLikeReais,
   parseCents,
@@ -11,6 +12,7 @@ import {
   parseSheetUnitPrice,
   parseUnitPrice,
   reaisCents,
+  roundUnitPrice,
   unitPriceInput,
 } from './money';
 
@@ -36,14 +38,25 @@ describe('preço unitário', () => {
     expect(parseUnitPrice('R$2,06')).toBeNull();
     expect(parseUnitPrice('TBC')).toBeNull();
     expect(parseUnitPrice('-1')).toBeNull();
-    expect(parseUnitPrice('0.1234567')).toBeNull();
+    expect(parseUnitPrice('0.1234')).toBeNull();
     expect(parseUnitPrice('0.5800000')).toBe(580_000);
   });
 
-  it('da planilha, arredonda preço calculado com muitas casas, avisando', () => {
-    expect(parseSheetUnitPrice('0.653924268502582')).toEqual({ micros: 653_924, rounded: true });
-    expect(parseSheetUnitPrice('0.395748709122203')).toEqual({ micros: 395_749, rounded: true });
-    expect(parseSheetUnitPrice('0.9999995')).toEqual({ micros: 1_000_000, rounded: true });
+  it('preço com no máximo três casas', () => {
+    expect(isValidUnitPrice(575_000)).toBe(true);
+    expect(isValidUnitPrice(653_924)).toBe(false);
+    expect(isValidUnitPrice(-1000)).toBe(false);
+    expect(roundUnitPrice(653_924)).toBe(654_000);
+    expect(roundUnitPrice(395_749)).toBe(396_000);
+    expect(roundUnitPrice(478_500)).toBe(479_000);
+    expect(roundUnitPrice(575_000)).toBe(575_000);
+  });
+
+  it('da planilha, arredonda na terceira casa, avisando', () => {
+    expect(parseSheetUnitPrice('0.653924268502582')).toEqual({ micros: 654_000, rounded: true });
+    expect(parseSheetUnitPrice('0.395748709122203')).toEqual({ micros: 396_000, rounded: true });
+    expect(parseSheetUnitPrice('0.9995')).toEqual({ micros: 1_000_000, rounded: true });
+    expect(parseSheetUnitPrice('0.4785')).toEqual({ micros: 479_000, rounded: true });
     expect(parseSheetUnitPrice('0.575')).toEqual({ micros: 575_000, rounded: false });
     expect(parseSheetUnitPrice('R$2,06')).toBeNull();
   });
@@ -65,10 +78,12 @@ describe('totais', () => {
   });
 
   it('arredonda ao centavo', () => {
-    // 3 × 0,3335 = 1,0005 → 1,00
-    expect(itemTotalCents(3, 333_500)).toBe(100);
-    // 7 × 0,0015 = 0,0105 → 0,01
-    expect(itemTotalCents(7, 1_500)).toBe(1);
+    // 3 × 0,335 = 1,005 → 1,01 (meio para cima)
+    expect(itemTotalCents(3, 335_000)).toBe(101);
+    // 7 × 0,001 = 0,007 → 0,01
+    expect(itemTotalCents(7, 1_000)).toBe(1);
+    // 30.000 × 0,654 = 19.620,00
+    expect(itemTotalCents(30_000, 654_000)).toBe(1_962_000);
   });
 
   it('valor em reais pelo câmbio do pagamento', () => {

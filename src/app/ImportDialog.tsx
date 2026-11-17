@@ -16,7 +16,7 @@ type Step =
   | { kind: 'lendo' }
   | { kind: 'conferir'; file: string; report: ImportReport }
   | { kind: 'gravando'; done: number; total: number }
-  | { kind: 'pronto'; inserted: number; skipped: number };
+  | { kind: 'pronto'; inserted: number; skipped: number; withoutOrder: string[] };
 
 export function ImportDialog({ open, production, onClose, onToast }: { open: boolean; production: Production; onClose: () => void; onToast: (msg: string) => void }) {
   const [step, setStep] = useState<Step>({ kind: 'escolher' });
@@ -50,6 +50,7 @@ export function ImportDialog({ open, production, onClose, onToast }: { open: boo
     const items = report.items;
     let inserted = 0;
     let skipped = 0;
+    const withoutOrder: string[] = [];
     setError(null);
     setStep({ kind: 'gravando', done: 0, total: items.length });
     try {
@@ -58,10 +59,11 @@ export function ImportDialog({ open, production, onClose, onToast }: { open: boo
           const res = await api.importProduction(items.slice(i, i + IMPORT_BATCH));
           inserted += res.inserted;
           skipped += res.skipped;
+          withoutOrder.push(...res.withoutOrder);
           setStep({ kind: 'gravando', done: Math.min(items.length, i + IMPORT_BATCH), total: items.length });
         }
       });
-      setStep({ kind: 'pronto', inserted, skipped });
+      setStep({ kind: 'pronto', inserted, skipped, withoutOrder });
       onToast(`${inserted} itens gravados.`);
     } catch (e) {
       // As partes já gravadas ficam; mandar de novo pula o que já entrou.
@@ -115,6 +117,18 @@ export function ImportDialog({ open, production, onClose, onToast }: { open: boo
                 {step.skipped > 0 && ` ${step.skipped} já estavam cadastrados e foram pulados.`}
               </span>
             </p>
+            {step.withoutOrder.length > 0 && (
+              <details className="conferir" open>
+                <summary>
+                  {step.withoutOrder.length} {step.withoutOrder.length === 1 ? 'item entrou' : 'itens entraram'} sem PO, porque a PO já é de outro fornecedor
+                </summary>
+                <ul>
+                  {step.withoutOrder.map((m, i) => (
+                    <li key={i}>{m}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </div>
           <div className="dlg-pe">
             <button type="button" className="btn primario" onClick={close}>

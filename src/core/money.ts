@@ -1,8 +1,16 @@
 // Dinheiro sem ponto flutuante (SPEC.md, seção 6): dólar em centavos, preço unitário em milionésimos
-// de dólar (a planilha tem preços como 0,575 e 2,674) e câmbio multiplicado por 10.000.
+// de dólar e câmbio multiplicado por 10.000. O preço tem no máximo três casas decimais (decidido pelo
+// Gabriel em 17/11/2026), então o valor guardado é sempre múltiplo de 1.000 milionésimos.
 
-/** Casas decimais aceitas no preço unitário. */
-export const PRICE_DECIMALS = 6;
+/** Casas decimais do preço unitário. */
+export const PRICE_DECIMALS = 3;
+/** Milionésimos de dólar em cada milésimo (a menor fração do preço). */
+const MICROS_PER_STEP = 1_000;
+
+/** O preço guardado respeita as três casas? */
+export function isValidUnitPrice(micros: number): boolean {
+  return Number.isSafeInteger(micros) && micros >= 0 && micros % MICROS_PER_STEP === 0;
+}
 
 /**
  * Lê um número escrito à mão ou vindo da planilha ("0.575", "0,575", "1.234,56", "1,234.56", "US$ 2.80")
@@ -46,20 +54,26 @@ export function parseScaled(text: string, decimals: number, opts: { round?: bool
   return Number.isSafeInteger(value) ? value : null;
 }
 
-/** Preço unitário em dólar → milionésimos. */
+/** Preço unitário em dólar (até três casas) → milionésimos. */
 export function parseUnitPrice(text: string): number | null {
-  return parseScaled(text, PRICE_DECIMALS);
+  const v = parseScaled(text, PRICE_DECIMALS);
+  return v === null ? null : v * MICROS_PER_STEP;
 }
 
 /**
- * Preço unitário vindo da planilha, que às vezes tem um preço calculado com muitas casas
- * (0,653924268502582): arredonda para seis casas. `rounded` avisa que houve arredondamento.
+ * Preço unitário vindo da planilha, que às vezes tem mais de três casas (0,575 entra como está;
+ * 0,653924268502582 vira 0,654): arredonda na terceira casa. `rounded` avisa que houve arredondamento.
  */
 export function parseSheetUnitPrice(text: string): { micros: number; rounded: boolean } | null {
   const exact = parseScaled(text, PRICE_DECIMALS);
-  if (exact !== null) return { micros: exact, rounded: false };
-  const micros = parseScaled(text, PRICE_DECIMALS, { round: true });
-  return micros === null ? null : { micros, rounded: true };
+  if (exact !== null) return { micros: exact * MICROS_PER_STEP, rounded: false };
+  const steps = parseScaled(text, PRICE_DECIMALS, { round: true });
+  return steps === null ? null : { micros: steps * MICROS_PER_STEP, rounded: true };
+}
+
+/** Arredonda um preço já guardado para três casas (meio para cima). */
+export function roundUnitPrice(micros: number): number {
+  return Math.round(micros / MICROS_PER_STEP) * MICROS_PER_STEP;
 }
 
 /** Valor em dólar → centavos. */
@@ -111,10 +125,11 @@ export function formatUsdShort(cents: number): string {
   return `US$ ${Math.round(v).toLocaleString('pt-BR')}`;
 }
 
-/** Preço unitário com as casas que ele tem, no mínimo duas: "US$ 0,575", "US$ 2,80". */
+/** Preço unitário com duas ou três casas: "US$ 0,575", "US$ 2,80". */
 export function formatUnitPrice(micros: number): string {
-  const whole = Math.floor(micros / 1_000_000);
-  let frac = String(micros % 1_000_000).padStart(PRICE_DECIMALS, '0').replace(/0+$/, '');
+  const steps = Math.round(micros / MICROS_PER_STEP);
+  const whole = Math.floor(steps / 10 ** PRICE_DECIMALS);
+  let frac = String(steps % 10 ** PRICE_DECIMALS).padStart(PRICE_DECIMALS, '0').replace(/0+$/, '');
   if (frac.length < 2) frac = frac.padEnd(2, '0');
   return `US$ ${whole.toLocaleString('pt-BR')},${frac}`;
 }

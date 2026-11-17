@@ -4,6 +4,8 @@ import {
   filterItems,
   itemForViewer,
   normalizeOrderCode,
+  orderOwners,
+  orderSupplierProblem,
   searchKey,
   sortItems,
   totals,
@@ -153,5 +155,33 @@ describe('ordenação da tabela', () => {
   it('por produto, sem acento', () => {
     const sorted = sortItems(items, { key: 'description', dir: 1 }, orders, suppliers).map((i) => i.description[0]);
     expect(sorted).toEqual(['C', 'C', 'P', 'P']);
+  });
+});
+
+describe('uma PO, um fornecedor', () => {
+  it('o dono da PO é o fornecedor com mais itens; no empate, o primeiro', () => {
+    const owners = orderOwners([
+      { order: 'PO-063', supplier: 'Claire' },
+      { order: 'PO-063', supplier: 'Sara' },
+      { order: 'PO-063', supplier: 'Sara' },
+      { order: 'PO-067', supplier: 'Sara' },
+      { order: 'PO-067', supplier: 'Nicola' },
+      { order: 'PO-070', supplier: null },
+      { order: null, supplier: 'Sara' },
+    ]);
+    expect([...owners]).toEqual([
+      ['PO-063', 'Sara'],
+      ['PO-067', 'Sara'],
+    ]);
+  });
+
+  it('recusa item de outro fornecedor na PO', () => {
+    const sara = { id: 's1', name: 'Sara' };
+    const claire = { id: 's2', name: 'Claire' };
+    expect(orderSupplierProblem('PO-063', claire, [sara, sara])).toBe('A PO-063 é de Sara. Uma PO tem um fornecedor só: use outra PO para o item de Claire.');
+    expect(orderSupplierProblem('PO-063', sara, [sara])).toBeNull();
+    expect(orderSupplierProblem('PO-063', sara, [])).toBeNull();
+    // Item sem fornecedor não briga com ninguém.
+    expect(orderSupplierProblem('PO-063', null, [sara])).toBeNull();
   });
 });

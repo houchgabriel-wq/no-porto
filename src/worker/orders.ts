@@ -2,9 +2,10 @@
 // Toda rota confere o perfil; preço e total saem das respostas para quem não vê valores.
 
 import { z } from 'zod';
-import { IMPORT_BATCH, importKey, newImportItems } from '../core/importProduction';
+import { IMPORT_BATCH, importKey, newImportItems, separateMixedOrders } from '../core/importProduction';
 import { isbnDigits, isbnProblem } from '../core/isbn';
-import { itemForViewer, normalizeOrderCode, searchKey, titleKey, type Item, type ItemStatus, type PurchaseOrder, type Supplier } from '../core/items';
+import { isValidUnitPrice } from '../core/money';
+import { itemForViewer, normalizeOrderCode, orderOwners, orderSupplierProblem, searchKey, titleKey, type Item, type ItemStatus, type PurchaseOrder, type Supplier } from '../core/items';
 import { can } from '../core/roles';
 import type { Session } from './auth';
 import type { Env } from './env';
@@ -65,6 +66,7 @@ const unitPriceMicros = z
   .int('Preço inválido.')
   .min(0, 'O preço não pode ser negativo.')
   .max(1_000_000_000, 'Preço grande demais.')
+  .refine(isValidUnitPrice, 'O preço unitário tem no máximo três casas decimais.')
   .nullable();
 const notes = z.string().max(2000, 'As observações podem ter no máximo 2.000 caracteres.').transform((s) => s.trim());
 
@@ -146,6 +148,35 @@ function toItem(row: ItemRow): Item {
 async function findItem(env: Env, id: string): Promise<Item | null> {
   const row = await env.DB.prepare(`${ITEM_SELECT} WHERE i.id = ? AND i.deleted_at IS NULL`).bind(id).first<ItemRow>();
   return row ? toItem(row) : null;
+}
+
+/**
+ * Uma PO tem um fornecedor só: confere se o item (com este fornecedor) pode ficar na PO, olhando os
+ * outros itens dela. Lança erro 409 com a explicação quando não pode.
+ */
+async function checkOrderSupplier(env: Env, orderCode: string | null, supplierName: string | null, exceptItemId: string): Promise<void> {
+  if (!orderCode || !supplierName) return;
+  const { results } = await env.DB.prepare(
+    `SELECT DISTINCT s.id, s.name FROM order_items i
+       JOIN purchase_orders o ON o.id = i.purchase_order_id JOIN suppliers s ON s.id = i.supplier_id
+      WHERE o.code = ? AND i.deleted_at IS NULL AND i.id <> ?`,
+  )
+    .bind(orderCode, exceptItemId)
+    .all<{ id: string; name: string }>();
+  // O fornecedor pelo nome (o formulário manda o nome): "sara" é a Sara já cadastrada.
+  const same = results.find((r) => searchKey(r.name) === searchKey(supplierName));
+  const problem = orderSupplierProblem(orderCode, { id: same?.id ?? '#novo', name: same?.name ?? supplierName }, results);
+  if (problem) throw new HttpError(409, problem);
+}
+
+/** Dono de cada PO já cadastrada (código → nome do fornecedor), pela regra de orderOwners. */
+async function savedOrderOwners(env: Env): Promise<Map<string, string>> {
+  const { results } = await env.DB.prepare(
+    `SELECT o.code, s.name FROM order_items i
+       JOIN purchase_orders o ON o.id = i.purchase_order_id JOIN suppliers s ON s.id = i.supplier_id
+      WHERE i.deleted_at IS NULL ORDER BY i.created_at, i.rowid`,
+  ).all<{ code: string; name: string }>();
+  return orderOwners(results.map((r) => ({ order: r.code.toUpperCase(), supplier: r.name })));
 }
 
 function eventStatement(env: Env, entityId: string, userId: string, type: string, detail: unknown, at: string): D1PreparedStatement {
@@ -251,6 +282,7 @@ async function getProduction(env: Env, session: Session): Promise<Response> {
 async function createItem(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
   checkMutation(request);
   const input = await readBody(request, createItemBody);
+  await checkOrderSupplier(env, input.orderCode, input.supplier, '');
   const at = now.toISOString();
   const refs = await loadRefs(env, at);
   const id = crypto.randomUUID();
@@ -308,6 +340,11 @@ async function updateItem(request: Request, env: Env, session: Session, id: stri
     })
     .map((k) => ({ field: TRACKED[k], from: old[k as keyof typeof old], to: next[k as keyof typeof next] }));
   if (changes.length === 0) return json({ item: itemForViewer(before, true) });
+  // Só confere a regra da PO quando a PO ou o fornecedor mudam; assim, um item antigo de uma PO com
+  // dois fornecedores ainda pode ter outros campos corrigidos.
+  if (changes.some((c) => c.field === TRACKED.orderCode || c.field === TRACKED.supplier)) {
+    await checkOrderSupplier(env, next.orderCode, next.supplier, id);
+  }
 
   // Produto muda quando muda o ISBN ou, sem ISBN, o nome.
   const productId = next.isbn !== old.isbn || (!next.isbn && titleKey(next.description) !== titleKey(old.description)) ? refs.product(next.isbn, next.description) : before.productId;
@@ -352,12 +389,14 @@ async function importProduction(request: Request, env: Env, session: Session, no
   const keys = existing.results.map((r) =>
     importKey({ orderCode: r.order_code, isbn: r.isbn, description: r.description, quantity: r.quantity, unitPriceMicros: r.unit_price_micros }),
   );
-  const keep = newImportItems(body.items, keys);
-  const skipped = body.items.length - keep.length;
+  // Uma PO tem um fornecedor só: vale o dono das POs já cadastradas.
+  const { items, moved } = separateMixedOrders(body.items, await savedOrderOwners(env));
+  const keep = newImportItems(items, keys);
+  const skipped = items.length - keep.length;
 
   const statements: D1PreparedStatement[] = [];
   for (const index of keep) {
-    const input = body.items[index]!;
+    const input = items[index]!;
     const id = crypto.randomUUID();
     const links = { productId: refs.product(input.isbn, input.description), supplierId: refs.supplier(input.supplier), orderId: refs.order(input.orderCode) };
     statements.push(insertItem(env, id, input, links, session.user.id, at));
@@ -365,7 +404,7 @@ async function importProduction(request: Request, env: Env, session: Session, no
   }
   // Fornecedores, POs e produtos novos primeiro, porque os itens apontam para eles.
   if (statements.length) await env.DB.batch([...refs.statements, ...statements]);
-  return json({ inserted: statements.length / 2, skipped }, 201);
+  return json({ inserted: statements.length / 2, skipped, withoutOrder: moved.map((m) => m.message) }, 201);
 }
 
 export async function routeOrders(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {

@@ -246,3 +246,39 @@ export function sortItems(items: readonly Item[], sort: ItemSort, orders: readon
     return c * sort.dir;
   });
 }
+
+/**
+ * Uma PO tem um fornecedor só (decidido pelo Gabriel em 17/11/2026). O dono de cada PO é o fornecedor
+ * com mais itens nela; no empate, o do primeiro item. Itens sem fornecedor não contam nem atrapalham.
+ * Recebe os itens na ordem em que foram cadastrados (ou em que aparecem na planilha).
+ */
+export function orderOwners<T>(items: readonly { order: T | null; supplier: string | null }[]): Map<T, string> {
+  const counts = new Map<T, Map<string, { n: number; first: number }>>();
+  items.forEach((item, i) => {
+    if (item.order === null || item.supplier === null) return;
+    const bySupplier = counts.get(item.order) ?? new Map<string, { n: number; first: number }>();
+    counts.set(item.order, bySupplier);
+    const c = bySupplier.get(item.supplier) ?? { n: 0, first: i };
+    c.n += 1;
+    bySupplier.set(item.supplier, c);
+  });
+  const owners = new Map<T, string>();
+  for (const [order, bySupplier] of counts) {
+    let best: [string, { n: number; first: number }] | null = null;
+    for (const entry of bySupplier) if (!best || entry[1].n > best[1].n || (entry[1].n === best[1].n && entry[1].first < best[1].first)) best = entry;
+    owners.set(order, best![0]);
+  }
+  return owners;
+}
+
+/**
+ * Confere se o item pode ficar na PO: a PO não pode ter itens de outro fornecedor. `others` são os
+ * fornecedores dos outros itens da PO. Devolve a mensagem de erro, ou null.
+ */
+export function orderSupplierProblem(orderCode: string, supplier: { id: string; name: string } | null, others: readonly { id: string; name: string }[]): string | null {
+  if (!supplier) return null;
+  const foreign = others.filter((o) => o.id !== supplier.id);
+  if (foreign.length === 0) return null;
+  const names = [...new Set(foreign.map((o) => o.name))].join(' e ');
+  return `A ${orderCode} é de ${names}. Uma PO tem um fornecedor só: use outra PO para o item de ${supplier.name}.`;
+}

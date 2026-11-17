@@ -55,6 +55,27 @@ describe('cadastro de itens', () => {
     expect(await bad({ description: '   ' })).toBe('Informe o produto.');
   });
 
+  it('preço com no máximo três casas', async () => {
+    const res = await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: { ...BASE, unitPriceMicros: 575_500 } });
+    expect(res.status).toBe(400);
+    expect(res.data.error).toBe('O preço unitário tem no máximo três casas decimais.');
+  });
+
+  it('uma PO tem um fornecedor só', async () => {
+    const { item } = (await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: BASE })).data;
+    const other = await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: { ...BASE, description: 'Outro livro', supplier: 'Sara' } });
+    expect(other.status).toBe(409);
+    expect(other.data.error).toBe('A PO-063 é de Claire. Uma PO tem um fornecedor só: use outra PO para o item de Sara.');
+    // O mesmo fornecedor, escrito de outro jeito, pode.
+    expect((await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: { ...BASE, description: 'Outro livro', supplier: 'CLAIRE' } })).status).toBe(201);
+    // Trocar o fornecedor de um item da PO também é conferido.
+    const change = await app.call('PATCH', `/api/items/${item.id}`, { cookie: who.editor.cookie, body: { supplier: 'Sara' } });
+    expect(change.status).toBe(409);
+    // Levar para outra PO resolve.
+    const moved = await app.call('PATCH', `/api/items/${item.id}`, { cookie: who.editor.cookie, body: { supplier: 'Sara', orderCode: 'PO-070' } });
+    expect(moved.status).toBe(200);
+  });
+
   it('item sem preço, sem PO e sem fornecedor é aceito', async () => {
     const res = await app.call('POST', '/api/items', {
       cookie: who.editor.cookie,
@@ -130,7 +151,7 @@ describe('carga da aba Produção', () => {
   it('grava os itens, com fornecedores, POs e produtos', async () => {
     const res = await app.call('POST', '/api/import/production', { cookie: who.admin.cookie, body: { items: rows } });
     expect(res.status).toBe(201);
-    expect(res.data).toEqual({ inserted: 5, skipped: 0 });
+    expect(res.data).toEqual({ inserted: 5, skipped: 0, withoutOrder: [] });
     const data = await production(who.admin.cookie);
     expect(data.items).toHaveLength(5);
     expect(data.suppliers.map((s: { name: string }) => s.name)).toEqual(['Claire', 'Nicola', 'Sara']);
@@ -143,7 +164,7 @@ describe('carga da aba Produção', () => {
   it('mandar a mesma planilha de novo não repete itens', async () => {
     await app.call('POST', '/api/import/production', { cookie: who.admin.cookie, body: { items: rows } });
     const again = await app.call('POST', '/api/import/production', { cookie: who.admin.cookie, body: { items: rows } });
-    expect(again.data).toEqual({ inserted: 0, skipped: 5 });
+    expect(again.data).toEqual({ inserted: 0, skipped: 5, withoutOrder: [] });
     expect((await production(who.admin.cookie)).items).toHaveLength(5);
   });
 
@@ -153,6 +174,18 @@ describe('carga da aba Produção', () => {
     const res = await app.call('POST', '/api/import/production', { cookie: who.admin.cookie, body: { items: many } });
     expect(res.data.inserted).toBe(500);
     expect((app.env.DB as unknown as { queries: number }).queries - before).toBeLessThan(10);
+  });
+
+  it('item cuja PO já é de outro fornecedor entra sem PO, com a PO nas observações', async () => {
+    await app.call('POST', '/api/import/production', { cookie: who.admin.cookie, body: { items: rows } });
+    const res = await app.call('POST', '/api/import/production', {
+      cookie: who.admin.cookie,
+      body: { items: [{ ...rows[1]!, description: 'Livro da Claire', supplier: 'Claire', row: 9 }] },
+    });
+    expect(res.data.inserted).toBe(1);
+    expect(res.data.withoutOrder).toEqual(['"Livro da Claire": a PO-046 é de Sara e este item é de Claire; entra sem PO.']);
+    const item = (await production(who.admin.cookie)).items.find((i: { description: string }) => i.description === 'Livro da Claire');
+    expect(item).toMatchObject({ purchaseOrderId: null, notes: 'PO na planilha: PO-046 (a PO é de Sara)' });
   });
 
   it('recusa ISBN inválido mesmo vindo da carga', async () => {
