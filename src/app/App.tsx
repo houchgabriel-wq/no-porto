@@ -401,7 +401,10 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const current: View = view === 'usuarios' && !isAdmin ? 'painel' : view;
+  // O perfil Embarques só tem a tela de embarques.
+  const seesAll = can(user.role, 'view_all');
+  const current: View = !seesAll ? 'embarques' : view === 'usuarios' && !isAdmin ? 'painel' : view;
+  const tabs = seesAll ? TABS : TABS.filter((t) => t.view === 'embarques');
   // No celular, as abas rolam de lado: a aba atual fica à vista.
   useEffect(() => {
     document.querySelector('.abas .aba[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -637,7 +640,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
       <header className="topo">
         <Brand />
         <nav className="abas" aria-label="Visões">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <a key={t.view} className="aba" href={`#${t.view}`} aria-current={current === t.view ? 'page' : undefined}>
               <Icon name={t.icon} />
               {t.label}
@@ -712,7 +715,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                   Carregando o histórico…
                 </p>
               )
-            ) : data.items.length === 0 && data.invoices.length === 0 ? (
+            ) : seesAll && data.items.length === 0 && data.invoices.length === 0 ? (
               <Welcome user={user} onImport={canImport ? () => setFullImport(true) : undefined} onNew={canEdit ? () => setDialog({ mode: 'new' }) : undefined} />
             ) : current === 'painel' ? (
               <>
@@ -786,7 +789,9 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
         )}
       </main>
 
-      {data && <ItemDialog state={dialog} me={user} data={data} production={production} onClose={() => setDialog(null)} onToast={showToast} onProduct={setProduct} />}
+      {data && (
+        <ItemDialog state={dialog} me={user} data={data} production={production} onClose={() => setDialog(null)} onToast={showToast} onProduct={seesAll ? setProduct : undefined} />
+      )}
       {canImport && (
         <ImportDialog
           sheet={importing}

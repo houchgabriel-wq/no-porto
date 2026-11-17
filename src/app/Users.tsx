@@ -9,13 +9,17 @@ import { Icon, type IconName } from './icons';
 const ROLE_HINTS: Record<Role, string> = {
   admin: 'Tudo, inclusive usuários, carga de planilha e exclusões',
   editor: 'Cadastra e altera POs, embarques e pagamentos; vê valores',
-  leitor: 'Só acompanha, sem ver preços e valores',
+  consulta: 'Vê tudo, com preços e valores, mas não altera nada',
+  leitor: 'Vê tudo, sem preços e valores, e não altera nada',
+  embarques: 'Vê só os produtos embarcados, sem preços e valores',
 };
 
 const ROLE_ICONS: Record<Role, IconName> = {
   admin: 'escudo',
   editor: 'lapis',
+  consulta: 'tabela',
   leitor: 'olho',
+  embarques: 'navio',
 };
 
 function message(e: unknown): string {
