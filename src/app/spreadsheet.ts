@@ -1,4 +1,5 @@
-// Planilhas: lê a aba da planilha de importação que a pessoa envia e gera as planilhas para baixar.
+// Planilhas: lê a aba da planilha de importação que a pessoa envia (.xlsx, ou .xls do Excel antigo) e
+// gera as planilhas para baixar.
 // A biblioteca de planilhas é grande, por isso só é carregada quando alguém usa uma destas funções.
 
 import type { Workbook, Worksheet } from 'exceljs';
@@ -40,7 +41,7 @@ async function loadWorkbook(file: ArrayBuffer): Promise<Workbook> {
   try {
     await wb.xlsx.load(file);
   } catch {
-    throw new Error('Não foi possível ler o arquivo. Envie uma planilha .xlsx (no Google Planilhas: Arquivo → Fazer download → Microsoft Excel).');
+    throw new Error('Não foi possível ler o arquivo. Envie uma planilha .xlsx ou .xls (no Google Planilhas: Arquivo → Fazer download → Microsoft Excel).');
   }
   return wb;
 }
@@ -59,11 +60,49 @@ function sheetRows(sheet: Worksheet, maxRows: number): string[][] {
 
 const sheetKey = (name: string) => name.normalize('NFC').trim().toLowerCase();
 
+/** O arquivo é do Excel antigo (.xls)? Esses começam com a assinatura do formato OLE. */
+function isLegacyXls(file: ArrayBuffer): boolean {
+  const b = new Uint8Array(file, 0, Math.min(8, file.byteLength));
+  return b.length === 8 && b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0;
+}
+
+/**
+ * Abas de um .xls como texto, com a biblioteca SheetJS (carregada só quando aparece um .xls). Datas
+ * viram dia/mês/ano e números saem sem os restos de ponto flutuante, como no .xlsx.
+ */
+async function legacyXlsSheets(file: ArrayBuffer, maxRows: number): Promise<{ name: string; rows: string[][] }[]> {
+  const XLSX = await import('xlsx');
+  let wb: ReturnType<typeof XLSX.read>;
+  try {
+    wb = XLSX.read(new Uint8Array(file), { type: 'array', cellDates: true });
+  } catch {
+    throw new Error('Não foi possível ler o arquivo .xls. Abra no Excel e salve como .xlsx.');
+  }
+  return wb.SheetNames.map((name) => {
+    const values = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[name]!, { header: 1, raw: true, defval: '', blankrows: true }).slice(0, maxRows);
+    const rows = values.map((row) =>
+      row.slice(0, 40).map((v) => {
+        if (v === null || v === undefined) return '';
+        if (v instanceof Date) return `${String(v.getDate()).padStart(2, '0')}/${String(v.getMonth() + 1).padStart(2, '0')}/${v.getFullYear()}`;
+        if (typeof v === 'number') return numberText(v);
+        return String(v);
+      }),
+    );
+    return { name, rows };
+  });
+}
+
 /**
  * Lê as abas pedidas da planilha como texto, linha a linha, abrindo o arquivo uma vez só. A aba que
  * não existe vem como null; `names` traz todas as abas do arquivo, para a mensagem de erro.
  */
 export async function readSheets<N extends string>(file: ArrayBuffer, wanted: readonly N[]): Promise<{ sheets: Record<N, string[][] | null>; names: string[] }> {
+  if (isLegacyXls(file)) {
+    const all = await legacyXlsSheets(file, IMPORT_MAX_ROWS);
+    const sheets = {} as Record<N, string[][] | null>;
+    for (const name of wanted) sheets[name] = all.find((s) => sheetKey(s.name) === sheetKey(name))?.rows ?? null;
+    return { sheets, names: all.map((s) => s.name) };
+  }
   const wb = await loadWorkbook(file);
   const sheets = {} as Record<N, string[][] | null>;
   for (const name of wanted) {
@@ -88,6 +127,7 @@ export async function readSheetRows(file: ArrayBuffer, sheetName: string): Promi
  * packing list e a invoice em abas diferentes). Lê no máximo 2.000 linhas e 40 colunas por aba.
  */
 export async function readWorkbook(file: ArrayBuffer): Promise<{ name: string; rows: string[][] }[]> {
+  if (isLegacyXls(file)) return legacyXlsSheets(file, 2_000);
   const wb = await loadWorkbook(file);
   return wb.worksheets.map((sheet) => ({ name: sheet.name, rows: sheetRows(sheet, 2_000) }));
 }

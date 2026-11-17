@@ -41,11 +41,6 @@ function containerLines(c: Container): { lines: DocumentLine[]; warnings: Docume
 }
 
 async function readShipmentFile(f: File): Promise<ShipmentFile> {
-  if (/\.xls$/i.test(f.name)) {
-    throw new Error(
-      `${f.name}: é do Excel antigo (.xls), que o app ainda não lê. Abra o arquivo e salve como .xlsx (no Excel: Arquivo → Salvar como → Pasta de Trabalho do Excel; no Google Planilhas: Arquivo → Fazer download → Microsoft Excel).`,
-    );
-  }
   const parsed = parseShipmentFile(await readFile(f), f.name);
   if ('error' in parsed) throw new Error(`${f.name}: ${parsed.error}`);
   return parsed;
@@ -304,7 +299,7 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
           </div>
           {containers.length === 0 && (
             <p className="dica-texto">
-              Escolha de uma vez a invoice e a packing list de cada container, em .xlsx. O app junta os arquivos de cada container (pelo número do container, pelas linhas e
+              Escolha de uma vez a invoice e a packing list de cada container (.xlsx ou .xls). O app junta os arquivos de cada container (pelo número do container, pelas linhas e
               pelo nome do arquivo); a quantidade e o preço vêm da invoice, e as peças por caixa, da packing list.
             </p>
           )}

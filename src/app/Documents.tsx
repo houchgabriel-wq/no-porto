@@ -13,7 +13,7 @@ import { Dialog, FormError } from './components';
 import { Icon } from './icons';
 import type { Production } from './production';
 
-const XLSX = '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const XLSX = '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel';
 
 export async function readFile(file: File) {
   const { readWorkbook } = await import('./spreadsheet');
