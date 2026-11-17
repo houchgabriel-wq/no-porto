@@ -280,12 +280,12 @@ export function importKey(item: { orderCode: string | null; isbn: string | null;
  * Quais itens da carga entram: linhas repetidas na planilha entram todas; o que já está cadastrado
  * é pulado uma vez para cada item igual que existe. Devolve as posições dos itens que entram.
  */
-export function newImportItems<T extends Parameters<typeof importKey>[0]>(incoming: readonly T[], existingKeys: readonly string[]): number[] {
+export function newImportItems<T>(incoming: readonly T[], existingKeys: readonly string[], keyOf: (item: T) => string): number[] {
   const left = new Map<string, number>();
   for (const k of existingKeys) left.set(k, (left.get(k) ?? 0) + 1);
   const keep: number[] = [];
   incoming.forEach((item, i) => {
-    const key = importKey(item);
+    const key = keyOf(item);
     const n = left.get(key) ?? 0;
     if (n > 0) left.set(key, n - 1);
     else keep.push(i);

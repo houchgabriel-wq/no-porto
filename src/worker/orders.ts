@@ -7,6 +7,7 @@ import { isbnDigits, isbnProblem } from '../core/isbn';
 import { isValidUnitPrice } from '../core/money';
 import { itemForViewer, normalizeOrderCode, orderOwners, orderSupplierProblem, searchKey, titleKey, type Item, type ItemStatus, type PurchaseOrder, type Supplier } from '../core/items';
 import { can } from '../core/roles';
+import { spDate, type Bill, type Invoice, type Payment } from '../core/shipments';
 import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, HttpError, json, readBody } from './http';
@@ -107,13 +108,14 @@ type ItemInput = z.output<typeof createItemBody>;
 
 // ---------- Banco ----------
 
-interface ItemRow {
+export interface ItemRow {
   id: string;
   product_id: string;
   isbn: string | null;
   description: string;
   supplier_id: string | null;
   purchase_order_id: string | null;
+  invoice_id: string | null;
   status: ItemStatus;
   quantity: number;
   pieces_per_carton: number | null;
@@ -123,11 +125,11 @@ interface ItemRow {
   updated_at: string;
 }
 
-const ITEM_SELECT = `SELECT i.id, i.product_id, p.isbn, i.description, i.supplier_id, i.purchase_order_id, i.status, i.quantity,
+export const ITEM_SELECT = `SELECT i.id, i.product_id, p.isbn, i.description, i.supplier_id, i.purchase_order_id, i.invoice_id, i.status, i.quantity,
        i.pieces_per_carton, i.unit_price_micros, i.notes, i.created_at, i.updated_at
   FROM order_items i JOIN products p ON p.id = i.product_id`;
 
-function toItem(row: ItemRow): Item {
+export function toItem(row: ItemRow): Item {
   return {
     id: row.id,
     productId: row.product_id,
@@ -135,6 +137,7 @@ function toItem(row: ItemRow): Item {
     description: row.description,
     supplierId: row.supplier_id,
     purchaseOrderId: row.purchase_order_id,
+    invoiceId: row.invoice_id,
     status: row.status,
     quantity: row.quantity,
     piecesPerCarton: row.pieces_per_carton,
@@ -145,7 +148,7 @@ function toItem(row: ItemRow): Item {
   };
 }
 
-async function findItem(env: Env, id: string): Promise<Item | null> {
+export async function findItem(env: Env, id: string): Promise<Item | null> {
   const row = await env.DB.prepare(`${ITEM_SELECT} WHERE i.id = ? AND i.deleted_at IS NULL`).bind(id).first<ItemRow>();
   return row ? toItem(row) : null;
 }
@@ -179,7 +182,7 @@ async function savedOrderOwners(env: Env): Promise<Map<string, string>> {
   return orderOwners(results.map((r) => ({ order: r.code.toUpperCase(), supplier: r.name })));
 }
 
-function eventStatement(env: Env, entityId: string, userId: string, type: string, detail: unknown, at: string): D1PreparedStatement {
+export function eventStatement(env: Env, entityId: string, userId: string, type: string, detail: unknown, at: string): D1PreparedStatement {
   return env.DB.prepare('INSERT INTO events (id, entity, entity_id, user_id, type, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(
     crypto.randomUUID(),
     'item',
@@ -196,7 +199,7 @@ function eventStatement(env: Env, entityId: string, userId: string, type: string
  * item (o plano gratuito da Cloudflare permite 50 consultas por pedido). O que falta é criado pelas
  * instruções em `statements`, gravadas junto com os itens.
  */
-async function loadRefs(env: Env, at: string) {
+export async function loadRefs(env: Env, at: string) {
   const [s, o, p] = await env.DB.batch([
     env.DB.prepare('SELECT id, name FROM suppliers'),
     env.DB.prepare('SELECT id, code FROM purchase_orders'),
@@ -251,22 +254,69 @@ async function loadRefs(env: Env, at: string) {
   };
 }
 
-function insertItem(env: Env, id: string, input: ItemInput, refs: { productId: string; supplierId: string | null; orderId: string | null }, userId: string, at: string) {
+export type ItemFieldsInput = Pick<ItemInput, 'description' | 'quantity' | 'piecesPerCarton' | 'unitPriceMicros' | 'notes'>;
+
+export function insertItem(
+  env: Env,
+  id: string,
+  input: ItemFieldsInput,
+  refs: { productId: string; supplierId: string | null; orderId: string | null; invoiceId?: string | null; status?: ItemStatus },
+  userId: string,
+  at: string,
+) {
   return env.DB.prepare(
-    `INSERT INTO order_items (id, product_id, description, supplier_id, purchase_order_id, status, quantity, pieces_per_carton,
+    `INSERT INTO order_items (id, product_id, description, supplier_id, purchase_order_id, invoice_id, status, quantity, pieces_per_carton,
                               unit_price_micros, notes, created_at, created_by, updated_at, updated_by)
-     VALUES (?, ?, ?, ?, ?, 'producao', ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(id, refs.productId, input.description, refs.supplierId, refs.orderId, input.quantity, input.piecesPerCarton, input.unitPriceMicros, input.notes, at, userId, at, userId);
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    id,
+    refs.productId,
+    input.description,
+    refs.supplierId,
+    refs.orderId,
+    refs.invoiceId ?? null,
+    refs.status ?? 'producao',
+    input.quantity,
+    input.piecesPerCarton,
+    input.unitPriceMicros,
+    input.notes,
+    at,
+    userId,
+    at,
+    userId,
+  );
 }
 
 // ---------- Rotas ----------
 
-async function getProduction(env: Env, session: Session): Promise<Response> {
+/** Quantos dias os embarques que chegaram continuam na tela de embarques (depois, vão para o histórico). */
+export const RECENT_ARRIVAL_DAYS = 60;
+
+/**
+ * Tudo o que as telas usam numa consulta só: fornecedores, POs, itens em produção e embarcados (e os
+ * que chegaram nos últimos 60 dias), BLs, invoices e pagamentos. O leitor não recebe preço, total nem
+ * pagamentos.
+ */
+async function getData(env: Env, session: Session, now: Date): Promise<Response> {
   const seeValues = can(session.user.role, 'see_values');
-  const [s, o, i] = await env.DB.batch([
+  const today = spDate(now);
+  const cutoff = new Date(Date.parse(`${today}T00:00:00Z`) - RECENT_ARRIVAL_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const [s, o, i, b, v, pay] = await env.DB.batch([
     env.DB.prepare('SELECT id, name FROM suppliers ORDER BY name COLLATE NOCASE'),
     env.DB.prepare('SELECT id, code, ordered_at, notes FROM purchase_orders'),
-    env.DB.prepare(`${ITEM_SELECT} WHERE i.status = 'producao' AND i.deleted_at IS NULL ORDER BY i.created_at, i.rowid`),
+    env.DB.prepare(
+      `${ITEM_SELECT}
+         LEFT JOIN invoices v ON v.id = i.invoice_id LEFT JOIN bills_of_lading b ON b.id = v.bill_of_lading_id
+        WHERE i.deleted_at IS NULL AND (i.status <> 'entregue' OR COALESCE(b.arrived_at, v.arrived_at) >= ?)
+        ORDER BY i.created_at, i.rowid`,
+    ).bind(cutoff),
+    env.DB.prepare('SELECT id, number, eta, arrived_at, notes FROM bills_of_lading WHERE arrived_at IS NULL OR arrived_at >= ?').bind(cutoff),
+    env.DB.prepare(
+      `SELECT v.id, v.number, v.ref, v.supplier_id, v.bill_of_lading_id, v.eta, v.arrived_at, v.notes
+         FROM invoices v LEFT JOIN bills_of_lading b ON b.id = v.bill_of_lading_id
+        WHERE COALESCE(b.arrived_at, v.arrived_at) IS NULL OR COALESCE(b.arrived_at, v.arrived_at) >= ?`,
+    ).bind(cutoff),
+    env.DB.prepare('SELECT id, invoice_id, paid_at, amount_cents, exchange_rate_e4, notes FROM payments ORDER BY created_at, rowid'),
   ]);
   const suppliers: Supplier[] = s!.results as Supplier[];
   const orders: PurchaseOrder[] = (o!.results as { id: string; code: string; ordered_at: string | null; notes: string }[]).map((r) => ({
@@ -276,7 +326,31 @@ async function getProduction(env: Env, session: Session): Promise<Response> {
     notes: r.notes,
   }));
   const items = (i!.results as ItemRow[]).map((r) => itemForViewer(toItem(r), seeValues));
-  return json({ suppliers, orders, items, seeValues });
+  const bills: Bill[] = (b!.results as { id: string; number: string; eta: string | null; arrived_at: string | null; notes: string }[]).map((r) => ({
+    id: r.id,
+    number: r.number,
+    eta: r.eta,
+    arrivedAt: r.arrived_at,
+    notes: r.notes,
+  }));
+  const invoiceRows = v!.results as { id: string; number: string; ref: string; supplier_id: string | null; bill_of_lading_id: string | null; eta: string | null; arrived_at: string | null; notes: string }[];
+  const invoices: Invoice[] = invoiceRows.map((r) => ({
+    id: r.id,
+    number: r.number,
+    ref: r.ref,
+    supplierId: r.supplier_id,
+    billId: r.bill_of_lading_id,
+    eta: r.eta,
+    arrivedAt: r.arrived_at,
+    notes: r.notes,
+  }));
+  const shown = new Set(invoices.map((x) => x.id));
+  const payments: Payment[] = seeValues
+    ? (pay!.results as { id: string; invoice_id: string; paid_at: string | null; amount_cents: number | null; exchange_rate_e4: number | null; notes: string }[])
+        .filter((r) => shown.has(r.invoice_id))
+        .map((r) => ({ id: r.id, invoiceId: r.invoice_id, paidAt: r.paid_at, amountCents: r.amount_cents, exchangeRateE4: r.exchange_rate_e4, notes: r.notes }))
+    : [];
+  return json({ today, suppliers, orders, items, bills, invoices, payments, seeValues });
 }
 
 async function createItem(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
@@ -342,6 +416,9 @@ async function updateItem(request: Request, env: Env, session: Session, id: stri
   if (changes.length === 0) return json({ item: itemForViewer(before, true) });
   // Só confere a regra da PO quando a PO ou o fornecedor mudam; assim, um item antigo de uma PO com
   // dois fornecedores ainda pode ter outros campos corrigidos.
+  if (before.invoiceId && changes.some((c) => c.field === TRACKED.supplier)) {
+    return error(409, 'Item embarcado: o fornecedor é o da invoice. Para trocar, desfaça o embarque primeiro.');
+  }
   if (changes.some((c) => c.field === TRACKED.orderCode || c.field === TRACKED.supplier)) {
     await checkOrderSupplier(env, next.orderCode, next.supplier, id);
   }
@@ -391,7 +468,7 @@ async function importProduction(request: Request, env: Env, session: Session, no
   );
   // Uma PO tem um fornecedor só: vale o dono das POs já cadastradas.
   const { items, moved } = separateMixedOrders(body.items, await savedOrderOwners(env));
-  const keep = newImportItems(items, keys);
+  const keep = newImportItems(items, keys, importKey);
   const skipped = items.length - keep.length;
 
   const statements: D1PreparedStatement[] = [];
@@ -409,7 +486,7 @@ async function importProduction(request: Request, env: Env, session: Session, no
 
 export async function routeOrders(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {
   const role = session.user.role;
-  if (key === 'GET /api/production') return getProduction(env, session);
+  if (key === 'GET /api/data') return getData(env, session, now);
 
   if (key === 'POST /api/import/production') {
     if (!can(role, 'import')) return error(403, 'Só o admin faz a carga da planilha.');

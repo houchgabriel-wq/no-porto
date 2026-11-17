@@ -95,7 +95,7 @@ describe('pagamento da invoice', () => {
   });
 
   it('total da invoice: soma dos itens com preço', () => {
-    const base = { id: '', productId: '', isbn: null, description: '', supplierId: 's', purchaseOrderId: null, status: 'embarcado' as const, piecesPerCarton: null, notes: '', createdAt: '', updatedAt: '' };
+    const base = { id: '', productId: '', isbn: null, description: '', supplierId: 's', purchaseOrderId: null, invoiceId: 'v', status: 'embarcado' as const, piecesPerCarton: null, notes: '', createdAt: '', updatedAt: '' };
     const items: Item[] = [
       { ...base, quantity: 9440, unitPriceMicros: 330_000 },
       { ...base, quantity: 100, unitPriceMicros: null },

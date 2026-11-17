@@ -9,6 +9,7 @@ import { hashPassword, newTempPassword, timingSafeEqual, verifyPassword, type Pa
 import type { Env } from './env';
 import { checkMutation, error, HttpError, json, readBody } from './http';
 import { routeOrders } from './orders';
+import { routeShipments } from './shipments';
 
 // ---------- Esquemas de entrada ----------
 
@@ -376,6 +377,8 @@ async function routeLoggedIn(
 
   const orders = await routeOrders(request, env, session, key, path, now);
   if (orders) return orders;
+  const shipments = await routeShipments(request, env, session, key, path, now);
+  if (shipments) return shipments;
 
   return error(404, 'Rota não encontrada.');
 }

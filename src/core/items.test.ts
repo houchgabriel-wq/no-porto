@@ -31,6 +31,7 @@ function item(over: Partial<Item>): Item {
     description: 'Livro',
     supplierId: 's1',
     purchaseOrderId: 'o63',
+    invoiceId: null,
     status: 'producao',
     quantity: 1000,
     piecesPerCarton: null,

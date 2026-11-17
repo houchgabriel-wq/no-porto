@@ -9,6 +9,7 @@ const item: Item = {
   description: 'Livro Café com Aristóteles',
   supplierId: 's',
   purchaseOrderId: null,
+  invoiceId: null,
   status: 'producao',
   quantity: 6000,
   piecesPerCarton: 40,

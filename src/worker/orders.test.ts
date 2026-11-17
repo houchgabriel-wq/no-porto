@@ -20,7 +20,7 @@ const BASE = {
   notes: '',
 };
 
-const production = async (cookie: string) => (await app.call('GET', '/api/production', { cookie })).data;
+const production = async (cookie: string) => (await app.call('GET', '/api/data', { cookie })).data;
 
 describe('cadastro de itens', () => {
   it('editor cadastra; fornecedor, PO e produto são criados na hora', async () => {
@@ -111,7 +111,7 @@ describe('permissões', () => {
     const { item } = (await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: BASE })).data;
     expect((await app.call('POST', '/api/items', { cookie: who.leitor.cookie, body: BASE })).status).toBe(403);
     expect((await app.call('PATCH', `/api/items/${item.id}`, { cookie: who.leitor.cookie, body: { quantity: 1 } })).status).toBe(403);
-    expect((await app.call('GET', '/api/production', { cookie: who.leitor.cookie })).status).toBe(200);
+    expect((await app.call('GET', '/api/data', { cookie: who.leitor.cookie })).status).toBe(200);
   });
 
   it('o leitor não recebe preço nem total', async () => {

@@ -166,13 +166,13 @@ describe('resumo da carga', () => {
   it('produtos diferentes com o mesmo ISBN não são repetição', () => {
     const box = { orderCode: 'PO-053', isbn: '9786597585427', description: 'Coleção Estratégia - Da Vinci - Box com 3 Livros', quantity: 10000, unitPriceMicros: null };
     const book = { ...box, description: 'O Livro dos Cinco Anéis - Da Vinci' };
-    expect(newImportItems([box, book], [])).toEqual([0, 1]);
+    expect(newImportItems([box, book], [], importKey)).toEqual([0, 1]);
   });
 
   it('linhas iguais na planilha entram todas; o que já existe é pulado uma vez por item cadastrado', () => {
     const x = { orderCode: 'PO-001', isbn: null, description: 'Livro', quantity: 100, unitPriceMicros: 1 };
-    expect(newImportItems([x, x], [])).toEqual([0, 1]);
-    expect(newImportItems([x, x], [importKey(x)])).toEqual([1]);
-    expect(newImportItems([x, x], [importKey(x), importKey(x)])).toEqual([]);
+    expect(newImportItems([x, x], [], importKey)).toEqual([0, 1]);
+    expect(newImportItems([x, x], [importKey(x)], importKey)).toEqual([1]);
+    expect(newImportItems([x, x], [importKey(x), importKey(x)], importKey)).toEqual([]);
   });
 });

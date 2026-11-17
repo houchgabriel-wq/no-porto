@@ -34,6 +34,8 @@ export interface Item {
   description: string;
   supplierId: string | null;
   purchaseOrderId: string | null;
+  /** Invoice em que o item embarcou; null enquanto está em produção. */
+  invoiceId: string | null;
   status: ItemStatus;
   quantity: number;
   piecesPerCarton: number | null;
