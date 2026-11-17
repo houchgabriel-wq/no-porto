@@ -4,16 +4,17 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
 
 - [x] **Marco 0: especificação.** Decisões, propostas e pendências registradas no repositório (17/11/2026).
 
-- [ ] **Marco 1: base, login e usuários.**
+- [x] **Marco 1: base, login e usuários.**
   Projeto criado a partir do No Prelo (Worker, React, D1, testes, CI), primeiro acesso, login, usuários com os perfis admin, editor e leitor. Publicação automática no Cloudflare.
   *Teste do Gabriel:* criar o admin, um editor e um leitor e entrar com cada um.
+  *Fechado em 17/11/2026:* no ar no Cloudflare; o Gabriel fez o primeiro acesso.
 
 - [ ] **Marco 2: POs em produção.**
   Fornecedores, produtos e POs com itens. Tabela com busca e filtros. Carga da aba Produção.
   *Teste do Gabriel:* conferir se o total em produção por fornecedor bate com a planilha.
 
 - [ ] **Marco 3: embarques e chegadas.**
-  BLs (número, data de saída, chegada prevista) com suas invoices; embarcar itens da PO (inteiros ou em parte); marcar entregue; lista de chegadas com atraso. Pagamentos por invoice com câmbio. Carga da aba Embarques.
+  BLs (número e chegada prevista) com suas invoices; embarcar itens da PO (inteiros ou em parte); marcar entregue; lista de chegadas com atraso. Pagamentos por invoice com câmbio. Carga da aba Embarques.
   *Teste do Gabriel:* embarcar itens de uma PO real e conferir os embarques do mês com a planilha.
 
 - [ ] **Marco 4: histórico e produtos.**
