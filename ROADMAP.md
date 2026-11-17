@@ -30,6 +30,11 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
   *Teste do Gabriel:* conferir os números do painel e usar o app por uma semana no lugar da planilha.
   *Pronto para o teste em 17/11/2026:* tela Fornecedores (com recebido por ano, nome e observações), recebido no ano no painel, Baixar .xlsx em todas as listas, cópia completa no formato da planilha (admin), revisão de acessibilidade sem violações e abas que rolam no celular.
 
+- [ ] **Marco 6: documentos dos fornecedores.**
+  Novo pedido pelo Excel da PO; novo embarque pela invoice ou packing list, tirando da produção do mesmo fornecedor, a mais antiga primeiro; registrar a chegada de cada invoice.
+  *Teste do Gabriel:* cadastrar a próxima PO pelo arquivo, registrar o próximo embarque pela invoice do fornecedor e marcar a chegada do próximo container.
+  *Pronto para o teste em 17/11/2026:* lidos sem erro os arquivos reais da PO-062 (Claire), PO-064 (Sara) e PO-065 (Nicola) e as invoices CTNR04 da Claire, HSC20260920 da Nicola e GN-509 da Brijbasi.
+
 ## Depois
 
 Sem prazo: ligação com o No Prelo pelo ISBN, custo final em reais por exemplar, previsão de embarque nas POs.
