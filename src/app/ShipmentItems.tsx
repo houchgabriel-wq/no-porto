@@ -5,11 +5,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NO_ORDER, NO_SUPPLIER, totals, totalsBySupplier, type Item } from '../core/items';
 import { formatQuantity, formatUnitPrice, formatUsd } from '../core/money';
-import { arrivalText, formatDay } from '../core/shipments';
+import { arrivalText, formatDay, PAYMENT_LABELS, type PaymentSummary } from '../core/shipments';
 import {
   EMPTY_SHIPPED_FILTERS,
   filterShipped,
   groupShipped,
+  invoicePayments,
   shippedRows,
   sortShipped,
   type ShippedFilters,
@@ -52,7 +53,8 @@ export function ShipmentItemsView({ data, onOpen, actions }: Props) {
   const rows = useMemo(() => shippedRows(data.items, data.invoices, data.bills, data.today), [data.items, data.invoices, data.bills, data.today]);
   const all = useMemo(() => totals(rows.map((r) => r.item), seeValues), [rows, seeValues]);
   const bySupplier = useMemo(() => totalsBySupplier(rows.map((r) => r.item), data.suppliers, seeValues), [rows, data.suppliers, seeValues]);
-  const shown = useMemo(() => filterShipped(rows, filters, data.orders, data.suppliers), [rows, filters, data.orders, data.suppliers]);
+  const payments = useMemo(() => invoicePayments(data.invoices, data.items, data.payments, seeValues), [data.invoices, data.items, data.payments, seeValues]);
+  const shown = useMemo(() => filterShipped(rows, filters, data.orders, data.suppliers, payments), [rows, filters, data.orders, data.suppliers, payments]);
   const sorted = useMemo(() => sortShipped(shown, sort, data.suppliers), [shown, sort, data.suppliers]);
   const groups = useMemo(
     () => (grouped ? groupShipped(shown, data.bills, data.invoices, data.suppliers, data.today, seeValues) : null),
@@ -63,8 +65,8 @@ export function ShipmentItemsView({ data, onOpen, actions }: Props) {
   const shownTotals = useMemo(() => totals(shown.map((r) => r.item), seeValues), [shown, seeValues]);
   const codes = useMemo(() => new Map(data.orders.map((o) => [o.id, o.code])), [data.orders]);
   const names = useMemo(() => new Map(data.suppliers.map((s) => [s.id, s.name])), [data.suppliers]);
-  const filtered = filters.query.trim() !== '' || filters.supplierId !== '' || filters.unitKey !== '';
-  const ctx: Ctx = { seeValues, codes, names, onOpen };
+  const filtered = filters.query.trim() !== '' || filters.supplierId !== '' || filters.unitKey !== '' || filters.payment !== '';
+  const ctx: Ctx = { seeValues, codes, names, onOpen, payments };
 
   return (
     <>
@@ -145,6 +147,19 @@ export function ShipmentItemsView({ data, onOpen, actions }: Props) {
             </option>
           ))}
         </select>
+        {seeValues && (
+          <>
+            <label className="so-leitor" htmlFor="embi-pag">
+              Pagamento
+            </label>
+            <select id="embi-pag" className="campo filtro-sel" value={filters.payment} onChange={(e) => setFilters({ ...filters, payment: e.target.value as ShippedFilters['payment'] })}>
+              <option value="">Pagamento: todos</option>
+              <option value="a_pagar">A pagar</option>
+              <option value="parcial">Pago em parte</option>
+              <option value="pago">Pago</option>
+            </select>
+          </>
+        )}
         <label className="marcar agrupar">
           <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} />
           Agrupar por embarque
@@ -184,6 +199,29 @@ interface Ctx {
   codes: Map<string, string>;
   names: Map<string, string>;
   onOpen: (item: Item) => void;
+  /** Situação de pagamento por invoice (vazio para quem não vê valores). */
+  payments: ReadonlyMap<string, PaymentSummary>;
+}
+
+function PaymentPill({ invoiceId, ctx }: { invoiceId: string | undefined; ctx: Ctx }) {
+  const pay = invoiceId ? ctx.payments.get(invoiceId) : undefined;
+  if (!pay) return null;
+  return <span className={`pilula pag ${pay.status}`}>{PAYMENT_LABELS[pay.status]}</span>;
+}
+
+/** Invoices do grupo com a situação de pagamento de cada uma. */
+function GroupPayments({ group, ctx }: { group: ShippedGroup; ctx: Ctx }) {
+  if (!ctx.seeValues) return null;
+  return (
+    <span className="grupo-pag">
+      {group.invoices.map((v) => (
+        <span key={v.id} className="grupo-pag-inv">
+          {group.invoices.length > 1 && <span className="mudo">{v.number}</span>}
+          <PaymentPill invoiceId={v.id} ctx={ctx} />
+        </span>
+      ))}
+    </span>
+  );
 }
 
 const COLUMNS: { key: ShippedSortKey; label: string; num?: boolean; values?: boolean }[] = [
@@ -198,7 +236,7 @@ const COLUMNS: { key: ShippedSortKey; label: string; num?: boolean; values?: boo
 
 function groupInfo(g: ShippedGroup, seeValues: boolean): string {
   const parts = [g.suppliers.join(', ')];
-  if (g.invoices.length > 1 || !g.label.startsWith('Invoice')) parts.push(g.invoices.length === 1 ? `invoice ${g.invoices[0]}` : `${g.invoices.length} invoices`);
+  if (g.invoices.length > 1 || !g.label.startsWith('Invoice')) parts.push(g.invoices.length === 1 ? `invoice ${g.invoices[0]!.number}` : `${g.invoices.length} invoices`);
   parts.push(itemsCount(g.items));
   if (seeValues) parts.push(`${formatQuantity(g.quantity)} ex.`);
   parts.push(arrivalText(g.state));
@@ -225,15 +263,18 @@ function Table({ rows, groups, ctx, sort, onSort }: { rows: ShippedRow[]; groups
                 </button>
               </th>
             ))}
+            <th className="num">Peças/caixa</th>
+            {ctx.seeValues && <th>Pagamento</th>}
           </tr>
         </thead>
         {groups ? (
           byGroup(rows, groups).map(({ group, rows: list }) => (
             <tbody key={group.unitKey}>
               <tr className="grupo-linha">
-                <th scope="rowgroup" colSpan={columns.length}>
+                <th scope="rowgroup" colSpan={columns.length + (ctx.seeValues ? 2 : 1)}>
                   <span className="grupo-po">{group.label}</span>
                   <span className="grupo-info">{groupInfo(group, ctx.seeValues)}</span>
+                  <GroupPayments group={group} ctx={ctx} />
                   <b className="grupo-valor">{headline(group)}</b>
                 </th>
               </tr>
@@ -288,6 +329,12 @@ function Row({ row, ctx }: { row: ShippedRow; ctx: Ctx }) {
           <td className="num forte">{item.totalCents == null ? <span className="mudo">—</span> : formatUsd(item.totalCents)}</td>
         </>
       )}
+      <td className="num mudo">{item.piecesPerCarton ?? '—'}</td>
+      {ctx.seeValues && (
+        <td>
+          <PaymentPill invoiceId={row.invoice?.id} ctx={ctx} />
+        </td>
+      )}
     </tr>
   );
 }
@@ -310,6 +357,7 @@ function Cards({ rows, groups, ctx }: { rows: ShippedRow[]; groups: ShippedGroup
             <span className="grupo-po">{group.label}</span>
             <b className="grupo-valor">{headline(group)}</b>
             <span className="grupo-info">{groupInfo(group, ctx.seeValues)}</span>
+            <GroupPayments group={group} ctx={ctx} />
           </h3>
           <ul className="itens-cartoes">
             {list.map((r) => (
@@ -334,9 +382,16 @@ function Card({ row, ctx }: { row: ShippedRow; ctx: Ctx }) {
           {supplier} · {row.unitLabel} · {row.eta ? `chega ${formatDay(row.eta)}` : 'sem previsão'}
         </span>
         <span className="item-cartao-num">
-          <span>{formatQuantity(item.quantity)} ex.</span>
+          <span>
+            {formatQuantity(item.quantity)} ex.{item.piecesPerCarton ? ` · ${formatQuantity(item.piecesPerCarton)} por caixa` : ''}
+          </span>
           {ctx.seeValues && <b>{item.totalCents == null ? 'Sem preço' : formatUsd(item.totalCents)}</b>}
         </span>
+        {ctx.seeValues && row.invoice && (
+          <span className="item-cartao-pag">
+            <PaymentPill invoiceId={row.invoice.id} ctx={ctx} />
+          </span>
+        )}
       </button>
     </li>
   );

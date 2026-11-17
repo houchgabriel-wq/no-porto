@@ -1131,3 +1131,9 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
 .carga-confirma { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .visao-troca { margin-bottom: 14px; }
 .tabela-embarcados td.num { white-space: nowrap; }
+/* Embarques por item: situação de pagamento das invoices no grupo e no cartão. */
+.grupo-pag { display: inline-flex; flex-wrap: wrap; gap: 6px 10px; margin-left: 10px; font-weight: 500; }
+.grupo-pag-inv { display: inline-flex; align-items: center; gap: 5px; }
+.grupo-cab .grupo-pag { margin-left: 0; flex-basis: 100%; }
+.item-cartao-pag { display: flex; }
+.grupo-pag .mudo { color: var(--tinta-2); }

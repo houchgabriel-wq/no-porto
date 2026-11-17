@@ -218,7 +218,9 @@ function InvoiceSection({
             <button type="button" className="abrir-item" onClick={() => onOpenItem(item)}>
               {item.description}
             </button>
-            <span className="num mudo">{formatQuantity(item.quantity)} ex.</span>
+            <span className="num mudo">
+              {formatQuantity(item.quantity)} ex.{item.piecesPerCarton ? ` · ${formatQuantity(item.piecesPerCarton)} por caixa` : ''}
+            </span>
             {data.seeValues && <span className="num">{item.totalCents == null ? 'Sem preço' : formatUsd(item.totalCents)}</span>}
             {canEdit && !arrived && (
               <button type="button" className="btn-texto" onClick={() => void act(() => api.unship(item.id), 'O item voltou para a produção.')}>

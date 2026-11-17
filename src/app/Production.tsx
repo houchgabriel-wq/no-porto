@@ -40,7 +40,7 @@ function useNarrow(): boolean {
 export function headline(t: Totals): string {
   if (t.valueCents === undefined) return `${formatQuantity(t.quantity)} ex.`;
   // Nenhum item com preço: "US$ 0" daria a impressão de que não custa nada.
-  if (t.valueCents === 0 && t.unpriced === t.items) return 'Sem preço';
+  if (t.valueCents === 0 && t.items > 0 && t.unpriced === t.items) return 'Sem preço';
   return formatUsdWhole(t.valueCents);
 }
 
