@@ -171,3 +171,24 @@ export function groupShipped(rows: readonly ShippedRow[], bills: readonly Bill[]
       suppliers: [...new Set(list.map((r) => (r.item.supplierId ? (names.get(r.item.supplierId) ?? NO_SUPPLIER) : NO_SUPPLIER)))].sort((a, b) => a.localeCompare(b, 'pt-BR')),
     }));
 }
+
+/**
+ * O que o perfil Embarques recebe (SPEC.md, seção 4): só os itens no mar, as invoices e os BLs deles,
+ * e as POs e os fornecedores que esses itens citam. Nada da produção nem do que já chegou.
+ */
+export function onlyShipped<T extends { items: Item[]; invoices: Invoice[]; bills: Bill[]; orders: PurchaseOrder[]; suppliers: Supplier[] }>(data: T): T {
+  const items = data.items.filter((i) => i.status === 'embarcado');
+  const invoiceIds = new Set(items.map((i) => i.invoiceId));
+  const invoices = data.invoices.filter((v) => invoiceIds.has(v.id));
+  const billIds = new Set(invoices.map((v) => v.billId));
+  const orderIds = new Set(items.map((i) => i.purchaseOrderId));
+  const supplierIds = new Set([...items.map((i) => i.supplierId), ...invoices.map((v) => v.supplierId)]);
+  return {
+    ...data,
+    items,
+    invoices,
+    bills: data.bills.filter((b) => billIds.has(b.id)),
+    orders: data.orders.filter((o) => orderIds.has(o.id)),
+    suppliers: data.suppliers.filter((s) => supplierIds.has(s.id)),
+  };
+}

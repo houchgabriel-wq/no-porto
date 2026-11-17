@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Item } from './items';
 import type { Bill, Invoice } from './shipments';
-import { filterShipped, groupShipped, invoicePayments, shippedRows, sortShipped, EMPTY_SHIPPED_FILTERS } from './shippedItems';
+import { filterShipped, groupShipped, invoicePayments, onlyShipped, shippedRows, sortShipped, EMPTY_SHIPPED_FILTERS } from './shippedItems';
 
 const today = '2026-11-17';
 const bills: Bill[] = [
@@ -107,5 +107,29 @@ describe('pagamento das invoices', () => {
     expect(f('pago')).toEqual(['a']);
     expect(f('parcial')).toEqual(['b']);
     expect(f('a_pagar')).toEqual(['c', 'd']);
+  });
+});
+
+describe('onlyShipped', () => {
+  it('só o que está no mar, com as invoices, os BLs, as POs e os fornecedores desses itens', () => {
+    const orders = [
+      { id: 'o1', code: 'PO-001', orderedAt: null, notes: '' },
+      { id: 'o2', code: 'PO-002', orderedAt: null, notes: '' },
+    ];
+    const data = {
+      items: [item('a', 'v1', { purchaseOrderId: 'o1' }), item('e', null, { purchaseOrderId: 'o2', supplierId: 'outro' }), item('f', 'v3', { status: 'entregue' })],
+      invoices,
+      bills,
+      orders,
+      suppliers: [...suppliers, { id: 'outro', name: 'Outro' }],
+      seeValues: false,
+    };
+    const view = onlyShipped(data);
+    expect(view.items.map((i) => i.id)).toEqual(['a']);
+    expect(view.invoices.map((v) => v.id)).toEqual(['v1']);
+    expect(view.bills.map((b) => b.id)).toEqual(['b2']);
+    expect(view.orders.map((o) => o.code)).toEqual(['PO-001']);
+    expect(view.suppliers.map((s) => s.name)).toEqual(['Sara']);
+    expect(view.seeValues).toBe(false);
   });
 });

@@ -87,7 +87,10 @@ async function updateSupplier(request: Request, env: Env, session: Session, id: 
 }
 
 export async function routeSuppliers(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {
-  if (key === 'GET /api/suppliers') return getSuppliers(env, session);
+  if (key === 'GET /api/suppliers') {
+    if (!can(session.user.role, 'view_all')) return error(403, 'Seu perfil vê só os embarques.');
+    return getSuppliers(env, session);
+  }
   const m = /^\/api\/suppliers\/([^/]+)$/.exec(path);
   if (m && request.method === 'PATCH') {
     if (!can(session.user.role, 'edit')) return error(403, 'Seu perfil só pode acompanhar.');

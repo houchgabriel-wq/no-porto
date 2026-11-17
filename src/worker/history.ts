@@ -179,6 +179,10 @@ async function importHistory(request: Request, env: Env, session: Session, now: 
 }
 
 export async function routeHistory(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {
+  if (key === 'GET /api/history' || /^\/api\/products\//.test(path)) {
+    // O perfil Embarques só vê os embarques a caminho.
+    if (!can(session.user.role, 'view_all')) return error(403, 'Seu perfil vê só os embarques.');
+  }
   if (key === 'GET /api/history') return getHistory(env, session);
   if (key === 'POST /api/import/history') {
     if (!can(session.user.role, 'import')) return error(403, 'Só o admin faz a carga da planilha.');

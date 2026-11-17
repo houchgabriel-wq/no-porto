@@ -7,6 +7,7 @@ import { isbnDigits, isbnProblem } from '../core/isbn';
 import { isValidUnitPrice } from '../core/money';
 import { itemForViewer, normalizeOrderCode, orderOwners, orderSupplierProblem, searchKey, titleKey, type Item, type ItemStatus, type PurchaseOrder, type Supplier } from '../core/items';
 import { can } from '../core/roles';
+import { onlyShipped } from '../core/shippedItems';
 import { spDate, type Bill, type Invoice, type Payment } from '../core/shipments';
 import type { Session } from './auth';
 import type { Env } from './env';
@@ -378,7 +379,9 @@ async function getData(env: Env, session: Session, now: Date): Promise<Response>
         .filter((r) => shown.has(r.invoice_id))
         .map((r) => ({ id: r.id, invoiceId: r.invoice_id, paidAt: r.paid_at, amountCents: r.amount_cents, exchangeRateE4: r.exchange_rate_e4, notes: r.notes }))
     : [];
-  return json({ today, suppliers, orders, items, bills, invoices, payments, seeValues });
+  const all = { today, suppliers, orders, items, bills, invoices, payments, seeValues };
+  // O perfil Embarques recebe só os embarques a caminho (o servidor corta; a tela só esconde as abas).
+  return json(can(session.user.role, 'view_all') ? all : onlyShipped(all));
 }
 
 async function createItem(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
