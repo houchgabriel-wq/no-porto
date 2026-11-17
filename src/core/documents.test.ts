@@ -1,0 +1,136 @@
+import { describe, expect, it } from 'vitest';
+import { findIsbn, parseInvoiceDocument, parseOrderDocument, parseQuantity } from './documents';
+
+const pad = (row: string[], n = 11) => [...row, ...Array(Math.max(0, n - row.length)).fill('')];
+
+// Modelo da PO da editora (PO-064 da Sara), sem o número da PO preenchido.
+const PO = [
+  pad(['IBC - INSTITUTO BRASILEIRO DE CULTURA LTDA']),
+  pad(['PRINTING ORDER']),
+  pad(['To:', 'Sara', '', '', '', '', '', '', '', ' Date', '2026-11-09']),
+  pad(['From:', 'GABRIEL', '', '', '', '', '', '', '', 'Order No.:', '']),
+  ['Reference', 'Name', 'Specifications', 'Shrink wrap?', 'ISBN', 'pcs/ctn', 'Quantity', 'Unit Price\n($ USD)', 'Amount\n($ USD)', 'Comments', 'Estimated Shipping Date'],
+  ['1', 'Caligráfia Mágica - Nova Cartilha 02', '20,5x27,5', 'POLYBAG', '978-65-6126-058-9', '40', '30,000', '$0.4200', '$12,600.00', 'RUSH', '15-Dec-2026'],
+  ['2', 'Livro 7 Minutos com Deus', 'spec', 'yes', '', '48', '10,000', '$0.4200', '$4,200.00', 'asap', 'asap'],
+  ['3', 'Livro com ISBN errado', 'spec', 'yes', '978-65-6126-058-0', '', '1,000', '', '', '', ''],
+  pad(['TOTAL', 'TOTAL', 'TOTAL', 'TOTAL', 'TOTAL', '', '41,000', '', '$16,800.00']),
+  pad(['1. Payment term: 100% on shipping']),
+];
+
+describe('parseQuantity', () => {
+  it('lê inteiros com separador de milhar ou ,0 no fim', () => {
+    expect(parseQuantity('30,000')).toBe(30000);
+    expect(parseQuantity('1.250.000')).toBe(1250000);
+    expect(parseQuantity('8680.0')).toBe(8680);
+    expect(parseQuantity('9878')).toBe(9878);
+  });
+  it('recusa o que não é quantidade', () => {
+    expect(parseQuantity('')).toBeNull();
+    expect(parseQuantity('0')).toBeNull();
+    expect(parseQuantity('1,5')).toBeNull();
+    expect(parseQuantity('set')).toBeNull();
+  });
+});
+
+describe('findIsbn', () => {
+  it('acha o ISBN no meio do texto e confere o dígito', () => {
+    expect(findIsbn('Coleção Alice - Atlantis Editora\n978-65-83970-52-7')).toBe('9786583970527');
+    expect(findIsbn('ISBN : 978-65-5547-558-6')).toBe('9786555475586');
+    expect(findIsbn('978-65-83970-52-0')).toBeNull();
+    expect(findIsbn('sem isbn')).toBeNull();
+  });
+});
+
+describe('parseOrderDocument', () => {
+  it('lê fornecedor, data, itens e tira a PO do nome do arquivo', () => {
+    const doc = parseOrderDocument([{ name: 'SARA', rows: PO }], 'PO-064 (SARA).xlsx');
+    if ('error' in doc) throw new Error(doc.error);
+    expect(doc.code).toBe('PO-064');
+    expect(doc.supplier).toBe('Sara');
+    expect(doc.orderedAt).toBe('2026-11-09');
+    expect(doc.lines).toHaveLength(3);
+    expect(doc.lines[0]).toMatchObject({ row: 6, description: 'Caligráfia Mágica - Nova Cartilha 02', isbn: '9786561260589', quantity: 30000, piecesPerCarton: 40, unitPriceMicros: 420_000, notes: 'RUSH' });
+    expect(doc.lines[1]).toMatchObject({ isbn: null, quantity: 10000 });
+    expect(doc.lines[2]).toMatchObject({ isbn: null, unitPriceMicros: null });
+    expect(doc.warnings).toEqual([{ row: 8, message: expect.stringContaining('ISBN "978-65-6126-058-0" não serve') }]);
+  });
+
+  it('prefere o número da PO escrito no documento', () => {
+    const rows = PO.map((r) => (r[9] === 'Order No.:' ? pad(['From:', 'GABRIEL', '', '', '', '', '', '', '', 'Order No.:', 'PO-65']) : r));
+    const doc = parseOrderDocument([{ name: 'x', rows }], 'pedido.xlsx');
+    expect('error' in doc ? null : doc.code).toBe('PO-065');
+  });
+
+  it('avisa quando não acha a tabela', () => {
+    expect(parseOrderDocument([{ name: 'x', rows: [['oi']] }], 'x.xlsx')).toEqual({ error: expect.stringContaining('Não achei os itens') });
+  });
+});
+
+describe('parseInvoiceDocument', () => {
+  it('invoice da Claire: ISBN junto do nome, PO na linha e número no cabeçalho', () => {
+    const rows = [
+      ['Guangzhou Miyi Printing Co., Ltd.'],
+      ['Proforma Invoice'],
+      pad(['To:IBC - Instituto Brasileiro de Cultura LTDA /Gabriel', '', '', '', '', '', 'DATE:26 Oct. 2026']),
+      pad(['From: Guangzhou Miyi Printing Co., Ltd. /Claire & ivy', '', '', '', '', '', '', '', 'Invoice No.:126062009-2']),
+      ['Name', 'NCM', 'Order NO.', 'Specifications', 'Quantity', 'Qty. Unit', 'FOB shenzhen\n Unit Price\n($ USD)', 'Amount\n($ USD)', 'Comments'],
+      ['Coleção Alice - Atlantis Editora\n978-65-83970-52-7', '4901', '126062009-2\nPO-024', 'Box', '9878', 'set', '1.75', '17286.5', ''],
+      ['A ODISSEIA\n978-65-83970-21-3', '4901', '126082402-1\nPO-050', 'spec', '10000', 'pcs', '1.12', '11200', ''],
+      pad(['TOTAL AMOUNT USD', '', '', '', '19878', '', '', '28486.5']),
+    ];
+    const doc = parseInvoiceDocument([{ name: 'Plan1', rows }], 'Final PI-CTNR04.xlsx');
+    if ('error' in doc) throw new Error(doc.error);
+    expect(doc.number).toBe('126062009-2');
+    expect(doc.lines.map((l) => [l.description, l.isbn, l.quantity, l.unitPriceMicros, l.orderCode])).toEqual([
+      ['Coleção Alice - Atlantis Editora', '9786583970527', 9878, 1_750_000, 'PO-024'],
+      ['A ODISSEIA', '9786583970213', 10000, 1_120_000, 'PO-050'],
+    ]);
+    expect(doc.headerText).toContain('Claire & ivy');
+  });
+
+  it('packing list e invoice em abas: vale a com preço, ISBN na linha de baixo, número embaixo do rótulo', () => {
+    const packing = [
+      pad(['Invoice No: ', 'GN/22-23/509', '', '', '', 'Dated : ', '15.02.2023']),
+      pad(['MARKS/', 'NO.OF', 'Qty. in', '   FULL DESCRIPTION OF GOODS', '', '', '', 'QTY.', 'UNIT OF']),
+      pad(["NO'S", 'Cartons', 'each Ctn', '', '', '', '', 'In Pcs', 'MEASURE']),
+      pad(['', '217', '40', 'Aprendendo E Se Divertindo - Cores', '', '', '', '8680', 'Pieces']),
+      pad(['', '', '', 'ISBN 978-65-5547-502-9']),
+    ];
+    const invoice = [
+      pad([' COMMERCIAL INVOICE ']),
+      pad(['SHIPPER/EXPORTER', '', '', '', 'INVOICE NO. ', '', 'DATE']),
+      pad(['BRIJBASI ART PRESS LTD', '', '', '', 'GN/22-23/509', '', '15.02.2023']),
+      pad(['MARKS/', 'NO.OF', '   FULL DESCRIPTION OF GOODS', '', '', 'HSN', 'QTY. InPkt / ', 'Rate', 'Amount ']),
+      pad(['', '', 'ACTIVITY / COLOURING BOOKS']),
+      pad(['1--2833', '2833', 'Aprendendo E Se Divertindo - Cores', '', '', '4901', '8680.0', '0.43', '3732.4']),
+      pad(['', 'Carton', 'ISBN 978-65-5547-502-9']),
+      pad(['', '', 'Edicao : 02']),
+    ];
+    const doc = parseInvoiceDocument(
+      [
+        { name: 'packing', rows: packing },
+        { name: 'BUYER', rows: invoice },
+      ],
+      'GN-509.xlsx',
+    );
+    if ('error' in doc) throw new Error(doc.error);
+    expect(doc.sheet).toBe('BUYER');
+    expect(doc.number).toBe('GN/22-23/509');
+    expect(doc.lines).toEqual([expect.objectContaining({ description: 'Aprendendo E Se Divertindo - Cores', isbn: '9786555475029', quantity: 8680, unitPriceMicros: 430_000 })]);
+  });
+
+  it('invoice da Nicola: título, ISBN em coluna e preço arredondado com aviso', () => {
+    const rows = [
+      pad(['HUNAN SPLENDID CULTURE CO.,LTD']),
+      pad(['', '', '', '', '', '', 'INVOICE NO:', 'HSC20260920']),
+      pad(['Item', 'TITLE', 'ISBN', 'DESCRIPTION & SPECIFICATION', 'QTY', 'UNIT PRICE FOB SHENZHEN(without Pallet)', 'AMOUNT', 'CBM']),
+      pad(['1', 'Livro Noites Brancas - Série Ouro', '9786584956933', '15,1x23cm', '30000', '0.653924268502582', '19617.73']),
+      pad(['', '', '', 'In total:', '30000', '', '19617.73']),
+    ];
+    const doc = parseInvoiceDocument([{ name: 'PI', rows }], 'PI-HSC20260920-HUNAN.xlsx');
+    if ('error' in doc) throw new Error(doc.error);
+    expect(doc.number).toBe('HSC20260920');
+    expect(doc.lines).toEqual([expect.objectContaining({ description: 'Livro Noites Brancas - Série Ouro', isbn: '9786584956933', quantity: 30000, unitPriceMicros: 654_000 })]);
+    expect(doc.warnings[0]!.message).toContain('arredondado');
+  });
+});

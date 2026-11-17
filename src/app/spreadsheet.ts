@@ -60,6 +60,30 @@ export async function readSheetRows(file: ArrayBuffer, sheetName: string): Promi
   return { rows };
 }
 
+/**
+ * Lê todas as abas de um arquivo como texto (para a PO e a invoice dos fornecedores, que podem ter a
+ * packing list e a invoice em abas diferentes). Lê no máximo 2.000 linhas e 40 colunas por aba.
+ */
+export async function readWorkbook(file: ArrayBuffer): Promise<{ name: string; rows: string[][] }[]> {
+  const wb = await newWorkbook();
+  try {
+    await wb.xlsx.load(file);
+  } catch {
+    throw new Error('Não foi possível ler o arquivo. Envie uma planilha .xlsx (no Google Planilhas: Arquivo → Fazer download → Microsoft Excel).');
+  }
+  return wb.worksheets.map((sheet) => {
+    const cols = Math.min(sheet.columnCount, 40);
+    const last = Math.min(sheet.rowCount, 2_000);
+    const rows: string[][] = [];
+    for (let r = 1; r <= last; r++) {
+      const row: string[] = [];
+      for (let c = 1; c <= cols; c++) row.push(cellText(sheet, r, c));
+      rows.push(row);
+    }
+    return { name: sheet.name, rows };
+  });
+}
+
 export interface ExportColumn<T> {
   header: string;
   width: number;
