@@ -101,9 +101,18 @@ export interface ItemCells {
  * fornecedor). Devolve os campos, ou o motivo para a linha não entrar. `warn` registra os avisos.
  */
 export function readItemCells(cell: (col: keyof typeof ITEM_HEADERS) => string, warn: (message: string) => void): ItemCells | { skip: string } {
-  const description = clean(cell('description'));
-  if (!/[\p{L}\d]/u.test(description)) return { skip: description ? `Linha de soma ou sem produto ("${description}").` : 'Linha sem produto.' };
+  let description = clean(cell('description'));
   const quantity = parseCount(cell('quantity'));
+  // Separador de ano no meio da aba ("2024", "2025").
+  if (/^20\d\d$/.test(description) && quantity === null) return { skip: `Separador de ano ("${description}").` };
+  if (!/[\p{L}\d]/u.test(description)) {
+    // Item sem o nome, mas com ISBN e quantidade: entra com um nome provisório, para não sumir da soma.
+    const isbnText = clean(cell('isbn'));
+    if (quantity !== null && isbnText && isbnProblem(isbnText) === null) {
+      description = `Produto sem nome (ISBN ${isbnDigits(isbnText)})`;
+      warn(`"${description}": a linha não tem o nome do produto; entra com este nome provisório.`);
+    } else return { skip: description ? `Linha de soma ou sem produto ("${description}").` : 'Linha sem produto.' };
+  }
   if (quantity === null) return { skip: `"${description}": quantidade inválida ("${clean(cell('quantity'))}").` };
 
   const notes: string[] = [];
