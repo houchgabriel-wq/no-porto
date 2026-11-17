@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allocateShipment, guessSupplier, productionQueue, sameProduct } from './allocation';
+import { allocateInvoices, allocateShipment, guessSupplier, productionQueue, sameProduct } from './allocation';
 import type { Item } from './items';
 
 const orders = [
@@ -101,5 +101,32 @@ describe('guessSupplier', () => {
   it('sem nome, pelo fornecedor com mais desses produtos em produção', () => {
     expect(guessSupplier(lines, 'HUNAN SPLENDID CULTURE', items, suppliers)).toBe('nicola');
     expect(guessSupplier([{ isbn: null, description: 'Nada', quantity: 1 }], 'x', items, suppliers)).toBeNull();
+  });
+});
+
+describe('allocateInvoices', () => {
+  it('os containers do mesmo fornecedor consomem a produção em sequência', () => {
+    const items = [item('velho', { purchaseOrderId: 'o24', quantity: 3000 }), item('novo', { purchaseOrderId: 'o50', quantity: 5000 }), item('sara', { supplierId: 'sara', quantity: 9000 })];
+    const alice = (quantity: number) => ({ isbn: '9786583970527', description: 'Alice', quantity });
+    const [c1, c2, c3] = allocateInvoices(
+      [
+        { supplierId: 'claire', lines: [alice(2000)] },
+        { supplierId: 'sara', lines: [alice(1000)] },
+        { supplierId: 'claire', lines: [alice(2000)] },
+      ],
+      items,
+      orders,
+    );
+    expect(c1).toEqual([{ takes: [{ itemId: 'velho', quantity: 2000, whole: false }], extra: 0 }]);
+    expect(c2).toEqual([{ takes: [{ itemId: 'sara', quantity: 1000, whole: false }], extra: 0 }]);
+    expect(c3).toEqual([
+      {
+        takes: [
+          { itemId: 'velho', quantity: 1000, whole: true },
+          { itemId: 'novo', quantity: 1000, whole: false },
+        ],
+        extra: 0,
+      },
+    ]);
   });
 });

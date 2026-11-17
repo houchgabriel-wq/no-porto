@@ -83,6 +83,34 @@ export function allocateShipment(
 }
 
 /**
+ * Vários containers de uma vez: as invoices de um mesmo fornecedor consomem a produção dele em
+ * sequência (o segundo container parte do que o primeiro deixou). Devolve, para cada invoice, a
+ * distribuição das suas linhas.
+ */
+export function allocateInvoices(
+  invoices: readonly { supplierId: string; lines: readonly ShipmentLineInput[] }[],
+  items: readonly ProductionItem[],
+  orders: readonly Pick<PurchaseOrder, 'id' | 'code'>[],
+): LineAllocation[][] {
+  const result: LineAllocation[][] = invoices.map(() => []);
+  for (const supplierId of new Set(invoices.map((v) => v.supplierId))) {
+    const mine = invoices.map((v, index) => ({ v, index })).filter(({ v }) => v.supplierId === supplierId);
+    const all = allocateShipment(
+      mine.flatMap(({ v }) => v.lines),
+      items,
+      orders,
+      supplierId,
+    );
+    let at = 0;
+    for (const { v, index } of mine) {
+      result[index] = all.slice(at, at + v.lines.length);
+      at += v.lines.length;
+    }
+  }
+  return result;
+}
+
+/**
  * Qual fornecedor mandou a invoice: o nome dele no cabeçalho do arquivo (a Claire assina "Claire &
  * ivy") ou, sem isso, o que tem em produção mais exemplares dos produtos da invoice.
  */

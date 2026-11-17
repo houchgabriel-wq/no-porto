@@ -73,15 +73,19 @@ function descriptionScore(l: string): number {
   if (l.includes('specification') || l.includes('spec')) return 0;
   if (l.includes('description of goods')) return 2;
   if (l === 'description' || l === 'descricao' || l.startsWith('description ')) return 1;
+  // "ITEM" é o nome do produto na packing list da Claire; em outras planilhas é só o número da linha
+  // (a escolha confere os dados, em descriptionColumn).
+  if (l === 'item' || l === 'items') return 1;
   return 0;
 }
 
 const ROLE_TESTS: Record<Exclude<Role, 'description'>, (l: string) => boolean> = {
-  quantity: (l) => (/^(qty|quantity|quantidade|qtd|total qty)\b/.test(l) || l === 'qtd') && !/\b(unit|each|ctn|carton|cartons|per)\b/.test(l),
+  // "Total Qty per title" é a quantidade; "Qty per Ctn" e "Qty. Unit", não.
+  quantity: (l) => (/^(qty|quantity|quantidade|qtd|total qty)\b/.test(l) || l === 'qtd') && !/\b(unit|each|ctn|ctns|carton|cartons)\b/.test(l),
   price: (l) => (l.includes('price') || /^rate\b/.test(l) || l.includes('preco')) && !l.includes('amount') && !l.includes('total'),
   isbn: (l) => l.includes('isbn'),
-  order: (l) => /\border (no|number|n)\b/.test(l) || l === 'order' || l === 'po' || /^po (no|number)\b/.test(l) || l === 'pedido',
-  pieces: (l) => l === 'pcs ctn' || l.includes('each ctn') || l.includes('pcs per ctn') || l.includes('pecas por caixa'),
+  order: (l) => /\border (no|number|n)\b/.test(l) || l === 'order' || l === 'po' || /^p ?o (no|number)\b/.test(l) || l === 'pedido',
+  pieces: (l) => l === 'pcs ctn' || /^per (ctn|carton)\b/.test(l) || l.includes('each ctn') || /\b(pcs|qty) per (ctn|carton)\b/.test(l) || l.includes('pecas por caixa'),
   comments: (l) => /^(comment|remark|observ)/.test(l),
 };
 
@@ -91,35 +95,56 @@ interface Header {
   cols: Partial<Record<Role, number>>;
 }
 
-function columnsOf(labels: string[]): Partial<Record<Role, number>> {
+/** Texto que é só um número (o "1, 2, 3" da coluna Item). */
+const NUMBER_ONLY = /^\s*\d+([.,]\d+)?\s*$/;
+
+function columnsOf(labels: string[], data: readonly string[][]): Partial<Record<Role, number>> {
   const cols: Partial<Record<Role, number>> = {};
-  let best = 0;
-  labels.forEach((l, c) => {
-    const score = descriptionScore(l);
-    if (score > best) {
-      best = score;
-      cols.description = c;
-    }
-  });
+  // Coluna do nome: a de maior peso cujos dados não são só números.
+  const candidates = labels
+    .map((l, c) => ({ c, score: descriptionScore(l) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.c - b.c);
+  const textual = (c: number) => {
+    const values = data.map((r) => clean(r[c])).filter(Boolean).slice(0, 8);
+    return values.length === 0 || values.filter((v) => NUMBER_ONLY.test(v)).length * 2 < values.length;
+  };
+  const chosen = candidates.find((x) => textual(x.c)) ?? candidates[0];
+  if (chosen) cols.description = chosen.c;
   for (const [role, test] of Object.entries(ROLE_TESTS) as [Exclude<Role, 'description'>, (l: string) => boolean][]) {
-    const c = labels.findIndex((l) => l !== '' && test(l));
-    if (c >= 0 && c !== cols.description) cols[role] = c;
+    const c = labels.findIndex((l, i) => l !== '' && i !== cols.description && test(l));
+    if (c >= 0) cols[role] = c;
   }
   return cols;
 }
 
-/** Acha a linha de cabeçalho (com o nome do produto e a quantidade), sozinha ou somada à de baixo. */
+function joinedLabels(a: readonly string[], b: readonly string[]): string[] {
+  return Array.from({ length: Math.max(a.length, b.length) }, (_, c) => label(`${a[c] ?? ''} ${b[c] ?? ''}`));
+}
+
+/**
+ * Acha a linha de cabeçalho (com o nome do produto e a quantidade), sozinha ou somada à de baixo
+ * ("QTY." em cima, "In Pcs" embaixo). Quando a linha de baixo ainda é cabeçalho ("each Ctn",
+ * "(USD)"), ela completa as colunas que faltaram.
+ */
 function findHeader(rows: readonly string[][]): Header | null {
+  const found = (c: Partial<Record<Role, number>>) => c.description !== undefined && c.quantity !== undefined;
   for (let i = 0; i < Math.min(rows.length, HEADER_SCAN); i++) {
-    const own = columnsOf(rows[i]!.map(label));
-    if (own.description !== undefined && own.quantity !== undefined) return { end: i, cols: own };
-    // Cabeçalho em duas linhas ("QTY." em cima, "In Pcs" embaixo).
+    const own = columnsOf(rows[i]!.map(label), rows.slice(i + 1, i + 12));
     const next = rows[i + 1];
+    if (found(own)) {
+      if (next && parseQuantity(next[own.quantity!]) === null && next.some((c) => clean(c) !== '')) {
+        const both = columnsOf(joinedLabels(rows[i]!, next), rows.slice(i + 2, i + 13));
+        // As duas linhas juntas dizem mais ("Qty. in" + "each Ctn" são as peças por caixa, não a quantidade).
+        return { end: i + 1, cols: found(both) ? { ...own, ...both } : own };
+      }
+      return { end: i, cols: own };
+    }
     if (!next) continue;
-    const width = Math.max(rows[i]!.length, next.length);
-    const joined = Array.from({ length: width }, (_, c) => label(`${rows[i]![c] ?? ''} ${next[c] ?? ''}`));
-    const both = columnsOf(joined);
-    if (both.description !== undefined && both.quantity !== undefined) return { end: i + 1, cols: both };
+    // A linha de baixo sozinha já é o cabeçalho (a de cima é só um título, como "TOTAL"): fica para a próxima volta.
+    if (found(columnsOf(next.map(label), rows.slice(i + 2, i + 13)))) continue;
+    const both = columnsOf(joinedLabels(rows[i]!, next), rows.slice(i + 2, i + 13));
+    if (found(both)) return { end: i + 1, cols: both };
   }
   return null;
 }
@@ -180,10 +205,8 @@ function readLines(rows: readonly string[][], header: Header, warnings: Document
       else isbn = isbnDigits(clean(isbnText));
     }
     const description = stripIsbn(rawName);
-    if (!description && !isbn) {
-      warnings.push({ row: rowNumber, message: 'Linha com quantidade, mas sem produto: ficou de fora.' });
-      continue;
-    }
+    // Sem produto: é a linha de soma no fim da tabela (a packing list da Claire não escreve "TOTAL").
+    if (!description && !isbn) continue;
     let unitPriceMicros: number | null = null;
     const priceText = clean(cell(row, 'price'));
     if (priceText) {
@@ -296,4 +319,56 @@ export function parseInvoiceDocument(sheets: readonly SheetRows[], fileName: str
   }
   if (!best) return { error: NO_ITEMS };
   return { ...best, number: best.number ?? number, headerText: `${best.headerText} ${fileName}` };
+}
+
+// ---------- Arquivos de um container: invoice e packing list ----------
+
+const CONTAINER = /\b([A-Z]{4})\s?(\d{7})\b/;
+
+/** Número do container (padrão ISO 6346: quatro letras e sete dígitos, como YMLU5449045). */
+export function findContainer(text: string): string | null {
+  const m = CONTAINER.exec(text);
+  return m ? `${m[1]}${m[2]}` : null;
+}
+
+export interface ShipmentFile {
+  fileName: string;
+  /** Os itens com preço (a invoice), quando o arquivo tem. */
+  invoice: InvoiceDocument | null;
+  /** Os itens com peças por caixa (a packing list), quando o arquivo tem. Pode ser a mesma aba da invoice. */
+  packing: InvoiceDocument | null;
+  /** Número da invoice escrito no arquivo. */
+  number: string | null;
+  container: string | null;
+  /** Os primeiros textos do arquivo e o nome dele, para reconhecer o fornecedor. */
+  headerText: string;
+}
+
+/**
+ * Um arquivo do embarque: invoice, packing list ou os dois (a Brijbasi manda as duas abas no mesmo
+ * arquivo). A aba com mais preços é a invoice; a com mais peças por caixa, a packing list.
+ */
+export function parseShipmentFile(sheets: readonly SheetRows[], fileName: string): ShipmentFile | { error: string } {
+  const docs: InvoiceDocument[] = [];
+  let number: string | null = null;
+  let container: string | null = null;
+  for (const sheet of sheets) {
+    const found = fieldValue(sheet.rows, INVOICE_LABEL);
+    if (found && !number && found.length <= 60) number = found;
+    container ??= findContainer(topText(sheet.rows, 60));
+    const header = findHeader(sheet.rows);
+    if (!header) continue;
+    const warnings: DocumentNote[] = [];
+    const lines = readLines(sheet.rows, header, warnings);
+    if (lines.length) docs.push({ sheet: sheet.name, number: found && found.length <= 60 ? found : null, lines, warnings, headerText: topText(sheet.rows, header.end) });
+  }
+  if (docs.length === 0) return { error: NO_ITEMS };
+  const count = (d: InvoiceDocument, f: (l: DocumentLine) => boolean) => d.lines.filter(f).length;
+  const most = (f: (l: DocumentLine) => boolean) => docs.filter((d) => count(d, f) > 0).sort((a, b) => count(b, f) - count(a, f) || b.lines.length - a.lines.length)[0] ?? null;
+  let invoice = most((l) => l.unitPriceMicros !== null);
+  const packing = most((l) => l.piecesPerCarton !== null);
+  // Sem preço e sem peças por caixa: vale como invoice só com as quantidades.
+  if (!invoice && !packing) invoice = [...docs].sort((a, b) => b.lines.length - a.lines.length)[0]!;
+  const main = invoice ?? packing!;
+  return { fileName, invoice, packing, number, container: container ?? findContainer(fileName), headerText: `${main.headerText} ${fileName}` };
 }

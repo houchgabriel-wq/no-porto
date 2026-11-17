@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findIsbn, parseInvoiceDocument, parseOrderDocument, parseQuantity } from './documents';
+import { findContainer, findIsbn, parseInvoiceDocument, parseOrderDocument, parseQuantity, parseShipmentFile } from './documents';
 
 const pad = (row: string[], n = 11) => [...row, ...Array(Math.max(0, n - row.length)).fill('')];
 
@@ -132,5 +132,75 @@ describe('parseInvoiceDocument', () => {
     expect(doc.number).toBe('HSC20260920');
     expect(doc.lines).toEqual([expect.objectContaining({ description: 'Livro Noites Brancas - Série Ouro', isbn: '9786584956933', quantity: 30000, unitPriceMicros: 654_000 })]);
     expect(doc.warnings[0]!.message).toContain('arredondado');
+  });
+});
+
+describe('parseShipmentFile', () => {
+  // Packing list da Claire: o nome e o ISBN na coluna ITEM, a descrição técnica ao lado, peças por
+  // caixa em "Qty per Ctn", quantidade em "Total Qty per title", o container no cabeçalho e a linha de
+  // soma sem a palavra TOTAL.
+  const PL = [
+    pad(['Guangzhou Miyi Printing Co., Ltd.']),
+    pad(['PACKING LIST']),
+    pad(['ITEM', 'PO', 'Description for products', 'No. of Cartons', 'Qty per Ctn', '', 'Total Qty    per title', 'NW (kgs)', '', '', '', '1× 45RI\n\nContainer NO.:\nYMLU5449045\n\nSeal NO.']),
+    pad(['Coleção Alice - Atlantis Editora\n978-65-83970-52-7', '126062009-2\nPO-024', 'Box:C1S 400gsm', '449', '22', 'set', '9878', '13.9']),
+    pad(['A ODISSEIA\n978-65-83970-21-3', '', '15,1x23cm', '385', '26', 'pcs', '10000', '12.2']),
+    pad(['', '', '', '834', '', '', '19878', '']),
+  ];
+
+  it('packing list: peças por caixa, nome na coluna ITEM e o número do container', () => {
+    const f = parseShipmentFile([{ name: 'PL', rows: PL }], 'PL-CTNR04_56th shipment.xlsx');
+    if ('error' in f) throw new Error(f.error);
+    expect(f.invoice).toBeNull();
+    expect(f.container).toBe('YMLU5449045');
+    expect(f.packing!.lines.map((l) => [l.description, l.isbn, l.quantity, l.piecesPerCarton])).toEqual([
+      ['Coleção Alice - Atlantis Editora', '9786583970527', 9878, 22],
+      ['A ODISSEIA', '9786583970213', 10000, 26],
+    ]);
+    expect(f.packing!.warnings).toEqual([]);
+  });
+
+  it('um arquivo com as duas abas é invoice e packing list ao mesmo tempo', () => {
+    const invoice = [
+      pad(['', '', '', '', '', '', 'INVOICE NO:', 'HSC1']),
+      pad(['P.O NO.(INV)', 'Customer', 'TITLE', 'ISBN', 'UNIT PRICE', 'QTY.', 'CTN QTY.', 'AMOUNT']),
+      pad(['', '', '', '', '(USD)', '(copies)', '', '(USD)']),
+      pad(['PO-051', 'IBC', 'A ODISSEIA', '978-65-83970-21-3', '1.12', '10000', '385', '11200']),
+    ];
+    const packing = [
+      pad(['TOTAL', '', '', '', 'TOTAL', 'TOTAL']),
+      pad(['P.O NO.(INV)', 'Customer', 'TITLE', 'ISBN', 'PER CTN.', 'QTY.', 'CTN QTY.']),
+      pad(['', '', '', '', '(copies)', '(copies)']),
+      pad(['PO-051', 'IBC', 'A ODISSEIA', '978-65-83970-21-3', '26', '10000', '385']),
+    ];
+    const f = parseShipmentFile(
+      [
+        { name: 'PL', rows: packing },
+        { name: 'CI', rows: invoice },
+      ],
+      'draft PL&CI.xlsx',
+    );
+    if ('error' in f) throw new Error(f.error);
+    expect(f.number).toBe('HSC1');
+    expect(f.invoice!.sheet).toBe('CI');
+    expect(f.invoice!.lines[0]).toMatchObject({ quantity: 10000, unitPriceMicros: 1_120_000, orderCode: 'PO-051' });
+    expect(f.packing!.sheet).toBe('PL');
+    expect(f.packing!.lines[0]).toMatchObject({ quantity: 10000, piecesPerCarton: 26 });
+  });
+
+  it('cabeçalho em duas linhas: "Qty. in" + "each Ctn" são as peças por caixa', () => {
+    const rows = [
+      pad(['MARKS/', 'NO.OF', 'Qty. in', '   FULL DESCRIPTION OF GOODS', '', '', '', 'QTY.']),
+      pad(["NO'S", 'Cartons', 'each Ctn', '', '', '', '', 'In Pcs']),
+      pad(['', '217', '40', 'Aprendendo E Se Divertindo - Cores', '', '', '', '8680']),
+    ];
+    const f = parseShipmentFile([{ name: 'packing', rows }], 'GN.xlsx');
+    if ('error' in f) throw new Error(f.error);
+    expect(f.packing!.lines[0]).toMatchObject({ quantity: 8680, piecesPerCarton: 40 });
+  });
+
+  it('findContainer', () => {
+    expect(findContainer('Container NO.: YMLU 5449045')).toBe('YMLU5449045');
+    expect(findContainer('sem container')).toBeNull();
   });
 });
