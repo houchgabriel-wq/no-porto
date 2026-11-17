@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { itemExportRows } from '../core/exportItems';
 import type { HistoryRow } from '../core/history';
+import { backupDue, backupFileName } from '../core/backup';
 import { copySheets, DELIVERED_HEADER, PRODUCTION_HEADER, SHIPMENTS_HEADER } from '../core/fullCopy';
 import { receivedInYear, type SupplierSummary } from '../core/suppliers';
 import { EMPTY_FILTERS, filterItems, sortItems, type ItemFilters, type ItemSort } from '../core/items';
@@ -27,6 +28,24 @@ import { UsersScreen } from './Users';
 type Theme = 'sistema' | 'claro' | 'escuro';
 const THEME_KEY = 'no-porto:tema';
 const GROUP_KEY = 'no-porto:agrupar-po';
+const BACKUP_KEY = 'no-porto:copia-completa';
+
+/** Dia da última cópia completa baixada neste navegador. */
+function readLastBackup(): string | null {
+  try {
+    return localStorage.getItem(BACKUP_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveLastBackup(day: string) {
+  try {
+    localStorage.setItem(BACKUP_KEY, day);
+  } catch {
+    // Só não lembra a data.
+  }
+}
 
 function readGrouped(): boolean {
   try {
@@ -294,8 +313,8 @@ function Welcome({ user, onImport, onNew }: { user: Me; onImport?: () => void; o
 
 const TABS: { view: View; label: string; icon: 'inicio' | 'caixa' | 'navio' | 'arquivo' | 'pessoas' }[] = [
   { view: 'painel', label: 'Painel', icon: 'inicio' },
-  { view: 'producao', label: 'Produção', icon: 'caixa' },
   { view: 'embarques', label: 'Embarques', icon: 'navio' },
+  { view: 'producao', label: 'Produção', icon: 'caixa' },
   { view: 'historico', label: 'Histórico', icon: 'arquivo' },
   { view: 'fornecedores', label: 'Fornecedores', icon: 'pessoas' },
 ];
@@ -314,6 +333,8 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [shipping, setShipping] = useState<string[] | null>(null);
   const [shipment, setShipment] = useState<string | null>(null);
   const [product, setProduct] = useState<string | null>(null);
+  const [lastBackup, setLastBackup] = useState(readLastBackup);
+  const [backingUp, setBackingUp] = useState(false);
   const [history, setHistory] = useState<HistoryData | null>(null);
   const [suppliersData, setSuppliersData] = useState<SuppliersData | null>(null);
   const [supplier, setSupplier] = useState<SupplierSummary | null>(null);
@@ -483,6 +504,8 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   );
   /** Cópia completa (admin): as abas Produção, Embarques e Entregues no formato da planilha. */
   async function downloadFullCopy() {
+    if (backingUp) return;
+    setBackingUp(true);
     showToast('Gerando a cópia completa…');
     try {
       const all = await api.fullCopy();
@@ -493,10 +516,15 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
         { name: 'Embarques', header: SHIPMENTS_HEADER, rows: sheets.shipments },
         { name: 'Entregues', header: DELIVERED_HEADER, rows: sheets.delivered },
       ]);
-      downloadXlsx(buffer, `no-porto-copia-${new Date().toISOString().slice(0, 10)}.xlsx`);
-      showToast(`Cópia baixada: ${sheets.production.length} em produção, ${sheets.shipments.length} embarcados, ${sheets.delivered.length} entregues.`);
+      const today = data?.today ?? new Date().toISOString().slice(0, 10);
+      downloadXlsx(buffer, backupFileName(today));
+      saveLastBackup(today);
+      setLastBackup(today);
+      showToast(`Cópia baixada (${sheets.production.length} em produção, ${sheets.shipments.length} embarcados, ${sheets.delivered.length} entregues). Guarde fora do computador, por exemplo no Google Drive.`);
     } catch (e) {
       showToast(e instanceof ApiError ? e.message : 'Não foi possível gerar a cópia completa.');
+    } finally {
+      setBackingUp(false);
     }
   }
 
@@ -629,6 +657,19 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
             ) : data.items.length === 0 && data.invoices.length === 0 ? (
               <Welcome user={user} onImport={canImport ? () => setImporting('Produção') : undefined} onNew={canEdit ? () => setDialog({ mode: 'new' }) : undefined} />
             ) : current === 'painel' ? (
+              <>
+              {canImport && backupDue(lastBackup, data.today) && (
+                <div className="lembrete-copia" role="status">
+                  <Icon name="arquivo" />
+                  <span>
+                    {lastBackup ? 'Faz mais de um mês que a cópia completa foi baixada neste navegador.' : 'A cópia completa ainda não foi baixada neste navegador.'} Baixe e guarde fora
+                    do computador, por exemplo no Google Drive.
+                  </span>
+                  <button type="button" className="btn primario" onClick={() => void downloadFullCopy()} disabled={backingUp}>
+                    {backingUp ? 'Gerando…' : 'Baixar agora'}
+                  </button>
+                </div>
+              )}
               <Dashboard
                 data={data}
                 onSupplier={(id) => goToProduction({ supplierId: id })}
@@ -636,6 +677,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                 onShipment={setShipment}
                 received={suppliersData ? { year: thisYear, amount: receivedInYear(suppliersData.suppliers, thisYear, suppliersData.seeValues) } : null}
               />
+              </>
             ) : current === 'embarques' ? (
               <ShipmentsView data={data} onOpen={setShipment} actions={shipmentActions} />
             ) : (

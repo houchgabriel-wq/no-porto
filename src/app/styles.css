@@ -1090,3 +1090,8 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
   .abas::-webkit-scrollbar { display: none; }
   .abas .aba { flex: 0 0 auto; padding-inline: 11px; font-size: 13px; }
 }
+
+/* Lembrete da cópia completa, no painel do admin */
+.lembrete-copia { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; background: var(--acento-suave); border: 1px solid color-mix(in srgb, var(--acento) 30%, transparent); border-radius: 14px; padding: 10px 14px; margin: 0 0 14px; font-weight: 600; }
+.lembrete-copia > .ic { color: var(--acento); width: 20px; height: 20px; flex: none; }
+.lembrete-copia span { flex: 1 1 280px; }
