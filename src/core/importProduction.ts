@@ -37,7 +37,7 @@ export interface ImportReport {
   warnings: RowNote[];
 }
 
-const HEADERS = {
+const ITEM_HEADERS = {
   description: ['produto'],
   isbn: ['isbn'],
   piecesPerCarton: ['pcs/ctn', 'pecas por caixa'],
@@ -47,12 +47,10 @@ const HEADERS = {
   supplier: ['fornecedor'],
 } as const;
 
-type Column = keyof typeof HEADERS;
-
 const PO_PATTERN = /^\s*PO[\s-]*\d+\s*$/i;
 
 /** Texto numa linha só, sem espaços repetidos (a planilha tem quebras de linha dentro das células). */
-function clean(text: string | undefined): string {
+export function clean(text: string | undefined): string {
   return (text ?? '').replace(/\s+/g, ' ').trim();
 }
 
@@ -63,42 +61,127 @@ function parseCount(text: string): number | null {
   return n > 0 && Number.isSafeInteger(n) ? n : null;
 }
 
-/** Acha o cabeçalho (a linha com Produto e Quantidade) e a posição de cada coluna. */
-function findHeader(rows: readonly string[][]): { index: number; cols: Partial<Record<Column, number>>; orderCol: number | null } | null {
+export interface SheetHeader<C extends string> {
+  index: number;
+  cols: Partial<Record<C | keyof typeof ITEM_HEADERS, number>>;
+  keys: string[];
+}
+
+/**
+ * Acha o cabeçalho (a linha com Produto e Quantidade) e a posição de cada coluna: as colunas comuns
+ * dos itens e as `extra` de cada aba.
+ */
+export function findHeader<C extends string>(rows: readonly string[][], extra: Readonly<Record<C, readonly string[]>>): SheetHeader<C> | null {
+  const all = { ...ITEM_HEADERS, ...extra } as Record<string, readonly string[]>;
   for (let i = 0; i < Math.min(rows.length, 15); i++) {
     const keys = rows[i]!.map((c) => searchKey(c));
-    if (!keys.includes('produto') || !keys.some((k) => (HEADERS.quantity as readonly string[]).includes(k))) continue;
-    const cols: Partial<Record<Column, number>> = {};
-    for (const [col, names] of Object.entries(HEADERS) as [Column, readonly string[]][]) {
+    if (!keys.includes('produto') || !keys.some((k) => (ITEM_HEADERS.quantity as readonly string[]).includes(k))) continue;
+    const cols: Record<string, number> = {};
+    for (const [col, names] of Object.entries(all)) {
       const at = keys.findIndex((k) => names.includes(k));
       if (at >= 0) cols[col] = at;
     }
-    // A coluna da PO não tem título: é a coluna sem título com mais códigos "PO-0xx".
-    let orderCol: number | null = null;
-    let best = 0;
-    const width = Math.max(...rows.slice(i, i + 2000).map((r) => r.length));
-    for (let c = 0; c < width; c++) {
-      if (keys[c]) continue;
-      let count = 0;
-      for (let r = i + 1; r < Math.min(rows.length, i + 2000); r++) if (PO_PATTERN.test(rows[r]![c] ?? '')) count++;
-      if (count > best) {
-        best = count;
-        orderCol = c;
-      }
-    }
-    return { index: i, cols, orderCol };
+    return { index: i, cols: cols as SheetHeader<C>['cols'], keys };
   }
   return null;
 }
 
+export interface ItemCells {
+  description: string;
+  isbn: string | null;
+  supplier: string | null;
+  quantity: number;
+  piecesPerCarton: number | null;
+  unitPriceMicros: number | null;
+  notes: string[];
+}
+
+/**
+ * Lê as colunas comuns a todas as abas (produto, ISBN, peças por caixa, quantidade, preço, total e
+ * fornecedor). Devolve os campos, ou o motivo para a linha não entrar. `warn` registra os avisos.
+ */
+export function readItemCells(cell: (col: keyof typeof ITEM_HEADERS) => string, warn: (message: string) => void): ItemCells | { skip: string } {
+  const description = clean(cell('description'));
+  if (!/[\p{L}\d]/u.test(description)) return { skip: description ? `Linha de soma ou sem produto ("${description}").` : 'Linha sem produto.' };
+  const quantity = parseCount(cell('quantity'));
+  if (quantity === null) return { skip: `"${description}": quantidade inválida ("${clean(cell('quantity'))}").` };
+
+  const notes: string[] = [];
+
+  const isbnText = clean(cell('isbn'));
+  let isbn: string | null = null;
+  if (isbnText) {
+    if (isbnProblem(isbnText) === null) isbn = isbnDigits(isbnText);
+    else {
+      notes.push(`ISBN informado na planilha: ${isbnText}`);
+      warn(`"${description}": ISBN "${isbnText}" não é válido; o item entra sem ISBN.`);
+    }
+  }
+
+  const supplier = clean(cell('supplier')) || null;
+  if (!supplier) warn(`"${description}": sem fornecedor; entra como "${NO_SUPPLIER}".`);
+
+  const piecesText = clean(cell('piecesPerCarton'));
+  const piecesPerCarton = piecesText ? parseCount(piecesText) : null;
+  if (piecesText && piecesPerCarton === null) notes.push(`Peças por caixa na planilha: ${cell('piecesPerCarton').trim()}`);
+
+  const priceText = clean(cell('unitPrice'));
+  let unitPriceMicros: number | null = null;
+  let warnedRounding = false;
+  if (!priceText) {
+    warn(`"${description}": sem preço.`);
+  } else if (looksLikeReais(priceText)) {
+    notes.push(`Preço na planilha: ${priceText}`);
+    warn(`"${description}": preço em reais (${priceText}); entra sem preço em dólar.`);
+  } else {
+    const price = parseSheetUnitPrice(priceText);
+    if (price === null) {
+      notes.push(`Preço na planilha: ${priceText}`);
+      warn(`"${description}": preço "${priceText}" não reconhecido; entra sem preço.`);
+    } else {
+      unitPriceMicros = price.micros;
+      if (price.rounded) {
+        warnedRounding = true;
+        warn(`"${description}": preço ${priceText} arredondado para três casas.`);
+      }
+    }
+  }
+  // Com o preço arredondado, o total digitado naturalmente difere um pouco: não avisa de novo.
+  if (unitPriceMicros !== null && !warnedRounding) {
+    const typed = parseCents(clean(cell('total')));
+    const computed = itemTotalCents(quantity, unitPriceMicros);
+    if (typed !== null && typed !== 0 && Math.abs(typed - computed) > 1) {
+      warn(`"${description}": o total da planilha não bate com quantidade × preço; vale quantidade × preço.`);
+    }
+  }
+  return { description, isbn, supplier, quantity, piecesPerCarton, unitPriceMicros, notes };
+}
+
+/** A coluna da PO não tem título: é a coluna sem título com mais códigos "PO-0xx". */
+function findOrderColumn(rows: readonly string[][], header: SheetHeader<string>): number | null {
+  let orderCol: number | null = null;
+  let best = 0;
+  const body = rows.slice(header.index + 1, header.index + 2000);
+  const width = Math.max(0, ...body.map((r) => r.length));
+  for (let c = 0; c < width; c++) {
+    if (header.keys[c]) continue;
+    const count = body.filter((r) => PO_PATTERN.test(r[c] ?? '')).length;
+    if (count > best) {
+      best = count;
+      orderCol = c;
+    }
+  }
+  return orderCol;
+}
+
 export function parseProductionRows(rows: readonly string[][]): ImportReport | { error: string } {
-  const header = findHeader(rows);
+  const header = findHeader(rows, {});
   if (!header) return { error: 'Não achei o cabeçalho da aba Produção (a linha com "Produto" e "Quantidade").' };
-  const { cols, orderCol } = header;
+  const { cols } = header;
   if (cols.description === undefined || cols.quantity === undefined) {
     return { error: 'A aba precisa das colunas "Produto" e "Quantidade".' };
   }
-  const cell = (row: string[], col: Column) => (cols[col] === undefined ? '' : (row[cols[col]!] ?? ''));
+  const orderCol = findOrderColumn(rows, header);
 
   const report: ImportReport = { items: [], skipped: [], warnings: [] };
   for (let i = header.index + 1; i < rows.length; i++) {
@@ -106,66 +189,12 @@ export function parseProductionRows(rows: readonly string[][]): ImportReport | {
     const line = i + 1;
     if (row.every((c) => !clean(c))) continue;
     const warn = (message: string) => report.warnings.push({ row: line, message });
-
-    const description = clean(cell(row, 'description'));
-    if (!/[\p{L}\d]/u.test(description)) {
-      report.skipped.push({ row: line, message: description ? `Linha de soma ou sem produto ("${description}").` : 'Linha sem produto.' });
+    const cells = readItemCells((col) => (cols[col] === undefined ? '' : (row[cols[col]!] ?? '')), warn);
+    if ('skip' in cells) {
+      report.skipped.push({ row: line, message: cells.skip });
       continue;
     }
-    const quantity = parseCount(cell(row, 'quantity'));
-    if (quantity === null) {
-      report.skipped.push({ row: line, message: `"${description}": quantidade inválida ("${clean(cell(row, 'quantity'))}").` });
-      continue;
-    }
-
-    const notes: string[] = [];
-
-    const isbnText = clean(cell(row, 'isbn'));
-    let isbn: string | null = null;
-    if (isbnText) {
-      if (isbnProblem(isbnText) === null) isbn = isbnDigits(isbnText);
-      else {
-        notes.push(`ISBN informado na planilha: ${isbnText}`);
-        warn(`"${description}": ISBN "${isbnText}" não é válido; o item entra sem ISBN.`);
-      }
-    }
-
-    const supplier = clean(cell(row, 'supplier')) || null;
-    if (!supplier) warn(`"${description}": sem fornecedor; entra como "${NO_SUPPLIER}".`);
-
-    const piecesText = clean(cell(row, 'piecesPerCarton'));
-    const piecesPerCarton = piecesText ? parseCount(piecesText) : null;
-    if (piecesText && piecesPerCarton === null) notes.push(`Peças por caixa na planilha: ${(cell(row, 'piecesPerCarton') ?? '').trim()}`);
-
-    const priceText = clean(cell(row, 'unitPrice'));
-    let unitPriceMicros: number | null = null;
-    let warnedRounding = false;
-    if (!priceText) {
-      warn(`"${description}": sem preço.`);
-    } else if (looksLikeReais(priceText)) {
-      notes.push(`Preço na planilha: ${priceText}`);
-      warn(`"${description}": preço em reais (${priceText}); entra sem preço em dólar.`);
-    } else {
-      const price = parseSheetUnitPrice(priceText);
-      if (price === null) {
-        notes.push(`Preço na planilha: ${priceText}`);
-        warn(`"${description}": preço "${priceText}" não reconhecido; entra sem preço.`);
-      } else {
-        unitPriceMicros = price.micros;
-        if (price.rounded) {
-          warnedRounding = true;
-          warn(`"${description}": preço ${priceText} arredondado para três casas.`);
-        }
-      }
-    }
-    // Com o preço arredondado, o total digitado naturalmente difere um pouco: não avisa de novo.
-    if (unitPriceMicros !== null && !warnedRounding) {
-      const typed = parseCents(clean(cell(row, 'total')));
-      const computed = itemTotalCents(quantity, unitPriceMicros);
-      if (typed !== null && typed !== 0 && Math.abs(typed - computed) > 1) {
-        warn(`"${description}": o total da planilha não bate com quantidade × preço; vale quantidade × preço.`);
-      }
-    }
+    const { notes, ...fields } = cells;
 
     let orderCode: string | null = null;
     const orderText = orderCol === null ? '' : (row[orderCol] ?? '').trim();
@@ -174,7 +203,7 @@ export function parseProductionRows(rows: readonly string[][]): ImportReport | {
       if (!orderCode) notes.push(`Observação da planilha: ${clean(orderText)}`);
     }
 
-    report.items.push({ row: line, description, isbn, supplier, orderCode, quantity, piecesPerCarton, unitPriceMicros, notes: notes.join('\n') });
+    report.items.push({ row: line, ...fields, orderCode, notes: notes.join('\n') });
   }
   const separated = separateMixedOrders(report.items, new Map());
   report.items = separated.items;
