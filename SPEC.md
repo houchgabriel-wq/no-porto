@@ -34,6 +34,7 @@ O que a planilha mostra sobre a relação entre os dados (conferido em 17/11/202
 | BL | Um BL pode ter vários containers. Registra-se o número do BL e a chegada prevista; os containers não são cadastrados. A data de saída, pedida na primeira rodada, ficou de fora: vale a chegada prevista no lugar dela (17/11/2026) |
 | Pagamento | Por invoice, com a taxa de câmbio do pagamento (17/11/2026) |
 | Pagamentos antigos | O que a planilha marca como "pago" entra como pago, sem data e sem câmbio, por enquanto (17/11/2026) |
+| Moeda | Todos os preços são em dólar. Os "R$" das PO-067 e PO-068 da Nicola eram erro de digitação; o Gabriel corrige na planilha (17/11/2026) |
 | Previsão de embarque | A coluna "jun / aug / oct" da Produção é a previsão de embarque, mas fica de fora (17/11/2026) |
 | Histórico | Entra tudo da aba Entregues, desde 2023 (17/11/2026) |
 | Valores e leitor | O leitor não vê preços nem valores (17/11/2026) |
@@ -95,7 +96,7 @@ Em `src/core`, com teste, como no No Prelo:
 - **Produção**: cada linha vira um item em produção; a coluna sem título com "PO-0xx" dá a PO. Casos encontrados na planilha de 17/11/2026 e como entram:
   - Sem PO (71 linhas): entram sem PO e aparecem no grupo "Sem PO". Texto que não é código de PO nessa coluna (como "6k dec + 6k apr + 6k july") vai para as observações do item.
   - Sem preço (8 linhas, com total 0): entram sem preço e contam como "sem preço" nos totais.
-  - Preço em reais (6 linhas da Nicola, PO-067 e PO-068, como "R$2,06"): entram sem preço em dólar, com o preço original nas observações, até o Gabriel responder a pendência 1.
+  - Preço escrito com "R$" (6 linhas da Nicola, PO-067 e PO-068, como "R$2,06"): era erro de digitação, o preço é em dólar. Enquanto a planilha não é corrigida, essas linhas entram sem preço, com o texto original nas observações; o preço pode ser acertado na ficha do item.
   - ISBN com hífens: vale, sem os hífens. ISBN como "TBC", "new" ou com o dígito verificador errado: o item entra sem ISBN e o texto original vai para as observações.
   - Sem fornecedor (1 linha): entra como "Sem fornecedor", para corrigir na tela.
   - Peças por caixa que não são um número (como "24\n14"): ficam em branco, com o texto original nas observações.
@@ -146,9 +147,7 @@ A mesma do No Prelo, para os dois sistemas parecerem da mesma casa: limpa e mode
 
 ## 10. Pendências
 
-Perguntas para o Gabriel, sem pressa:
-
-1. **Preço em reais.** Na Produção, as PO-067 e PO-068 da Nicola estão com preço em reais ("R$2,06"). Esses pedidos são pagos em reais? Se sim, o sistema passa a aceitar a moeda por item (dólar ou real), com totais separados por moeda.
+Nenhuma no momento.
 
 ## 11. Depois da primeira versão
 
