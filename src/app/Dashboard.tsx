@@ -6,6 +6,7 @@ import { useMemo } from 'react';
 import { NO_SUPPLIER, totals, totalsByOrder, totalsBySupplier } from '../core/items';
 import { formatQuantity, formatUsdWhole } from '../core/money';
 import { arrivalState, arrivalText, formatDay, shipmentUnits, totalDue } from '../core/shipments';
+import type { Amount } from '../core/suppliers';
 import type { ProductionData } from './api';
 import { hueFor, hueStyle } from './components';
 import { Icon } from './icons';
@@ -16,9 +17,11 @@ interface Props {
   onSupplier: (id: string) => void;
   onOrder: (id: string) => void;
   onShipment: (unitKey: string) => void;
+  /** Recebido no ano corrente (do resumo por fornecedor); null enquanto carrega. */
+  received: { year: string; amount: Amount } | null;
 }
 
-export function Dashboard({ data, onSupplier, onOrder, onShipment }: Props) {
+export function Dashboard({ data, onSupplier, onOrder, onShipment, received }: Props) {
   const { seeValues } = data;
   const production = useMemo(() => data.items.filter((i) => i.status === 'producao'), [data.items]);
   const inProduction = useMemo(() => totals(production, seeValues), [production, seeValues]);
@@ -68,6 +71,16 @@ export function Dashboard({ data, onSupplier, onOrder, onShipment }: Props) {
               {clearing > 0 && <span className="alerta-texto"> · {clearing} em liberação</span>}
             </span>
           </div>
+          {received && (
+            <div className="heroi-bloco">
+              <h2 className="heroi-rot">Recebido em {received.year}</h2>
+              <b className="heroi-valor">{headline({ ...received.amount, unpriced: 0 })}</b>
+              <span className="heroi-sub">
+                {itemsCount(received.amount.items)}
+                {seeValues && ` · ${formatQuantity(received.amount.quantity)} ex.`}
+              </span>
+            </div>
+          )}
           {due && (
             <div className="heroi-bloco">
               <h2 className="heroi-rot">A pagar</h2>

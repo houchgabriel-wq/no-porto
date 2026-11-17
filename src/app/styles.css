@@ -1074,3 +1074,9 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
 @media (max-width: 600px) {
   .hist-anos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* Fornecedores */
+.tabela-forn { min-width: 860px; }
+.tabela-forn td { vertical-align: top; }
+.tabela-forn td.num b { font-variant-numeric: tabular-nums; }
+.tabela-forn .abrir-item { display: inline-flex; align-items: center; }

@@ -4,6 +4,7 @@ import type { ImportedItem } from '../core/importProduction';
 import type { ImportedShipmentItem } from '../core/importShipments';
 import type { ImportedHistoryItem } from '../core/importHistory';
 import type { InvoiceInfo } from '../core/history';
+import type { SupplierSummary } from '../core/suppliers';
 import type { Bill, Invoice, Payment } from '../core/shipments';
 import type { Item, PurchaseOrder, Supplier } from '../core/items';
 import type { Role } from '../core/roles';
@@ -125,6 +126,9 @@ export const api = {
       `/api/products/${encodeURIComponent(id)}`,
     ),
   importHistory: (items: ImportedHistoryItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/history', { items }),
+  suppliers: () => request<{ suppliers: SupplierSummary[]; seeValues: boolean }>('GET', '/api/suppliers'),
+  updateSupplier: (id: string, body: Partial<{ name: string; notes: string }>) =>
+    request<{ supplier: { id: string; name: string; notes: string } }>('PATCH', `/api/suppliers/${encodeURIComponent(id)}`, body),
   createItem: (body: ItemInput) => request<{ item: Item }>('POST', '/api/items', body),
   updateItem: (id: string, body: Partial<ItemInput>) => request<{ item: Item }>('PATCH', `/api/items/${encodeURIComponent(id)}`, body),
   deleteItem: (id: string) => request<{ ok: true }>('DELETE', `/api/items/${encodeURIComponent(id)}`),

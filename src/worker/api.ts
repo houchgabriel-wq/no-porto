@@ -11,6 +11,7 @@ import { checkMutation, error, HttpError, json, readBody } from './http';
 import { routeOrders } from './orders';
 import { routeShipments } from './shipments';
 import { routeHistory } from './history';
+import { routeSuppliers } from './suppliers';
 
 // ---------- Esquemas de entrada ----------
 
@@ -382,6 +383,8 @@ async function routeLoggedIn(
   if (shipments) return shipments;
   const history = await routeHistory(request, env, session, key, path, now);
   if (history) return history;
+  const suppliers = await routeSuppliers(request, env, session, key, path, now);
+  if (suppliers) return suppliers;
 
   return error(404, 'Rota não encontrada.');
 }
