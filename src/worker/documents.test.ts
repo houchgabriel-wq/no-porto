@@ -55,60 +55,142 @@ describe('novo pedido', () => {
 });
 
 describe('novo embarque pela invoice', () => {
-  const INVOICE = { number: '126062009-2', ref: 'CTNR04', bill: 'MEDU123', eta: '2026-12-20' };
+  const ship = (body: object, cookie = who.editor.cookie) => app.call('POST', '/api/shipments', { cookie, body });
+  const invoice = (supplierId: string, number: string, lines: object[], over: object = {}) => ({ supplierId, number, ref: '', container: '', lines, ...over });
 
   async function setup() {
     // A Claire tem Alice em duas POs (a 24 é a mais antiga); a Sara também tem Alice.
-    await order('PO-050', 'Claire', [line({ quantity: 5000, unitPriceMicros: 1_700_000 })]);
-    await order('PO-024', 'Claire', [line({ quantity: 3000, unitPriceMicros: 1_700_000 })]);
+    await order('PO-050', 'Claire', [line({ quantity: 5000, unitPriceMicros: 1_700_000, piecesPerCarton: 20 })]);
+    await order('PO-024', 'Claire', [line({ quantity: 3000, unitPriceMicros: 1_700_000, piecesPerCarton: 20 })]);
     await order('PO-030', 'Sara', [line({ quantity: 9000 })]);
     const d = await data();
-    const claire = d.suppliers.find((s: { name: string }) => s.name === 'Claire').id as string;
-    const code = (id: string | null) => d.orders.find((o: { id: string }) => o.id === id)?.code ?? null;
-    return { claire, code };
+    const id = (name: string) => d.suppliers.find((s: { name: string }) => s.name === name).id as string;
+    const code = (oid: string | null) => d.orders.find((o: { id: string }) => o.id === oid)?.code ?? null;
+    return { claire: id('Claire'), sara: id('Sara'), code };
   }
 
-  it('tira da produção do mesmo fornecedor, a PO mais antiga primeiro, com o preço da invoice', async () => {
+  it('tira da produção do mesmo fornecedor, a PO mais antiga primeiro, com o preço da invoice e as peças da packing list', async () => {
     const { claire, code } = await setup();
-    const res = await app.call('POST', '/api/shipments', {
-      cookie: who.editor.cookie,
-      body: { supplierId: claire, invoice: INVOICE, lines: [line({ quantity: 4000, orderCode: 'PO-024' }), line({ row: 8, description: 'A Odisseia', isbn: ODISSEIA, quantity: 200, unitPriceMicros: 1_120_000 })] },
+    const res = await ship({
+      bill: 'MEDU123',
+      eta: '2026-12-20',
+      invoices: [
+        invoice(
+          claire,
+          '126062009-2',
+          [line({ quantity: 4000, orderCode: 'PO-024', piecesPerCarton: 22 }), line({ row: 8, description: 'A Odisseia', isbn: ODISSEIA, quantity: 200, unitPriceMicros: 1_120_000, piecesPerCarton: 26 })],
+          { ref: 'CTNR04', container: 'YMLU5449045' },
+        ),
+      ],
     });
     expect(res.status).toBe(201);
-    expect(res.data).toMatchObject({ taken: 4000, extra: 200 });
+    expect(res.data).toMatchObject({ taken: 4000, extra: 200, billId: expect.any(String), invoiceIds: [expect.any(String)] });
 
     const d = await data();
-    const rows = (d.items as Row[]).map((i) => ({ desc: i.description, status: i.status, qty: i.quantity, po: code(i.purchaseOrderId), supplier: d.suppliers.find((s: { id: string }) => s.id === i.supplierId).name, price: i.unitPriceMicros }));
+    const rows = (d.items as Row[]).map((i) => ({
+      desc: i.description,
+      status: i.status,
+      qty: i.quantity,
+      po: code(i.purchaseOrderId),
+      supplier: d.suppliers.find((s: { id: string }) => s.id === i.supplierId).name,
+      price: i.unitPriceMicros,
+      pcs: (i as unknown as { piecesPerCarton: number | null }).piecesPerCarton,
+    }));
     // PO-024 sai inteira, 1.000 da PO-050 saem e 4.000 ficam; a Sara não é tocada.
     expect(rows).toEqual(
       expect.arrayContaining([
-        { desc: 'Coleção Alice', status: 'embarcado', qty: 3000, po: 'PO-024', supplier: 'Claire', price: 1_750_000 },
-        { desc: 'Coleção Alice', status: 'producao', qty: 4000, po: 'PO-050', supplier: 'Claire', price: 1_700_000 },
-        { desc: 'Coleção Alice', status: 'embarcado', qty: 1000, po: 'PO-050', supplier: 'Claire', price: 1_750_000 },
-        { desc: 'Coleção Alice', status: 'producao', qty: 9000, po: 'PO-030', supplier: 'Sara', price: 1_750_000 },
-        { desc: 'A Odisseia', status: 'embarcado', qty: 200, po: null, supplier: 'Claire', price: 1_120_000 },
+        { desc: 'Coleção Alice', status: 'embarcado', qty: 3000, po: 'PO-024', supplier: 'Claire', price: 1_750_000, pcs: 22 },
+        { desc: 'Coleção Alice', status: 'producao', qty: 4000, po: 'PO-050', supplier: 'Claire', price: 1_700_000, pcs: 20 },
+        { desc: 'Coleção Alice', status: 'embarcado', qty: 1000, po: 'PO-050', supplier: 'Claire', price: 1_750_000, pcs: 22 },
+        { desc: 'Coleção Alice', status: 'producao', qty: 9000, po: 'PO-030', supplier: 'Sara', price: 1_750_000, pcs: null },
+        { desc: 'A Odisseia', status: 'embarcado', qty: 200, po: null, supplier: 'Claire', price: 1_120_000, pcs: 26 },
       ]),
     );
     expect(rows).toHaveLength(5);
-    const extra = (d.items as Row[]).find((i) => i.description === 'A Odisseia')!;
-    expect(extra.notes).toBe('Não estava na produção da Claire. Confira.');
-    expect(d.invoices).toMatchObject([{ number: '126062009-2', ref: 'CTNR04', supplierId: claire, billId: d.bills[0].id }]);
-    expect(d.bills).toMatchObject([{ number: 'MEDU123', eta: '2026-12-20' }]);
+    expect((d.items as Row[]).find((i) => i.description === 'A Odisseia')!.notes).toBe('Não estava na produção da Claire. Confira.');
+    expect(d.invoices).toMatchObject([{ number: '126062009-2', ref: 'CTNR04', supplierId: claire, billId: d.bills[0].id, notes: 'Container YMLU5449045' }]);
+    expect(d.bills).toMatchObject([{ number: 'MEDU123', eta: '2026-12-20', document: null }]);
   });
 
-  it('a mesma invoice não entra duas vezes; o leitor não registra', async () => {
+  it('vários containers no mesmo BL consomem a produção em sequência', async () => {
+    const { claire, sara } = await setup();
+    const res = await ship({
+      bill: 'MEDU999',
+      eta: '2026-12-20',
+      invoices: [invoice(claire, 'C1', [line({ quantity: 2000 })]), invoice(sara, 'S1', [line({ quantity: 1000 })]), invoice(claire, 'C2', [line({ quantity: 2000 })])],
+    });
+    expect(res.status).toBe(201);
+    expect(res.data).toMatchObject({ taken: 5000, extra: 0 });
+    const d = await data();
+    expect(d.bills).toHaveLength(1);
+    expect(d.invoices.map((v: { number: string; billId: string }) => [v.number, v.billId === d.bills[0].id])).toEqual([
+      ['C1', true],
+      ['S1', true],
+      ['C2', true],
+    ]);
+    const inv = (n: string) => d.invoices.find((v: { number: string }) => v.number === n).id;
+    const qty = (invoiceNumber: string) => (d.items as Row[]).filter((i) => i.invoiceId === inv(invoiceNumber)).map((i) => i.quantity).sort();
+    expect(qty('C1')).toEqual([2000]);
+    expect(qty('C2')).toEqual([1000, 1000]);
+    expect(qty('S1')).toEqual([1000]);
+  });
+
+  it('a mesma invoice não entra duas vezes, nem repetida no mesmo envio; o leitor não registra', async () => {
     const { claire } = await setup();
-    const body = { supplierId: claire, invoice: INVOICE, lines: [line({ quantity: 100 })] };
-    expect((await app.call('POST', '/api/shipments', { cookie: who.leitor.cookie, body })).status).toBe(403);
-    expect((await app.call('POST', '/api/shipments', { cookie: who.editor.cookie, body })).status).toBe(201);
-    const again = await app.call('POST', '/api/shipments', { cookie: who.editor.cookie, body });
+    const body = { bill: null, eta: null, invoices: [invoice(claire, 'X1', [line({ quantity: 100 })])] };
+    expect((await ship(body, who.leitor.cookie)).status).toBe(403);
+    expect((await ship(body)).status).toBe(201);
+    const again = await ship(body);
     expect(again.status).toBe(409);
-    expect(again.data.error).toBe('A invoice 126062009-2 da Claire já foi registrada.');
+    expect(again.data.error).toBe('A invoice X1 da Claire já foi registrada.');
+    const twice = await ship({ bill: null, eta: null, invoices: [invoice(claire, 'X2', [line({})]), invoice(claire, 'x2', [line({})])] });
+    expect(twice.status).toBe(409);
   });
 
   it('fornecedor desconhecido', async () => {
-    const res = await app.call('POST', '/api/shipments', { cookie: who.editor.cookie, body: { supplierId: 'x', invoice: INVOICE, lines: [line({})] } });
+    const res = await ship({ bill: null, eta: null, invoices: [invoice('x', 'Z1', [line({})])] });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('arquivo do BL', () => {
+  const TEXT = '%PDF-1.4 conteúdo de teste';
+  const PDF = Buffer.from(TEXT).toString('base64');
+
+  async function bill() {
+    await order('PO-024', 'Claire', [line({ quantity: 3000 })]);
+    const claire = (await data()).suppliers[0].id;
+    const res = await app.call('POST', '/api/shipments', { cookie: who.editor.cookie, body: { bill: 'BL1', eta: null, invoices: [{ supplierId: claire, number: 'A1', lines: [line({})] }] } });
+    return res.data.billId as string;
+  }
+
+  it('anexa, baixa, substitui e tira', async () => {
+    const id = await bill();
+    const put = await app.call('PUT', `/api/bills/${id}/document`, { cookie: who.editor.cookie, body: { name: 'BL MEDU123.pdf', contentType: 'application/pdf', data: PDF } });
+    expect(put.status).toBe(201);
+    expect((await data()).bills[0].document).toEqual({ name: 'BL MEDU123.pdf', size: Buffer.byteLength(TEXT) });
+
+    const got = await app.raw('GET', `/api/bills/${id}/document`, { cookie: who.admin.cookie });
+    expect(got.status).toBe(200);
+    expect(got.headers.get('content-type')).toBe('application/pdf');
+    expect(got.headers.get('content-disposition')).toContain("filename*=UTF-8''BL%20MEDU123.pdf");
+    expect(new TextDecoder().decode(await got.arrayBuffer())).toBe(TEXT);
+
+    await app.call('PUT', `/api/bills/${id}/document`, { cookie: who.editor.cookie, body: { name: 'novo.png', contentType: 'image/png', data: btoa('png') } });
+    expect((await data()).bills[0].document).toEqual({ name: 'novo.png', size: 3 });
+
+    expect((await app.call('DELETE', `/api/bills/${id}/document`, { cookie: who.editor.cookie })).status).toBe(200);
+    expect((await data()).bills[0].document).toBeNull();
+  });
+
+  it('recusa tipo errado e arquivo grande; o leitor não anexa nem baixa', async () => {
+    const id = await bill();
+    const exe = await app.call('PUT', `/api/bills/${id}/document`, { cookie: who.editor.cookie, body: { name: 'x.exe', contentType: 'application/x-msdownload', data: PDF } });
+    expect(exe.data.error).toBe('Envie o BL em PDF, PNG ou JPG.');
+    const big = await app.call('PUT', `/api/bills/${id}/document`, { cookie: who.editor.cookie, body: { name: 'g.pdf', contentType: 'application/pdf', data: 'A'.repeat(6_700_000) } });
+    expect(big.status).toBe(413);
+    expect((await app.call('PUT', `/api/bills/${id}/document`, { cookie: who.leitor.cookie, body: { name: 'a.pdf', contentType: 'application/pdf', data: PDF } })).status).toBe(403);
+    expect((await app.raw('GET', `/api/bills/${id}/document`, { cookie: who.leitor.cookie })).status).toBe(403);
   });
 });
 
@@ -116,8 +198,11 @@ describe('container entregue', () => {
   it('as invoices escolhidas chegam no dia e os itens vão para o histórico', async () => {
     await order('PO-024', 'Claire', [line({ quantity: 3000 })]);
     const claire = (await data()).suppliers[0].id;
-    const a = await app.call('POST', '/api/shipments', { cookie: who.editor.cookie, body: { supplierId: claire, invoice: { number: 'A1', ref: '', bill: 'BL1', eta: null }, lines: [line({ quantity: 1000 })] } });
-    await app.call('POST', '/api/shipments', { cookie: who.editor.cookie, body: { supplierId: claire, invoice: { number: 'A2', ref: '', bill: 'BL1', eta: null }, lines: [line({ quantity: 1000 })] } });
+    const shipped = await app.call('POST', '/api/shipments', {
+      cookie: who.editor.cookie,
+      body: { bill: 'BL1', eta: null, invoices: ['A1', 'A2'].map((number) => ({ supplierId: claire, number, lines: [line({ quantity: 1000 })] })) },
+    });
+    const a = { data: { invoiceId: shipped.data.invoiceIds[0] } };
 
     expect((await app.call('POST', '/api/arrivals', { cookie: who.leitor.cookie, body: { invoiceIds: [a.data.invoiceId], arrivedAt: '2026-11-16' } })).status).toBe(403);
     const res = await app.call('POST', '/api/arrivals', { cookie: who.editor.cookie, body: { invoiceIds: [a.data.invoiceId], arrivedAt: '2026-11-16' } });

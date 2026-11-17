@@ -31,7 +31,7 @@ describe('embarcar', () => {
     expect(res.status).toBe(201);
 
     const d = await data();
-    expect(d.bills).toEqual([{ id: expect.any(String), number: 'ROECHN26101769', eta: '2026-11-26', arrivedAt: null, notes: '' }]);
+    expect(d.bills).toEqual([{ id: expect.any(String), number: 'ROECHN26101769', eta: '2026-11-26', arrivedAt: null, notes: '', document: null }]);
     expect(d.invoices).toMatchObject([{ number: '2026-47B', ref: '2026-10-13 (2)', billId: d.bills[0].id, eta: null }]);
     const byDesc = (desc: string, status: string) => d.items.filter((i: { description: string; status: string }) => i.description === desc && i.status === status);
     expect(byDesc('Livro A', 'embarcado')).toMatchObject([{ quantity: 1000, invoiceId: res.data.invoiceId }]);
