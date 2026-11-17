@@ -204,3 +204,21 @@ describe('parseShipmentFile', () => {
     expect(findContainer('sem container')).toBeNull();
   });
 });
+
+describe('invoice da Sara (Win Win Win)', () => {
+  it('preço na coluna "UNIT" e número depois dos dois-pontos largos', () => {
+    const rows = [
+      pad(['WIN WIN WIN INTERNATIONAL TRADING COMPANY LIMITED']),
+      // "Invoice NO：" mesclada de D a F: as células mescladas repetem o texto.
+      pad(['TO:', '', '', 'Invoice NO：   ', 'Invoice NO：   ', 'Invoice NO：   ', '2026W-3C']),
+      pad(['', '', '', 'Country of Acquisition：', '', '', 'China']),
+      pad(['Title', 'ISBN', 'G/W', 'N/W', 'Quantity', 'UNIT', 'Amount']),
+      pad(['Bluey Hora do Banho 01', '9786555477146', '275.71', '241.77', '5090', '0.5', '2545']),
+      pad(['Total', '', '', '', '5090', '', '2545']),
+    ];
+    const doc = parseInvoiceDocument([{ name: 'INVOICE', rows }], 'ROECHN26111889_CI_2026W-3C.xlsx');
+    if ('error' in doc) throw new Error(doc.error);
+    expect(doc.number).toBe('2026W-3C');
+    expect(doc.lines).toEqual([expect.objectContaining({ description: 'Bluey Hora do Banho 01', quantity: 5090, unitPriceMicros: 500_000 })]);
+  });
+});
