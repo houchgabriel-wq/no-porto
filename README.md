@@ -36,4 +36,10 @@ Antes de enviar mudanças: `npm run typecheck`, `npm test` e `npm run build`. O 
 
 A partir daí, cada push em `main` publica sozinho. O `SETUP_TOKEN` só serve enquanto não existe nenhum usuário; depois pode ficar lá sem risco.
 
+### Se uma mudança não aparecer no site
+
+1. Em **Worker → Deployments**, veja se a publicação do último push em `main` rodou e se deu erro.
+2. Em **Configurações → Build**, confira se a branch de produção é `main` e se o comando de deploy é `npm run deploy`. Só esse comando aplica as migrações novas do banco; sem elas, as telas novas dão erro ao carregar.
+3. Trocar a branch de produção no painel não publica de novo sozinho: a publicação seguinte acontece no próximo push em `main` (ou em **Deployments → Tentar de novo**).
+
 Para usar um endereço do `editoraonline.com.br` (por exemplo, `noporto.editoraonline.com.br`), a TI cria o registro no DNS e o domínio é ligado ao Worker em **Configurações → Domínios e rotas**, como no No Prelo.
