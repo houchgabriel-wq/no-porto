@@ -1,6 +1,8 @@
 // Chamadas à API. Erros viram ApiError com a mensagem em português vinda do servidor.
 
 import type { ImportedItem } from '../core/importProduction';
+import type { ImportedShipmentItem } from '../core/importShipments';
+import type { Bill, Invoice, Payment } from '../core/shipments';
 import type { Item, PurchaseOrder, Supplier } from '../core/items';
 import type { Role } from '../core/roles';
 
@@ -23,10 +25,18 @@ export interface UserSummary {
   lastLoginAt: string | null;
 }
 
+/** Tudo o que as telas usam (GET /api/data). */
 export interface ProductionData {
+  /** Hoje (AAAA-MM-DD) no fuso de São Paulo, calculado no servidor. */
+  today: string;
   suppliers: Supplier[];
   orders: PurchaseOrder[];
+  /** Em produção, embarcados e os que chegaram nos últimos 60 dias. */
   items: Item[];
+  bills: Bill[];
+  invoices: Invoice[];
+  /** Vazio para quem não vê valores. */
+  payments: Payment[];
   /** O perfil vê preços e valores? (o leitor não vê) */
   seeValues: boolean;
 }
@@ -94,7 +104,18 @@ export const api = {
     request<{ user: UserSummary }>('PATCH', `/api/users/${encodeURIComponent(id)}`, body),
   resetPassword: (id: string) =>
     request<{ tempPassword: string }>('POST', `/api/users/${encodeURIComponent(id)}/reset-password`),
-  production: () => request<ProductionData>('GET', '/api/production'),
+  production: () => request<ProductionData>('GET', '/api/data'),
+  ship: (body: { lines: { itemId: string; quantity: number }[]; invoiceId?: string; newInvoice?: { number: string; ref: string; bill: string | null; eta: string | null } }) =>
+    request<{ invoiceId: string; shipped: number }>('POST', '/api/ship', body),
+  unship: (itemId: string) => request<{ ok: true }>('POST', `/api/items/${encodeURIComponent(itemId)}/unship`),
+  updateBill: (id: string, body: Partial<{ number: string; eta: string | null; arrivedAt: string | null; notes: string }>) =>
+    request<{ ok: true }>('PATCH', `/api/bills/${encodeURIComponent(id)}`, body),
+  updateInvoice: (id: string, body: Partial<{ number: string; ref: string; bill: string | null; eta: string | null; arrivedAt: string | null; notes: string }>) =>
+    request<{ ok: true }>('PATCH', `/api/invoices/${encodeURIComponent(id)}`, body),
+  addPayment: (invoiceId: string, body: { paidAt: string | null; amountCents: number; exchangeRateE4: number | null; notes: string }) =>
+    request<{ id: string }>('POST', `/api/invoices/${encodeURIComponent(invoiceId)}/payments`, body),
+  deletePayment: (id: string) => request<{ ok: true }>('DELETE', `/api/payments/${encodeURIComponent(id)}`),
+  importShipments: (items: ImportedShipmentItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/shipments', { items }),
   createItem: (body: ItemInput) => request<{ item: Item }>('POST', '/api/items', body),
   updateItem: (id: string, body: Partial<ItemInput>) => request<{ item: Item }>('PATCH', `/api/items/${encodeURIComponent(id)}`, body),
   deleteItem: (id: string) => request<{ ok: true }>('DELETE', `/api/items/${encodeURIComponent(id)}`),

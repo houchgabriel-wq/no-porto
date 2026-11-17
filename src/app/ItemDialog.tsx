@@ -5,6 +5,7 @@ import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { isbnProblem } from '../core/isbn';
 import { NO_ORDER, NO_SUPPLIER, normalizeOrderCode, orderOwners, STATUS_LABELS, type Item } from '../core/items';
 import { formatQuantity, formatUsd, itemTotalCents, parseUnitPrice, unitPriceInput } from '../core/money';
+import { arrivalOf, arrivalState, arrivalText } from '../core/shipments';
 import { can } from '../core/roles';
 import { api, ApiError, type ItemInput, type Me, type ProductionData } from './api';
 import { Dialog, FormError } from './components';
@@ -108,6 +109,16 @@ export function ItemDialog({ state, me, data, production, onClose, onToast }: Pr
 
   if (!state) return <Dialog title="Item" open={false} onClose={onClose} />;
 
+  // Onde o item embarcado está: invoice, BL e a chegada.
+  const invoice = item?.invoiceId ? data.invoices.find((v) => v.id === item.invoiceId) : undefined;
+  const shipment = invoice
+    ? (() => {
+        const bills = new Map(data.bills.map((b) => [b.id, b]));
+        const a = arrivalOf(invoice, bills);
+        return { invoice, bill: invoice.billId ? bills.get(invoice.billId) : undefined, state: arrivalState(a.eta, a.arrivedAt, data.today) };
+      })()
+    : null;
+
   const set = (field: keyof Draft) => (value: string) => setDraft((d) => ({ ...d, [field]: value }));
   const quantity = count(draft.quantity);
   const price = draft.unitPrice.trim() ? parseUnitPrice(draft.unitPrice) : null;
@@ -136,6 +147,20 @@ export function ItemDialog({ state, me, data, production, onClose, onToast }: Pr
     }
   }
 
+  async function unship() {
+    if (!item) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await production.write(() => api.unship(item.id));
+      onToast('O item voltou para a produção.');
+      onClose();
+    } catch (err) {
+      setError({ message: err instanceof ApiError ? err.message : 'Não foi possível desfazer o embarque.' });
+      setBusy(false);
+    }
+  }
+
   async function remove() {
     if (!item) return;
     setBusy(true);
@@ -157,9 +182,28 @@ export function ItemDialog({ state, me, data, production, onClose, onToast }: Pr
     <Dialog title={title} open onClose={onClose} wide>
       <form onSubmit={save} noValidate>
         {item && (
-          <p className="dlg-texto item-situacao">
+          <div className="dlg-texto item-situacao">
             <span className="pilula">{STATUS_LABELS[item.status]}</span>
-          </p>
+            {shipment && (
+              <span className="item-embarque">
+                Invoice <b>{shipment.invoice.number}</b>
+                {shipment.bill ? (
+                  <>
+                    {' '}
+                    · BL <b>{shipment.bill.number}</b>
+                  </>
+                ) : (
+                  ' · sem BL'
+                )}{' '}
+                · {arrivalText(shipment.state)}
+              </span>
+            )}
+            {canEdit && item.status === 'embarcado' && (
+              <button type="button" className="btn-texto" onClick={() => void unship()} disabled={busy}>
+                Voltar para produção
+              </button>
+            )}
+          </div>
         )}
         <fieldset className="dlg-corpo grade" disabled={!canEdit || busy}>
           <legend className="so-leitor">Dados do item</legend>
@@ -190,7 +234,21 @@ export function ItemDialog({ state, me, data, production, onClose, onToast }: Pr
             <label className="rotulo" htmlFor={`${ids}-supplier`}>
               Fornecedor
             </label>
-            <input className="campo" {...field('supplier')} list={`${ids}-forn`} value={draft.supplier} onChange={(e) => set('supplier')(e.target.value)} placeholder={NO_SUPPLIER} />
+            <input
+              className="campo"
+              {...field('supplier')}
+              list={`${ids}-forn`}
+              value={draft.supplier}
+              onChange={(e) => set('supplier')(e.target.value)}
+              placeholder={NO_SUPPLIER}
+              readOnly={Boolean(item?.invoiceId)}
+              aria-describedby={item?.invoiceId ? `${ids}-forn-dica` : undefined}
+            />
+            {item?.invoiceId && (
+              <span className="dica" id={`${ids}-forn-dica`}>
+                O fornecedor é o da invoice.
+              </span>
+            )}
             <datalist id={`${ids}-forn`}>
               {data.suppliers.map((s) => (
                 <option key={s.id} value={s.name} />

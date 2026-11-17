@@ -51,9 +51,16 @@ Cada item de pedido passa por três situações, como as etapas do No Prelo:
 2. **Embarcado**: o item está numa invoice, que está num BL com chegada prevista.
 3. **Entregue**: o BL chegou à editora; a data de chegada fica registrada.
 
-Embarcar não exige redigitar: na PO, marcam-se os itens (ou parte da quantidade de um item) e escolhe-se a invoice. Quando só parte da quantidade embarca, o item se divide em dois: a parte embarcada e o saldo, que continua em produção.
+Embarcar não exige redigitar: na tela Produção, marcam-se os itens (ou parte da quantidade de um item) e escolhe-se a invoice, que pode ser uma a caminho do mesmo fornecedor ou uma nova (número, ref., BL e chegada prevista). Quando só parte da quantidade embarca, o item se divide em dois: a parte embarcada e o saldo, que continua em produção, com a mesma PO e o mesmo preço. Um item embarcado pode voltar para a produção enquanto não chegou.
 
-Pagamento é registrado na invoice, à parte da situação dos itens: data, valor em dólar e taxa de câmbio. Uma invoice pode ter mais de um pagamento (na planilha há casos como "Pago 2/3"); a situação dela é a pagar, paga em parte ou paga, conforme a soma dos pagamentos e o total dos itens.
+Regras do embarque (feitas no marco 3):
+
+- Uma invoice tem um fornecedor só (como na planilha): os itens marcados precisam ser do mesmo fornecedor, e o fornecedor de um item embarcado não muda.
+- Invoice sem BL (como as 108 e 101 do Kaushik) tem a sua própria chegada prevista e chegada real. Quando a invoice está num BL, valem as do BL (migração `0004`).
+- Registrar a chegada (no BL, ou na invoice sem BL) leva os itens para "entregue"; apagar a data volta para "embarcado".
+- Os embarques que chegaram ficam na tela por 60 dias; depois disso, só no histórico (marco 4).
+
+Pagamento é registrado na invoice, à parte da situação dos itens: data, valor em dólar e taxa de câmbio; o valor em reais é calculado. Uma invoice pode ter mais de um pagamento (na planilha há casos como "Pago 2/3"); a situação dela é a pagar, paga em parte ou paga, conforme a soma dos pagamentos e o total dos itens. O pagamento antigo da planilha (sem valor) quita a invoice. Admin e editor registram pagamentos; só o admin exclui. "A pagar", no painel e na tela Embarques, é a soma do que falta nas invoices.
 
 ## 4. Perfis e permissões (proposta, menos o leitor sem valores, que é decidido)
 
@@ -74,8 +81,8 @@ O servidor tira preços, totais, câmbio e pagamentos das respostas para o leito
 - **Painel**: valor em produção, no mar e a pagar, em destaque; os mesmos valores por fornecedor; chegadas das próximas semanas; BLs atrasados (chegada prevista no passado sem entrega registrada); POs abertas há mais tempo.
 - **Produção** (feita no marco 2): os itens em produção, com o total e um cartão por fornecedor em destaque (o cartão filtra a lista), busca, filtros por fornecedor e PO, "Agrupar por PO" com o subtotal de cada PO, tabela ordenável (cartões no celular), ficha do item e Baixar .xlsx. Fornecedor e PO são digitados na ficha, com sugestão dos que existem; os novos são criados ao salvar.
 - **POs**: lista de POs com fornecedores, data, número de itens, valor e quanto já embarcou. A ficha da PO mostra os itens e permite embarcar os marcados. (No marco 2, as POs aparecem agrupadas na tela Produção; a ficha da PO com o embarque vem no marco 3.)
-- **Embarques**: BLs com número, fornecedor, chegada prevista e chegada real; dentro de cada BL, as invoices (número, ref., total, pagamentos) e os itens. Marcar o BL como entregue registra a data de chegada.
-- **Chegadas**: lista por semana do que chega, com atraso em destaque.
+- **Embarques** (feita no marco 3, e é também a lista de chegadas): no topo, o valor no mar, os embarques a caminho, os atrasados e o que falta pagar. Os embarques (cada BL com suas invoices; a invoice sem BL sozinha) vêm agrupados pela chegada: atrasados, nesta semana, na próxima, depois, sem previsão e, recolhidos, os que chegaram nos últimos 60 dias. Cada cartão mostra fornecedor, previsão, as invoices com valor e situação de pagamento. A ficha do embarque altera o número do BL e as datas, tem "Chegou hoje", e mostra cada invoice com os itens (cada um pode voltar para a produção) e os pagamentos.
+- **Painel** (atualizado no marco 3): em produção, no mar e a pagar em destaque; próximas chegadas com os atrasos; produção por fornecedor e as POs maiores.
 - **Produtos**: busca por título ou ISBN; a ficha do produto mostra todas as compras desde 2023, com data, fornecedor, quantidade, preço unitário e situação, e a variação do preço.
 - **Fornecedores**: lista com o total comprado, em produção e no mar.
 - Todas as listas com busca, filtros e **Baixar .xlsx**.
@@ -111,7 +118,7 @@ Em `src/core`, com teste, como no No Prelo:
 - Cada item guarda a descrição como está na linha, e o produto é reconhecido pelo ISBN (ou, sem ISBN, pelo título). Assim, os nomes diferentes que o mesmo ISBN tem ao longo dos anos ficam preservados, e a ficha do produto junta todas as compras.
 - Mandar a mesma planilha de novo não repete itens: um item igual (mesma PO, ISBN, nome do produto, quantidade e preço) já cadastrado é pulado. Linhas iguais dentro da mesma planilha entram todas.
 - A carga é feita na tela Produção, pelo admin, em "Carga da planilha": o navegador lê a aba, mostra o resumo por fornecedor, as linhas com aviso e as que não entram, e só grava depois da confirmação, em partes de 500 itens.
-- **Embarques**: cada linha vira um item embarcado; invoice e BL criam as invoices e os BLs; "Chegada" é a chegada prevista do BL; "Pago" vira um pagamento sem data e sem câmbio, a completar.
+- **Embarques** (feita no marco 3): cada linha vira um item embarcado, sem PO (a aba não tem a coluna); invoice e BL criam as invoices e os BLs; "Chegada" é a chegada prevista do BL, ou da invoice quando não há BL; "Pago" vira um pagamento sem data e sem câmbio, um por invoice. A ref. que o Google Planilhas transformou em data volta para AAAA-MM-DD. Mandar de novo não repete itens (mesma invoice, produto, quantidade e preço). Conferido com a planilha de 17/11/2026: 199 itens, 1.918.496 exemplares e US$ 1.157.134,50 em 23 invoices e 11 BLs, iguais à linha de soma; dois ISBNs com erro (linhas 132 e 177) entram sem ISBN, com aviso.
 - **Entregues**: cada linha vira um item entregue. A chegada está como texto sem ano ("chegada 29/08", "chegou 29/04") ou como data. O ano sai da referência do embarque, do BL (ROECHN**25**… ou ROECHN**26**…) ou da ordem das linhas; o que não der para deduzir fica sem data e vai para uma lista de conferência.
 - Linhas sem fornecedor e sem produto (subtotais) são ignoradas. As abas cute e Sheet1 ficam de fora.
 - Antes de gravar, a carga mostra um resumo (itens por aba, total em dólar por aba, linhas descartadas e por quê) para o Gabriel comparar com a planilha.

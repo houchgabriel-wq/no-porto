@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { itemExportRows } from '../core/exportItems';
 import { EMPTY_FILTERS, filterItems, sortItems, type ItemFilters, type ItemSort } from '../core/items';
 import { can, ROLE_LABELS } from '../core/roles';
@@ -8,10 +8,13 @@ import { Dashboard } from './Dashboard';
 import { downloadXlsx } from './download';
 import { ForcedPasswordScreen, LoginScreen, PasswordForm, SetupScreen } from './Entry';
 import { Icon } from './icons';
-import { ImportDialog } from './ImportDialog';
+import { ImportDialog, type ImportSheet } from './ImportDialog';
 import { ItemDialog, type ItemDialogState } from './ItemDialog';
 import { useProduction } from './production';
 import { ProductionView } from './Production';
+import { ShipDialog } from './ShipDialog';
+import { ShipmentDialog } from './ShipmentDialog';
+import { ShipmentsView } from './Shipments';
 import { UpdateNotice } from './update';
 import { UsersScreen } from './Users';
 
@@ -58,7 +61,7 @@ function applyTheme(theme: Theme) {
   }
 }
 
-const VIEWS = ['painel', 'producao', 'usuarios'] as const;
+const VIEWS = ['painel', 'producao', 'embarques', 'usuarios'] as const;
 type View = (typeof VIEWS)[number];
 
 function viewFromHash(): View {
@@ -271,9 +274,10 @@ function Welcome({ user, onImport, onNew }: { user: Me; onImport?: () => void; o
   );
 }
 
-const TABS: { view: View; label: string; icon: 'inicio' | 'caixa' }[] = [
+const TABS: { view: View; label: string; icon: 'inicio' | 'caixa' | 'navio' }[] = [
   { view: 'painel', label: 'Painel', icon: 'inicio' },
   { view: 'producao', label: 'Produção', icon: 'caixa' },
+  { view: 'embarques', label: 'Embarques', icon: 'navio' },
 ];
 
 function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
@@ -284,10 +288,21 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [sort, setSort] = useState<ItemSort>({ key: 'order', dir: -1 });
   const [grouped, setGrouped] = useState(readGrouped);
   const [dialog, setDialog] = useState<ItemDialogState>(null);
-  const [importing, setImporting] = useState(false);
+  const [importing, setImporting] = useState<ImportSheet | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [shipping, setShipping] = useState<string[] | null>(null);
+  const [shipment, setShipment] = useState<string | null>(null);
   const production = useProduction();
   const data = production.data;
+  // A tela Produção só mostra o que está em produção; as outras telas usam tudo.
+  const productionData = useMemo(() => (data ? { ...data, items: data.items.filter((i) => i.status === 'producao') } : null), [data]);
+  // Itens marcados que já não estão em produção (embarcados por outra pessoa) saem da marcação.
+  useEffect(() => {
+    if (!productionData || selected.size === 0) return;
+    const still = new Set([...selected].filter((id) => productionData.items.some((i) => i.id === id)));
+    if (still.size !== selected.size) setSelected(still);
+  }, [productionData, selected]);
   const isAdmin = can(user.role, 'manage_users');
   const canEdit = can(user.role, 'edit');
   const canImport = can(user.role, 'import');
@@ -309,7 +324,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
     if (!data) return;
     setExporting(true);
     try {
-      const shown = sortItems(filterItems(data.items, filters, data.orders, data.suppliers), sort, data.orders, data.suppliers);
+      const shown = sortItems(filterItems(productionData!.items, filters, data.orders, data.suppliers), sort, data.orders, data.suppliers);
       const rows = itemExportRows(shown, data.orders, data.suppliers, data.seeValues);
       const { buildExport } = await import('./spreadsheet');
       type Row = (typeof rows)[number];
@@ -341,13 +356,19 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
         <span className="rot">{exporting ? 'Gerando…' : 'Baixar .xlsx'}</span>
       </button>
       {canImport && (
-        <button type="button" className="btn" onClick={() => setImporting(true)}>
+        <button type="button" className="btn" onClick={() => setImporting('Produção')}>
           <Icon name="atualizar" />
           <span className="rot">Carga da planilha</span>
         </button>
       )}
     </>
   );
+  const shipmentActions = canImport ? (
+    <button type="button" className="btn" onClick={() => setImporting('Embarques')}>
+      <Icon name="atualizar" />
+      <span className="rot">Carga da aba Embarques</span>
+    </button>
+  ) : null;
 
   return (
     <div className="pagina">
@@ -407,13 +428,20 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                 <span>Sem conexão com o servidor. Os dados podem estar desatualizados.</span>
               </p>
             )}
-            {data.items.length === 0 ? (
-              <Welcome user={user} onImport={canImport ? () => setImporting(true) : undefined} onNew={canEdit ? () => setDialog({ mode: 'new' }) : undefined} />
+            {data.items.length === 0 && data.invoices.length === 0 ? (
+              <Welcome user={user} onImport={canImport ? () => setImporting('Produção') : undefined} onNew={canEdit ? () => setDialog({ mode: 'new' }) : undefined} />
             ) : current === 'painel' ? (
-              <Dashboard data={data} onSupplier={(id) => goToProduction({ supplierId: id })} onOrder={(id) => goToProduction({ orderId: id })} />
+              <Dashboard
+                data={data}
+                onSupplier={(id) => goToProduction({ supplierId: id })}
+                onOrder={(id) => goToProduction({ orderId: id })}
+                onShipment={setShipment}
+              />
+            ) : current === 'embarques' ? (
+              <ShipmentsView data={data} onOpen={setShipment} actions={shipmentActions} />
             ) : (
               <ProductionView
-                data={data}
+                data={productionData!}
                 filters={filters}
                 onFilters={setFilters}
                 sort={sort}
@@ -425,6 +453,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                 }}
                 onOpen={(item) => setDialog({ mode: 'edit', item })}
                 actions={actions}
+                selection={canEdit ? { ids: selected, onChange: setSelected, onShip: () => setShipping([...selected]) } : undefined}
               />
             )}
           </>
@@ -432,7 +461,30 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
       </main>
 
       {data && <ItemDialog state={dialog} me={user} data={data} production={production} onClose={() => setDialog(null)} onToast={showToast} />}
-      {canImport && <ImportDialog open={importing} production={production} onClose={() => setImporting(false)} onToast={showToast} />}
+      {canImport && <ImportDialog sheet={importing} production={production} onClose={() => setImporting(null)} onToast={showToast} />}
+      {data && canEdit && (
+        <ShipDialog
+          items={shipping ? data.items.filter((i) => shipping.includes(i.id)) : null}
+          data={data}
+          production={production}
+          onClose={() => setShipping(null)}
+          onDone={(msg) => {
+            setSelected(new Set());
+            showToast(msg);
+          }}
+        />
+      )}
+      {data && (
+        <ShipmentDialog
+          unitKey={shipment}
+          me={user}
+          data={data}
+          production={production}
+          onClose={() => setShipment(null)}
+          onToast={showToast}
+          onOpenItem={(item) => setDialog({ mode: 'edit', item })}
+        />
+      )}
       <Dialog title="Trocar senha" open={changingPassword} onClose={() => setChangingPassword(false)}>
         <div className="dlg-corpo">
           <PasswordForm

@@ -11,8 +11,10 @@ import {
   itemStatusFor,
   parseDate,
   paymentSummary,
+  shipmentUnits,
   shipProblem,
   spDate,
+  totalDue,
 } from './shipments';
 
 describe('datas', () => {
@@ -125,5 +127,41 @@ describe('embarcar', () => {
     expect(shipProblem([{ item: item('a', 's1'), quantity: 0 }], null)).toContain('maior que zero');
     expect(shipProblem([{ item: item('a', 's1', 1000, 'embarcado'), quantity: 10 }], null)).toBe('"Livro a" já está embarcado.');
     expect(shipProblem([], null)).toBe('Escolha os itens para embarcar.');
+  });
+});
+
+describe('tela de embarques', () => {
+  const bill = (id: string, eta: string | null, arrivedAt: string | null = null) => ({ id, number: id.toUpperCase(), eta, arrivedAt, notes: '' });
+  const invoice = (id: string, billId: string | null, supplierId: string, eta: string | null = null) => ({ id, number: id, ref: '', supplierId, billId, eta, arrivedAt: null, notes: '' });
+
+  it('junta as invoices por BL e ordena pela chegada', () => {
+    const today = '2026-11-17';
+    const units = shipmentUnits(
+      [bill('b1', '2026-12-10'), bill('b2', '2026-11-13'), bill('b3', '2026-11-01', '2026-11-05'), bill('b4', '2026-11-20')],
+      [invoice('46a', 'b4', 's1'), invoice('46b', 'b4', 's1'), invoice('w1', 'b1', 's1'), invoice('55', 'b2', 's2'), invoice('108', null, 's3', '2026-11-21'), invoice('old', 'b3', 's2')],
+      today,
+    );
+    expect(units.map((u) => [u.key, u.group, u.invoices.map((i) => i.id)])).toEqual([
+      ['bl:b2', 'atrasados', ['55']],
+      ['bl:b4', 'semana', ['46a', '46b']],
+      ['inv:108', 'semana', ['108']],
+      ['bl:b1', 'depois', ['w1']],
+      ['bl:b3', 'chegaram', ['old']],
+    ]);
+  });
+
+  it('a pagar: soma o que falta nas invoices, sem as quitadas', () => {
+    const base = { productId: '', isbn: null, description: '', supplierId: 's', purchaseOrderId: null, status: 'embarcado' as const, piecesPerCarton: null, notes: '', createdAt: '', updatedAt: '' };
+    const items: Item[] = [
+      { ...base, id: '1', invoiceId: 'a', quantity: 1000, unitPriceMicros: 500_000 },
+      { ...base, id: '2', invoiceId: 'b', quantity: 1000, unitPriceMicros: 300_000 },
+      { ...base, id: '3', invoiceId: 'c', quantity: 1000, unitPriceMicros: 200_000 },
+    ];
+    const invoices = ['a', 'b', 'c'].map((id) => invoice(id, null, 's'));
+    const payments = [
+      { id: 'p1', invoiceId: 'a', paidAt: null, amountCents: null, exchangeRateE4: null, notes: '' },
+      { id: 'p2', invoiceId: 'b', paidAt: null, amountCents: 10_000, exchangeRateE4: null, notes: '' },
+    ];
+    expect(totalDue(invoices, items, payments)).toEqual({ dueCents: 20_000 + 20_000, invoices: 2 });
   });
 });

@@ -18,6 +18,7 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
 - [ ] **Marco 3: embarques e chegadas.**
   BLs (número e chegada prevista) com suas invoices; embarcar itens da PO (inteiros ou em parte); marcar entregue; lista de chegadas com atraso. Pagamentos por invoice com câmbio. Carga da aba Embarques.
   *Teste do Gabriel:* embarcar itens de uma PO real e conferir os embarques do mês com a planilha.
+  *Pronto para o teste em 17/11/2026:* aba Embarques agrupada pela chegada (atrasados primeiro), ficha do embarque com "Chegou hoje", itens e pagamentos com câmbio; marcar itens na Produção e embarcar (inteiros ou em parte); painel com em produção, no mar, a pagar e próximas chegadas; carga da aba Embarques pelo admin (199 itens, US$ 1.157.134,50, com a planilha de 17/11/2026).
 
 - [ ] **Marco 4: histórico e produtos.**
   Carga da aba Entregues, com a lista de conferência das datas. Ficha do produto com todas as compras e preços.

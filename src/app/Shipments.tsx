@@ -1,0 +1,232 @@
+// Tela Embarques (SPEC.md, seção 5): os BLs e as invoices a caminho, agrupados pela chegada
+// (atrasados primeiro), com o valor no mar e o que falta pagar. Funciona também como a lista de
+// chegadas. Quem não vê valores (o leitor) vê exemplares e não vê pagamentos.
+
+import { useMemo, useState } from 'react';
+import { NO_SUPPLIER, searchKey, totals, type Item } from '../core/items';
+import { formatQuantity, formatUsd, formatUsdWhole } from '../core/money';
+import {
+  ARRIVAL_GROUP_LABELS,
+  arrivalState,
+  arrivalText,
+  formatDay,
+  invoiceTotal,
+  PAYMENT_LABELS,
+  paymentSummary,
+  shipmentUnits,
+  totalDue,
+  type ArrivalGroup,
+  type ShipmentUnit,
+} from '../core/shipments';
+import type { ProductionData } from './api';
+import { hueFor, hueStyle } from './components';
+import { Icon } from './icons';
+import { headline, itemsCount } from './Production';
+
+interface Props {
+  data: ProductionData;
+  onOpen: (unitKey: string) => void;
+  actions: React.ReactNode;
+}
+
+export function ShipmentsView({ data, onOpen, actions }: Props) {
+  const [query, setQuery] = useState('');
+  const [supplierId, setSupplierId] = useState('');
+  const { seeValues } = data;
+  const units = useMemo(() => shipmentUnits(data.bills, data.invoices, data.today), [data.bills, data.invoices, data.today]);
+  const itemsByInvoice = useMemo(() => {
+    const map = new Map<string, Item[]>();
+    for (const item of data.items) if (item.invoiceId) map.set(item.invoiceId, [...(map.get(item.invoiceId) ?? []), item]);
+    return map;
+  }, [data.items]);
+  const names = useMemo(() => new Map(data.suppliers.map((s) => [s.id, s.name])), [data.suppliers]);
+  const atSea = useMemo(() => totals(data.items.filter((i) => i.status === 'embarcado'), seeValues), [data.items, seeValues]);
+  const due = useMemo(() => (seeValues ? totalDue(data.invoices, data.items, data.payments) : null), [seeValues, data]);
+
+  const words = searchKey(query).split(' ').filter(Boolean);
+  const shown = units.filter((u) => {
+    if (supplierId && !u.supplierIds.includes(supplierId)) return false;
+    if (!words.length) return true;
+    const hay = searchKey(
+      [
+        u.bill?.number ?? '',
+        ...u.invoices.flatMap((v) => [v.number, v.ref, v.supplierId ? (names.get(v.supplierId) ?? '') : '', ...(itemsByInvoice.get(v.id) ?? []).map((i) => `${i.description} ${i.isbn ?? ''}`)]),
+      ].join(' '),
+    );
+    return words.every((w) => hay.includes(w));
+  });
+  const groups = new Map<ArrivalGroup, ShipmentUnit[]>();
+  for (const u of shown) groups.set(u.group, [...(groups.get(u.group) ?? []), u]);
+  const late = units.filter((u) => u.group === 'atrasados').length;
+  const onTheWay = units.filter((u) => u.group !== 'chegaram').length;
+  const suppliersOnTheWay = data.suppliers.filter((s) => units.some((u) => u.supplierIds.includes(s.id)));
+
+  const ctx = { data, itemsByInvoice, names, onOpen };
+
+  return (
+    <>
+      <section className="emb-faixa" aria-label="Resumo dos embarques">
+        <div className="emb-total">
+          <span className="forn-rot">No mar</span>
+          <b>{headline(atSea)}</b>
+          <span className="forn-sub">
+            {itemsCount(atSea.items)}
+            {seeValues && ` · ${formatQuantity(atSea.quantity)} ex.`}
+          </span>
+        </div>
+        <div className="emb-stat">
+          <span className="stat-ic">
+            <Icon name="navio" />
+          </span>
+          <div>
+            <b>{onTheWay}</b>
+            <span>{onTheWay === 1 ? 'embarque a caminho' : 'embarques a caminho'}</span>
+          </div>
+        </div>
+        <div className={`emb-stat${late ? ' critico' : ''}`}>
+          <span className="stat-ic">
+            <Icon name="alerta" />
+          </span>
+          <div>
+            <b>{late}</b>
+            <span>{late === 1 ? 'atrasado' : 'atrasados'}</span>
+          </div>
+        </div>
+        {due && (
+          <div className={`emb-stat${due.dueCents ? ' alerta' : ' ok'}`}>
+            <span className="stat-ic">
+              <Icon name="check" />
+            </span>
+            <div>
+              <b>{formatUsdWhole(due.dueCents)}</b>
+              <span>{due.invoices ? `a pagar em ${due.invoices} ${due.invoices === 1 ? 'invoice' : 'invoices'}` : 'tudo pago'}</span>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <div className="filtros">
+        <label className="busca">
+          <Icon name="busca" />
+          <span className="so-leitor">Buscar</span>
+          <input className="campo" type="search" placeholder="Buscar BL, invoice, ref., produto" value={query} onChange={(e) => setQuery(e.target.value)} />
+        </label>
+        <label className="so-leitor" htmlFor="emb-forn">
+          Fornecedor
+        </label>
+        <select id="emb-forn" className="campo filtro-sel" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
+          <option value="">Fornecedor: todos</option>
+          {suppliersOnTheWay.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+        <div className="filtros-acoes">{actions}</div>
+      </div>
+
+      {units.length === 0 ? (
+        <div className="bloco tabela-vazia">Nenhum embarque ainda. Marque itens na Produção e use "Embarcar", ou faça a carga da aba Embarques.</div>
+      ) : shown.length === 0 ? (
+        <div className="bloco tabela-vazia">Nenhum embarque com estes filtros.</div>
+      ) : (
+        [...groups].map(([group, list]) =>
+          group === 'chegaram' ? (
+            <details key={group} className="emb-grupo chegaram">
+              <summary>
+                <h2>{ARRIVAL_GROUP_LABELS[group]}</h2>
+                <span className="mudo">{list.length} nos últimos 60 dias</span>
+              </summary>
+              <UnitGrid units={list} ctx={ctx} />
+            </details>
+          ) : (
+            <section key={group} className={`emb-grupo ${group}`} aria-labelledby={`grupo-${group}`}>
+              <div className="emb-grupo-topo">
+                <h2 id={`grupo-${group}`}>
+                  {group === 'atrasados' && <Icon name="alerta" />}
+                  {ARRIVAL_GROUP_LABELS[group]}
+                </h2>
+                <span className="mudo">{list.length === 1 ? '1 embarque' : `${list.length} embarques`}</span>
+              </div>
+              <UnitGrid units={list} ctx={ctx} />
+            </section>
+          ),
+        )
+      )}
+    </>
+  );
+}
+
+interface Ctx {
+  data: ProductionData;
+  itemsByInvoice: Map<string, Item[]>;
+  names: Map<string, string>;
+  onOpen: (unitKey: string) => void;
+}
+
+function UnitGrid({ units, ctx }: { units: ShipmentUnit[]; ctx: Ctx }) {
+  return (
+    <ul className="emb-grade">
+      {units.map((u) => (
+        <li key={u.key}>
+          <UnitCard unit={u} ctx={ctx} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function UnitCard({ unit, ctx }: { unit: ShipmentUnit; ctx: Ctx }) {
+  const { data, itemsByInvoice, names } = ctx;
+  const state = arrivalState(unit.eta, unit.arrivedAt, data.today);
+  const items = unit.invoices.flatMap((v) => itemsByInvoice.get(v.id) ?? []);
+  const t = totals(items, data.seeValues);
+  const suppliers = unit.supplierIds.map((id) => (id ? (names.get(id) ?? NO_SUPPLIER) : NO_SUPPLIER));
+  const title = unit.bill ? `BL ${unit.bill.number}` : `Invoice ${unit.invoices[0]?.number ?? ''}`;
+  return (
+    <button type="button" className={`emb-cartao estado-${state.kind}`} onClick={() => ctx.onOpen(unit.key)}>
+      <span className="emb-topo">
+        <span className="emb-titulo">{title}</span>
+        <span className={`pilula chegada ${state.kind}`}>
+          {state.kind === 'atrasado' && <Icon name="alerta" />}
+          {arrivalText(state)}
+        </span>
+      </span>
+      <span className="emb-meta">
+        {suppliers.map((s, i) => (
+          <span key={s}>
+            {i > 0 && ', '}
+            <span className="forn-ponto h" style={hueStyle(unit.supplierIds[i] ? hueFor(unit.supplierIds[i]!) : 0)} aria-hidden="true" />
+            {s}
+          </span>
+        ))}
+        {unit.eta && state.kind !== 'chegou' && <span className="mudo"> · previsão {formatDay(unit.eta, true)}</span>}
+        {!unit.bill && <span className="mudo"> · sem BL</span>}
+      </span>
+      <span className="emb-invoices">
+        {unit.invoices.map((v) => {
+          const its = itemsByInvoice.get(v.id) ?? [];
+          const pay = data.seeValues ? paymentSummary(invoiceTotal(its), data.payments.filter((p) => p.invoiceId === v.id)) : null;
+          return (
+            <span key={v.id} className="emb-inv">
+              <span className="emb-inv-num">
+                {v.number}
+                {v.ref && v.ref !== v.number && <span className="mudo"> · {v.ref}</span>}
+              </span>
+              <span className="emb-inv-dir">
+                {data.seeValues ? formatUsd(invoiceTotal(its)) : `${formatQuantity(its.reduce((s, i) => s + i.quantity, 0))} ex.`}
+                {pay && <span className={`pilula pag ${pay.status}`}>{PAYMENT_LABELS[pay.status]}</span>}
+              </span>
+            </span>
+          );
+        })}
+      </span>
+      <span className="emb-pe">
+        <span>
+          {itemsCount(t.items)} · {formatQuantity(t.quantity)} ex.
+        </span>
+        {data.seeValues && <b>{formatUsdWhole(t.valueCents ?? 0)}</b>}
+      </span>
+    </button>
+  );
+}

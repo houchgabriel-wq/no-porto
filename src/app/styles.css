@@ -915,3 +915,133 @@ textarea.campo { resize: vertical; min-height: 72px; }
 
 /* O total em destaque do painel é um valor longo (US$ 3.042.056): letra um pouco menor que no No Prelo. */
 .heroi-num b { font-size: clamp(40px, 6vw, 68px); overflow-wrap: anywhere; }
+
+/* ---------- No Porto: embarques ---------- */
+.critico-texto { color: var(--critico); font-weight: 600; }
+.btn-texto.perigo { color: var(--critico); }
+.alinha-inicio { align-self: flex-start; }
+
+/* Marcação dos itens para embarcar */
+.lote { position: sticky; bottom: 12px; z-index: 3; box-shadow: var(--sombra-2); }
+.lote > span:first-child { margin-right: auto; }
+.lote-aviso { color: var(--alerta); font-weight: 600; }
+.col-marca { width: 44px; padding-right: 0; }
+.marca-item { width: 18px; height: 18px; accent-color: var(--acento); cursor: pointer; margin: 2px 0 0; }
+tr.marcado td { background: var(--acento-suave); }
+.itens-cartoes li.com-marca { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; }
+.itens-cartoes li.com-marca .marca-item { justify-self: center; width: 22px; height: 22px; }
+
+/* Embarcar */
+.embarque-modo { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.dlg-abas.sem-margem { margin: 0; }
+.dlg-abas .aba:disabled { opacity: 0.45; cursor: not-allowed; }
+.grade-campos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.grade-campos.quatro { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.grade-campos legend { grid-column: 1 / -1; margin-bottom: 2px; }
+.campo-fixo { min-height: 40px; display: flex; align-items: center; color: var(--tinta-2); }
+.tabela-embarcar { min-width: 0; }
+.tabela-embarcar td:first-child { overflow-wrap: anywhere; }
+.campo-qtd { width: 110px; min-height: 36px; padding-block: 6px; }
+
+/* Faixa de resumo dos embarques */
+.emb-faixa { display: grid; grid-template-columns: minmax(210px, 250px) repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.emb-total { background: var(--acento); color: var(--sobre-acento); border-radius: 18px; padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; box-shadow: var(--sombra-1); }
+.emb-total .forn-rot, .emb-total .forn-sub { font-size: 12.5px; font-weight: 600; opacity: 0.9; }
+.emb-total b { font-family: var(--f-display); font-weight: 800; font-size: clamp(24px, 2vw, 28px); line-height: 1.05; letter-spacing: -0.03em; white-space: nowrap; }
+.emb-stat { background: var(--folha); border-radius: 16px; box-shadow: var(--sombra-1); padding: 13px 14px; display: flex; align-items: center; gap: 12px; min-width: 0; }
+.emb-stat b { font-family: var(--f-display); font-weight: 700; font-size: 22px; line-height: 1; display: block; letter-spacing: -0.02em; }
+.emb-stat span:not(.stat-ic) { color: var(--tinta-2); font-size: 13px; font-weight: 500; }
+.emb-stat.critico .stat-ic { background: var(--critico-suave); color: var(--critico); }
+.emb-stat.alerta .stat-ic { background: var(--alerta-suave); color: var(--alerta); }
+.emb-stat.ok .stat-ic { background: var(--ok-suave); color: var(--ok); }
+
+/* Grupos de chegada e cartões dos embarques */
+.emb-grupo { margin-bottom: 20px; }
+.emb-grupo-topo, .emb-grupo > summary { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.emb-grupo h2 { font-family: var(--f-display); font-size: 18px; font-weight: 700; letter-spacing: -0.015em; display: inline-flex; align-items: center; gap: 7px; }
+.emb-grupo.atrasados h2 { color: var(--critico); }
+.emb-grupo > summary { cursor: pointer; list-style: none; }
+.emb-grupo > summary::-webkit-details-marker { display: none; }
+.emb-grupo > summary::before { content: "▸"; color: var(--tinta-3); }
+.emb-grupo[open] > summary::before { content: "▾"; }
+.emb-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; align-items: start; }
+.emb-cartao { width: 100%; text-align: left; background: var(--folha); border: 0; border-left: 4px solid var(--fio); border-radius: 14px; box-shadow: var(--sombra-1); padding: 13px 15px; display: flex; flex-direction: column; gap: 8px; cursor: pointer; }
+.emb-cartao:hover { box-shadow: var(--sombra-2); }
+.emb-cartao.estado-atrasado { border-left-color: var(--critico); }
+.emb-cartao.estado-previsto { border-left-color: var(--acento); }
+.emb-cartao.estado-chegou { border-left-color: var(--ok); }
+.emb-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.emb-titulo { font-family: var(--f-display); font-weight: 700; font-size: 16px; overflow-wrap: anywhere; }
+.emb-meta { font-size: 13px; color: var(--tinta-2); }
+.emb-invoices { display: flex; flex-direction: column; border-top: 1px solid var(--fio); }
+.emb-inv { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--fio); font-size: 13px; }
+.emb-inv-num { font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.emb-inv-dir { display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.emb-pe { display: flex; justify-content: space-between; gap: 8px; color: var(--tinta-3); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.emb-pe b { color: var(--tinta); font-size: 14px; }
+.pilula.chegada.atrasado { background: var(--critico-suave); color: var(--critico); }
+.pilula.chegada.previsto { background: var(--acento-suave); color: var(--acento); }
+.pilula.chegada.chegou { background: var(--ok-suave); color: var(--ok); }
+.pilula .ic { width: 13px; height: 13px; }
+.pilula.pag.pago { background: var(--ok-suave); color: var(--ok); }
+.pilula.pag.parcial { background: var(--alerta-suave); color: var(--alerta); }
+.pilula.pag.a_pagar { background: var(--critico-suave); color: var(--critico); }
+
+/* Ficha do embarque */
+dialog.dlg-embarque { width: min(760px, calc(100vw - 32px)); }
+.emb-chegada { display: flex; flex-direction: column; gap: 10px; }
+.emb-chegada .grade-campos { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.emb-chegada-acoes { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.emb-invoice { margin: 0 24px 16px; padding: 14px 16px; border: 1px solid var(--fio); border-radius: 14px; display: flex; flex-direction: column; gap: 10px; }
+.emb-invoice-topo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.emb-invoice-topo h3 { font-family: var(--f-display); font-size: 16px; font-weight: 700; }
+.emb-invoice-topo .btn-texto { margin-left: auto; }
+.emb-itens { display: flex; flex-direction: column; }
+.emb-itens li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 4px 12px; align-items: center; padding: 7px 0; border-top: 1px solid var(--fio); font-size: 13.5px; }
+.emb-itens li:first-child { border-top: 0; }
+.emb-pagamentos { background: var(--fundo); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.emb-pag-resumo { display: flex; flex-wrap: wrap; gap: 6px 18px; font-variant-numeric: tabular-nums; }
+.emb-pag-resumo .falta b { color: var(--critico); }
+.emb-pag-lista { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.emb-pag-lista li { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.emb-pag-lista li .btn-texto { margin-left: auto; }
+.pag-confirma { margin-left: auto; display: inline-flex; gap: 6px; }
+.emb-pag-form { display: flex; flex-direction: column; gap: 8px; }
+.emb-pag-acoes { display: flex; justify-content: flex-end; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.emb-pag-acoes > div { flex: 1 1 200px; }
+.emb-inv-form { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--fundo); }
+.emb-inv-form .grade-campos { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.item-situacao { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.item-embarque { color: var(--tinta-2); font-size: 13px; }
+
+/* Painel: três números em destaque e próximas chegadas */
+.heroi-tres { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px 28px; }
+.heroi-bloco { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.heroi-bloco + .heroi-bloco { border-left: 1px solid var(--fio); padding-left: 28px; }
+.heroi-bloco .heroi-rot { margin: 0; }
+.heroi-valor { font-family: var(--f-display); font-weight: 800; font-size: clamp(30px, 3.4vw, 44px); line-height: 1; letter-spacing: -0.035em; white-space: nowrap; }
+.heroi-sub { color: var(--tinta-3); font-size: 13px; font-weight: 500; }
+.chegada-linha { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border: 0; border-top: 1px solid var(--fio); background: none; text-align: left; cursor: pointer; }
+.lista li:first-child .chegada-linha { border-top: 0; }
+.chegada-linha:hover .barra-nome { color: var(--acento); }
+.chegada-dia { width: 46px; height: 46px; border-radius: 12px; background: var(--sulco); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
+.chegada-dia b { font-family: var(--f-display); font-size: 18px; font-weight: 700; }
+.chegada-dia span { font-size: 11px; color: var(--tinta-3); text-transform: uppercase; font-weight: 600; }
+.chegada-dia.atrasado { background: var(--critico-suave); color: var(--critico); }
+.chegada-dia.atrasado span { color: var(--critico); }
+.chegada-meio { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+
+@media (max-width: 960px) {
+  .emb-faixa { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .emb-total { grid-column: 1 / -1; }
+  .heroi-bloco + .heroi-bloco { border-left: 0; padding-left: 0; border-top: 1px solid var(--fio); padding-top: 14px; }
+}
+@media (max-width: 600px) {
+  .emb-grade { grid-template-columns: minmax(0, 1fr); }
+  .grade-campos, .grade-campos.quatro, .emb-chegada .grade-campos, .emb-inv-form .grade-campos { grid-template-columns: minmax(0, 1fr); }
+  .emb-invoice { margin-inline: 16px; padding-inline: 12px; }
+  .emb-itens li { grid-template-columns: minmax(0, 1fr) auto; }
+  .chegada-linha { grid-template-columns: auto minmax(0, 1fr); }
+  .chegada-linha .pilula { grid-column: 2; justify-self: start; }
+  .lote { bottom: 8px; }
+}

@@ -211,3 +211,68 @@ export function shipProblem(lines: readonly ShipLine[], invoiceSupplierId: strin
   if (invoiceSupplierId && !suppliers.has(invoiceSupplierId)) return 'Esta invoice é de outro fornecedor.';
   return null;
 }
+
+// ---------- Tela de embarques ----------
+
+/** Um embarque na tela: um BL com suas invoices, ou uma invoice sem BL. */
+export interface ShipmentUnit {
+  key: string;
+  bill: Bill | null;
+  invoices: Invoice[];
+  eta: string | null;
+  arrivedAt: string | null;
+  group: ArrivalGroup;
+  /** Fornecedores das invoices, sem repetir. */
+  supplierIds: (string | null)[];
+}
+
+/**
+ * Junta as invoices por BL (as sem BL ficam sozinhas) e ordena pela chegada: atrasados e próximos
+ * primeiro, sem previsão depois e os que chegaram no fim, do mais recente para o mais antigo.
+ */
+export function shipmentUnits(bills: readonly Bill[], invoices: readonly Invoice[], today: string): ShipmentUnit[] {
+  const byBill = new Map(bills.map((b) => [b.id, b]));
+  const units = new Map<string, ShipmentUnit>();
+  for (const invoice of invoices) {
+    const bill = invoice.billId ? byBill.get(invoice.billId) : undefined;
+    const key = bill ? `bl:${bill.id}` : `inv:${invoice.id}`;
+    let unit = units.get(key);
+    if (!unit) {
+      const { eta, arrivedAt } = bill ? bill : invoice;
+      unit = { key, bill: bill ?? null, invoices: [], eta, arrivedAt, group: arrivalGroup(eta, arrivedAt, today), supplierIds: [] };
+      units.set(key, unit);
+    }
+    unit.invoices.push(invoice);
+    if (!unit.supplierIds.includes(invoice.supplierId)) unit.supplierIds.push(invoice.supplierId);
+  }
+  // BL sem invoice (todas desfeitas) também aparece, para poder ser corrigido.
+  for (const bill of bills) {
+    if (!units.has(`bl:${bill.id}`)) {
+      units.set(`bl:${bill.id}`, { key: `bl:${bill.id}`, bill, invoices: [], eta: bill.eta, arrivedAt: bill.arrivedAt, group: arrivalGroup(bill.eta, bill.arrivedAt, today), supplierIds: [] });
+    }
+  }
+  const order = (u: ShipmentUnit) => ARRIVAL_GROUPS.indexOf(u.group);
+  return [...units.values()].sort((a, b) => {
+    if (order(a) !== order(b)) return order(a) - order(b);
+    if (a.group === 'chegaram') return (b.arrivedAt ?? '').localeCompare(a.arrivedAt ?? '');
+    return (a.eta ?? '').localeCompare(b.eta ?? '') || (a.bill?.number ?? a.invoices[0]?.number ?? '').localeCompare(b.bill?.number ?? b.invoices[0]?.number ?? '');
+  });
+}
+
+/** Quanto falta pagar, somando as invoices (as pagas e as quitadas pela planilha não entram). */
+export function totalDue(invoices: readonly Invoice[], items: readonly Item[], payments: readonly Payment[]): { dueCents: number; invoices: number } {
+  let dueCents = 0;
+  let count = 0;
+  for (const invoice of invoices) {
+    const total = invoiceTotal(items.filter((i) => i.invoiceId === invoice.id));
+    const summary = paymentSummary(
+      total,
+      payments.filter((p) => p.invoiceId === invoice.id),
+    );
+    if (summary.dueCents > 0) {
+      dueCents += summary.dueCents;
+      count += 1;
+    }
+  }
+  return { dueCents, invoices: count };
+}

@@ -66,9 +66,11 @@ interface Props {
   onOpen: (item: Item) => void;
   /** Ações da barra (novo item, carga, baixar), conforme o perfil. */
   actions: React.ReactNode;
+  /** Itens marcados para embarcar; ausente para quem não embarca (o leitor). */
+  selection?: { ids: ReadonlySet<string>; onChange: (ids: Set<string>) => void; onShip: () => void };
 }
 
-export function ProductionView({ data, filters, onFilters, sort, onSort, grouped, onGrouped, onOpen, actions }: Props) {
+export function ProductionView({ data, filters, onFilters, sort, onSort, grouped, onGrouped, onOpen, actions, selection }: Props) {
   const narrow = useNarrow();
   const { seeValues } = data;
   const all = useMemo(() => totals(data.items, seeValues), [data.items, seeValues]);
@@ -88,7 +90,17 @@ export function ProductionView({ data, filters, onFilters, sort, onSort, grouped
   const filtered = filters.query.trim() !== '' || filters.supplierId !== '' || filters.orderId !== '';
   const shownTotals = useMemo(() => totals(shown, seeValues), [shown, seeValues]);
 
-  const ctx = { seeValues, codes, names, onOpen };
+  const toggle = selection
+    ? (id: string) => {
+        const next = new Set(selection.ids);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        selection.onChange(next);
+      }
+    : undefined;
+  const ctx: Ctx = { seeValues, codes, names, onOpen, selected: selection?.ids, toggle };
+  const chosen = selection ? data.items.filter((i) => selection.ids.has(i.id)) : [];
+  const chosenSuppliers = new Set(chosen.map((i) => i.supplierId));
 
   return (
     <>
@@ -182,6 +194,22 @@ export function ProductionView({ data, filters, onFilters, sort, onSort, grouped
         )}
       </p>
 
+      {selection && chosen.length > 0 && (
+        <div className="lote" role="region" aria-label="Itens marcados">
+          <span>
+            <b>{itemsCount(chosen.length)}</b> {chosen.length === 1 ? 'marcado' : 'marcados'}
+            {chosenSuppliers.size > 1 && <span className="lote-aviso"> · de fornecedores diferentes: embarque cada fornecedor separadamente</span>}
+          </span>
+          <button type="button" className="btn" onClick={() => selection.onChange(new Set())}>
+            Desmarcar
+          </button>
+          <button type="button" className="btn primario" onClick={selection.onShip} disabled={chosenSuppliers.size > 1}>
+            <Icon name="navio" />
+            Embarcar
+          </button>
+        </div>
+      )}
+
       {shown.length === 0 ? (
         <div className="bloco tabela-vazia">Nenhum item com estes filtros.</div>
       ) : narrow ? (
@@ -198,6 +226,21 @@ interface Ctx {
   codes: Map<string, string>;
   names: Map<string, string>;
   onOpen: (item: Item) => void;
+  selected?: ReadonlySet<string>;
+  toggle?: (id: string) => void;
+}
+
+function Mark({ item, ctx }: { item: Item; ctx: Ctx }) {
+  if (!ctx.toggle) return null;
+  return (
+    <input
+      type="checkbox"
+      className="marca-item"
+      checked={ctx.selected?.has(item.id) ?? false}
+      onChange={() => ctx.toggle!(item.id)}
+      aria-label={`Marcar ${item.description} para embarcar`}
+    />
+  );
 }
 
 type Groups = ReturnType<typeof totalsByOrder> | null;
@@ -224,6 +267,11 @@ function ItemTable({ items, groups, ctx, sort, onSort }: { items: Item[]; groups
       <table className="tabela-itens">
         <thead>
           <tr>
+            {ctx.toggle && (
+              <th className="col-marca">
+                <span className="so-leitor">Marcar</span>
+              </th>
+            )}
             {columns.map((c) => (
               <th key={c.key} className={c.num ? 'num' : undefined} aria-sort={sort.key === c.key ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
                 <button type="button" onClick={() => toggle(c.key)}>
@@ -239,7 +287,7 @@ function ItemTable({ items, groups, ctx, sort, onSort }: { items: Item[]; groups
           byGroup(items, groups).map(({ group, items: rows }) => (
             <tbody key={group.orderId ?? 'sem'}>
               <tr className="grupo-linha">
-                <th scope="rowgroup" colSpan={columns.length + 1}>
+                <th scope="rowgroup" colSpan={columns.length + 1 + (ctx.toggle ? 1 : 0)}>
                   <span className="grupo-po">{group.code}</span>
                   <span className="grupo-info">
                     {group.suppliers.join(', ')} · {totalsLine(group)}
@@ -267,7 +315,12 @@ function ItemTable({ items, groups, ctx, sort, onSort }: { items: Item[]; groups
 function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
   const supplier = item.supplierId ? (ctx.names.get(item.supplierId) ?? NO_SUPPLIER) : NO_SUPPLIER;
   return (
-    <tr>
+    <tr className={ctx.selected?.has(item.id) ? 'marcado' : undefined}>
+      {ctx.toggle && (
+        <td className="col-marca">
+          <Mark item={item} ctx={ctx} />
+        </td>
+      )}
       <td className="t-produto">
         <button type="button" className="abrir-item" onClick={() => ctx.onOpen(item)}>
           {item.description}
@@ -326,7 +379,8 @@ function ItemCards({ items, groups, ctx }: { items: Item[]; groups: Groups; ctx:
 function ItemCard({ item, ctx }: { item: Item; ctx: Ctx }) {
   const supplier = item.supplierId ? (ctx.names.get(item.supplierId) ?? NO_SUPPLIER) : NO_SUPPLIER;
   return (
-    <li>
+    <li className={ctx.toggle ? 'com-marca' : undefined}>
+      <Mark item={item} ctx={ctx} />
       <button type="button" className="item-cartao" onClick={() => ctx.onOpen(item)}>
         <span className="item-cartao-titulo">{item.description}</span>
         <span className="item-cartao-meta">
