@@ -10,7 +10,7 @@ import { parseShipmentFile, type DocumentLine, type DocumentNote, type ShipmentF
 import { NO_SUPPLIER } from '../core/items';
 import { formatQuantity, formatUsd } from '../core/money';
 import { formatDay } from '../core/shipments';
-import { mergePackingList, pairShipmentFiles } from '../core/shipmentFiles';
+import { mergePackingList, pairShipmentFiles, piecesLabel } from '../core/shipmentFiles';
 import { api, ApiError, type ProductionData } from './api';
 import { Dialog, FormError } from './components';
 import { linesValue, Notes, readFile } from './Documents';
@@ -520,7 +520,7 @@ function AllocationTable({ lines, allocation, data }: { lines: DocumentLine[]; a
                   {formatQuantity(l.quantity)}
                 </td>
                 <td className="num" data-rot="Por caixa">
-                  {l.piecesPerCarton ?? '—'}
+                  {piecesLabel(l)}
                 </td>
                 <td data-rot="Sai da produção">
                   <ul className="alocacao">

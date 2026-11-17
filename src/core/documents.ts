@@ -25,6 +25,11 @@ export interface DocumentLine {
   /** PO citada na linha (as invoices da Claire trazem). */
   orderCode: string | null;
   notes: string;
+  /**
+   * Caixas fora do padrão (a sobra, como 1 caixa de 50 quando o padrão é 60), vindas da packing list.
+   * Só para a prévia: não é gravado.
+   */
+  extraCartons?: { cartons: number; pieces: number }[];
 }
 
 export interface DocumentNote {
@@ -82,7 +87,8 @@ function descriptionScore(l: string): number {
 const ROLE_TESTS: Record<Exclude<Role, 'description'>, (l: string) => boolean> = {
   // "Total Qty per title" é a quantidade; "Qty per Ctn" e "Qty. Unit", não.
   quantity: (l) => (/^(qty|quantity|quantidade|qtd|total qty)\b/.test(l) || l === 'qtd') && !/\b(unit|each|ctn|ctns|carton|cartons)\b/.test(l),
-  price: (l) => (l.includes('price') || /^rate\b/.test(l) || l.includes('preco')) && !l.includes('amount') && !l.includes('total'),
+  // "UNIT" sozinho é o preço unitário na invoice da Sara (ao lado de "Amount").
+  price: (l) => (l.includes('price') || /^rate\b/.test(l) || l.includes('preco') || l === 'unit' || l === 'unit usd') && !l.includes('amount') && !l.includes('total'),
   isbn: (l) => l.includes('isbn'),
   order: (l) => /\border (no|number|n)\b/.test(l) || l === 'order' || l === 'po' || /^p ?o (no|number)\b/.test(l) || l === 'pedido',
   pieces: (l) => l === 'pcs ctn' || /^per (ctn|carton)\b/.test(l) || l.includes('each ctn') || /\b(pcs|qty) per (ctn|carton)\b/.test(l) || l.includes('pecas por caixa'),
@@ -244,13 +250,15 @@ function fieldValue(rows: readonly string[][], pattern: RegExp, limit = HEADER_S
       const text = clean(row[c]);
       const m = pattern.exec(text);
       if (!m || m.index !== 0) continue;
-      const rest = clean(text.slice(m[0].length).replace(/^[\s:.#º°-]+/, ''));
+      // Os dois-pontos podem ser os largos do chinês ("Invoice NO：").
+      const rest = clean(text.slice(m[0].length).replace(/^[\s:：.#º°-]+/, ''));
       if (rest) return rest;
       for (let k = c + 1; k < Math.min(row.length, c + 6); k++) {
         const next = clean(row[k]);
-        if (!next) continue;
+        // Vazia, ou a cópia do próprio rótulo numa célula mesclada: segue para a direita.
+        if (!next || next === text) continue;
         // Outro rótulo ao lado ("INVOICE NO. | DATE"): o valor está embaixo.
-        if (/:$/.test(next) || /^(date|data|to|from|ref)\b/i.test(next)) break;
+        if (/[:：]$/.test(next) || /^(date|data|to|from|ref)\b/i.test(next)) break;
         return next;
       }
       const below = clean(rows[r + 1]?.[c]);

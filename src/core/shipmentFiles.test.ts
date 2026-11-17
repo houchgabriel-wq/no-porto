@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DocumentLine, ShipmentFile } from './documents';
-import { mergePackingList, pairShipmentFiles } from './shipmentFiles';
+import { combinePackingLines, mergePackingList, pairShipmentFiles, piecesLabel } from './shipmentFiles';
 
 const ALICE = '9786583970527';
 const ODISSEIA = '9786583970213';
@@ -36,6 +36,52 @@ describe('mergePackingList', () => {
 
   it('só a packing list: as linhas dela, sem preço', () => {
     expect(mergePackingList(null, [line({ piecesPerCarton: 22, unitPriceMicros: 9 })]).lines).toEqual([line({ piecesPerCarton: 22 })]);
+  });
+});
+
+describe('caixa de sobra na packing list', () => {
+  // Embarque 2026W-3C da Sara: a packing list separa a caixa de sobra numa linha à parte.
+  const BLUEY = '9786555477146';
+  const pl = [
+    line({ row: 8, description: 'Bluey Hora do Banho 01', isbn: BLUEY, quantity: 5040, piecesPerCarton: 60 }),
+    line({ row: 9, description: 'Bluey Hora do Banho 01', isbn: BLUEY, quantity: 50, piecesPerCarton: 50 }),
+    line({ row: 12, description: 'Bluey Aquabook 02', isbn: ODISSEIA, quantity: 18720, piecesPerCarton: 60 }),
+  ];
+
+  it('junta as linhas do mesmo produto, com a caixa padrão da maioria e a sobra à parte', () => {
+    expect(combinePackingLines(pl).map((l) => [l.row, l.quantity, l.piecesPerCarton, l.extraCartons ?? null])).toEqual([
+      [8, 5090, 60, [{ cartons: 1, pieces: 50 }]],
+      [12, 18720, 60, null],
+    ]);
+  });
+
+  it('com a invoice de 5.090, não há aviso; só a packing list também dá um item só', () => {
+    const invoice = [line({ row: 18, description: 'Bluey Hora do Banho 01', isbn: BLUEY, quantity: 5090, unitPriceMicros: 500_000 }), line({ row: 20, description: 'Bluey Aquabook 02', isbn: ODISSEIA, quantity: 18720 })];
+    const merged = mergePackingList(invoice, pl);
+    expect(merged.warnings).toEqual([]);
+    expect(merged.lines.map((l) => [l.quantity, l.piecesPerCarton, piecesLabel(l)])).toEqual([
+      [5090, 60, '60 (+1 cx de 50)'],
+      [18720, 60, '60'],
+    ]);
+    expect(mergePackingList(null, pl).lines.map((l) => [l.quantity, l.piecesPerCarton])).toEqual([
+      [5090, 60],
+      [18720, 60],
+    ]);
+  });
+
+  it('invoice com o produto em duas linhas (duas POs): compara a soma', () => {
+    const invoice = [
+      line({ row: 18, description: 'Bluey Hora do Banho 01', isbn: BLUEY, quantity: 3000, orderCode: 'PO-050' }),
+      line({ row: 19, description: 'Bluey Hora do Banho 01', isbn: BLUEY, quantity: 2090, orderCode: 'PO-060' }),
+    ];
+    const merged = mergePackingList(invoice, pl.slice(0, 2));
+    expect(merged.warnings).toEqual([]);
+    expect(merged.lines.map((l) => [l.quantity, l.piecesPerCarton, l.extraCartons ?? null])).toEqual([
+      [3000, 60, [{ cartons: 1, pieces: 50 }]],
+      [2090, 60, null],
+    ]);
+    const short = mergePackingList([invoice[0]!], pl.slice(0, 2));
+    expect(short.warnings.map((w) => w.message)).toEqual(['"Bluey Hora do Banho 01": a invoice tem 3.000 e a packing list, 5.090. Vale a invoice.']);
   });
 });
 
