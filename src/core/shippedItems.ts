@@ -3,7 +3,7 @@
 // agrupamento por embarque (o BL com suas invoices, ou a invoice sem BL).
 
 import { compareOrderCodes, NO_ORDER, NO_SUPPLIER, searchKey, totalOf, totals, type Item, type PurchaseOrder, type Supplier, type Totals } from './items';
-import { arrivalOf, arrivalState, shipmentUnits, type ArrivalState, type Bill, type Invoice } from './shipments';
+import { arrivalOf, arrivalState, invoiceTotal, paymentSummary, shipmentUnits, type ArrivalState, type Bill, type Invoice, type Payment, type PaymentStatus, type PaymentSummary } from './shipments';
 
 export interface ShippedRow {
   item: Item;
@@ -39,24 +39,52 @@ export function shippedRows(items: readonly Item[], invoices: readonly Invoice[]
     });
 }
 
+/**
+ * Situação de pagamento de cada invoice (pelo total dos itens dela e pelos pagamentos). Vazio para
+ * quem não vê valores: o servidor não manda pagamentos para o leitor.
+ */
+export function invoicePayments(invoices: readonly Invoice[], items: readonly Item[], payments: readonly Payment[], seeValues: boolean): Map<string, PaymentSummary> {
+  const map = new Map<string, PaymentSummary>();
+  if (!seeValues) return map;
+  for (const invoice of invoices) {
+    map.set(
+      invoice.id,
+      paymentSummary(
+        invoiceTotal(items.filter((i) => i.invoiceId === invoice.id)),
+        payments.filter((p) => p.invoiceId === invoice.id),
+      ),
+    );
+  }
+  return map;
+}
+
 export interface ShippedFilters {
   query: string;
   /** Id do fornecedor; "" para todos. */
   supplierId: string;
   /** Chave do embarque; "" para todos. */
   unitKey: string;
+  /** Situação de pagamento da invoice; "" para todas. */
+  payment: PaymentStatus | '';
 }
 
-export const EMPTY_SHIPPED_FILTERS: ShippedFilters = { query: '', supplierId: '', unitKey: '' };
+export const EMPTY_SHIPPED_FILTERS: ShippedFilters = { query: '', supplierId: '', unitKey: '', payment: '' };
 
 /** Busca (produto, ISBN, PO, fornecedor, invoice, ref. e BL, sem acento) e filtros. */
-export function filterShipped(rows: readonly ShippedRow[], filters: ShippedFilters, orders: readonly PurchaseOrder[], suppliers: readonly Supplier[]): ShippedRow[] {
+export function filterShipped(
+  rows: readonly ShippedRow[],
+  filters: ShippedFilters,
+  orders: readonly PurchaseOrder[],
+  suppliers: readonly Supplier[],
+  payments: ReadonlyMap<string, PaymentSummary> = new Map(),
+): ShippedRow[] {
   const codes = new Map(orders.map((o) => [o.id, o.code]));
   const names = new Map(suppliers.map((s) => [s.id, s.name]));
   const words = searchKey(filters.query).split(' ').filter(Boolean);
   return rows.filter((r) => {
     if (filters.supplierId && r.item.supplierId !== filters.supplierId) return false;
     if (filters.unitKey && r.unitKey !== filters.unitKey) return false;
+    if (filters.payment && (!r.invoice || payments.get(r.invoice.id)?.status !== filters.payment)) return false;
     if (!words.length) return true;
     const hay = searchKey(
       [
@@ -117,7 +145,7 @@ export interface ShippedGroup extends Totals {
   eta: string | null;
   state: ArrivalState;
   /** Invoices do embarque com itens na lista, na ordem em que aparecem. */
-  invoices: string[];
+  invoices: { id: string; number: string }[];
   /** Fornecedores do embarque, em ordem alfabética. */
   suppliers: string[];
 }
@@ -139,7 +167,7 @@ export function groupShipped(rows: readonly ShippedRow[], bills: readonly Bill[]
       label: list[0]!.unitLabel,
       eta: list[0]!.eta,
       state: list[0]!.state,
-      invoices: [...new Set(list.map((r) => r.invoice?.number).filter((n): n is string => Boolean(n)))],
+      invoices: [...new Map(list.filter((r) => r.invoice).map((r) => [r.invoice!.id, { id: r.invoice!.id, number: r.invoice!.number }])).values()],
       suppliers: [...new Set(list.map((r) => (r.item.supplierId ? (names.get(r.item.supplierId) ?? NO_SUPPLIER) : NO_SUPPLIER)))].sort((a, b) => a.localeCompare(b, 'pt-BR')),
     }));
 }

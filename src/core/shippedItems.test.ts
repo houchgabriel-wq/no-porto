@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Item } from './items';
 import type { Bill, Invoice } from './shipments';
-import { filterShipped, groupShipped, shippedRows, sortShipped, EMPTY_SHIPPED_FILTERS } from './shippedItems';
+import { filterShipped, groupShipped, invoicePayments, shippedRows, sortShipped, EMPTY_SHIPPED_FILTERS } from './shippedItems';
 
 const today = '2026-11-17';
 const bills: Bill[] = [
@@ -78,10 +78,34 @@ describe('sortShipped', () => {
 describe('groupShipped', () => {
   it('um grupo por embarque, em liberação primeiro, com os totais', () => {
     const groups = groupShipped(rows, bills, invoices, suppliers, today, true);
-    expect(groups.map((g) => [g.label, g.items, g.quantity, g.valueCents, g.invoices, g.suppliers])).toEqual([
+    expect(groups.map((g) => [g.label, g.items, g.quantity, g.valueCents, g.invoices.map((v) => v.number), g.suppliers])).toEqual([
       ['BL ROECHN1', 1, 1000, 0, ['TW1'], ['Sally']],
       ['BL ROECHN2', 2, 4000, 200_000, ['2026-46A', '2026-46B'], ['Sara']],
       ['Invoice 108', 1, 500, 25_000, ['108'], ['Kaushik']],
     ]);
+  });
+});
+
+describe('pagamento das invoices', () => {
+  const payments = [
+    { id: 'p1', invoiceId: 'v1', paidAt: null, amountCents: null, exchangeRateE4: null, notes: 'Pago, segundo a planilha' },
+    { id: 'p2', invoiceId: 'v2', paidAt: '2026-11-01', amountCents: 20_000, exchangeRateE4: 55_000, notes: '' },
+  ];
+  it('a situação de cada invoice; nada para quem não vê valores', () => {
+    const map = invoicePayments(invoices, items, payments, true);
+    expect([...map].map(([id, p]) => [id, p.status])).toEqual([
+      ['v1', 'pago'],
+      ['v2', 'parcial'],
+      ['v3', 'a_pagar'],
+      ['v4', 'a_pagar'],
+    ]);
+    expect(invoicePayments(invoices, items, payments, false).size).toBe(0);
+  });
+  it('filtra pela situação de pagamento', () => {
+    const map = invoicePayments(invoices, items, payments, true);
+    const f = (payment: 'pago' | 'parcial' | 'a_pagar') => filterShipped(rows, { ...EMPTY_SHIPPED_FILTERS, payment }, [], suppliers, map).map((r) => r.item.id);
+    expect(f('pago')).toEqual(['a']);
+    expect(f('parcial')).toEqual(['b']);
+    expect(f('a_pagar')).toEqual(['c', 'd']);
   });
 });
