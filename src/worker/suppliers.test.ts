@@ -70,3 +70,15 @@ describe('fornecedores', () => {
     expect(data.suppliers.map((s: { name: string }) => s.name)).toContain('Sara (Ningbo)');
   });
 });
+
+describe('cópia completa', () => {
+  it('só o admin baixa; traz itens, invoices, BLs, pagamentos, POs e fornecedores', async () => {
+    await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: item({}) });
+    expect((await app.call('GET', '/api/export', { cookie: who.editor.cookie })).status).toBe(403);
+    expect((await app.call('GET', '/api/export', { cookie: who.leitor.cookie })).status).toBe(403);
+    const res = await app.call('GET', '/api/export', { cookie: who.admin.cookie });
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.data).sort()).toEqual(['bills', 'invoices', 'items', 'orders', 'payments', 'suppliers']);
+    expect(res.data.items[0]).toMatchObject({ unitPriceMicros: 575_000, purchaseOrderId: expect.any(String) });
+  });
+});

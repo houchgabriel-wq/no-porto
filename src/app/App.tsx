@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { itemExportRows } from '../core/exportItems';
 import type { HistoryRow } from '../core/history';
+import { copySheets, DELIVERED_HEADER, PRODUCTION_HEADER, SHIPMENTS_HEADER } from '../core/fullCopy';
 import { receivedInYear, type SupplierSummary } from '../core/suppliers';
 import { EMPTY_FILTERS, filterItems, sortItems, type ItemFilters, type ItemSort } from '../core/items';
 import { can, ROLE_LABELS } from '../core/roles';
@@ -149,7 +150,7 @@ export function App() {
   }
 }
 
-function UserMenu({ user, onPassword, onLogout }: { user: Me; onPassword: () => void; onLogout: () => void }) {
+function UserMenu({ user, onPassword, onLogout, onBackup }: { user: Me; onPassword: () => void; onLogout: () => void; onBackup?: () => void }) {
   const isAdmin = can(user.role, 'manage_users');
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(readTheme);
@@ -215,6 +216,18 @@ function UserMenu({ user, onPassword, onLogout }: { user: Me; onPassword: () => 
               <Icon name="pessoas" />
               Usuários
             </a>
+          )}
+          {onBackup && (
+            <button
+              className="menu-item"
+              onClick={() => {
+                setOpen(false);
+                onBackup();
+              }}
+            >
+              <Icon name="arquivo" />
+              Baixar cópia completa
+            </button>
           )}
           <button
             className="menu-item"
@@ -462,18 +475,59 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
       )}
     </>
   );
+  /** Cópia completa (admin): as abas Produção, Embarques e Entregues no formato da planilha. */
+  async function downloadFullCopy() {
+    showToast('Gerando a cópia completa…');
+    try {
+      const all = await api.fullCopy();
+      const sheets = copySheets(all);
+      const { buildSheets } = await import('./spreadsheet');
+      const buffer = await buildSheets([
+        { name: 'Produção', header: PRODUCTION_HEADER, rows: sheets.production },
+        { name: 'Embarques', header: SHIPMENTS_HEADER, rows: sheets.shipments },
+        { name: 'Entregues', header: DELIVERED_HEADER, rows: sheets.delivered },
+      ]);
+      downloadXlsx(buffer, `no-porto-copia-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      showToast(`Cópia baixada: ${sheets.production.length} em produção, ${sheets.shipments.length} embarcados, ${sheets.delivered.length} entregues.`);
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : 'Não foi possível gerar a cópia completa.');
+    }
+  }
+
+  async function exportShipments() {
+    if (!data) return;
+    setExporting(true);
+    try {
+      const sheets = copySheets({ ...data, items: data.items.filter((i) => i.status === 'embarcado') }, data.seeValues);
+      const { buildSheets } = await import('./spreadsheet');
+      downloadXlsx(await buildSheets([{ name: 'Embarques', header: SHIPMENTS_HEADER, rows: sheets.shipments }]), `embarques-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch {
+      showToast('Não foi possível gerar a planilha.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const historyActions = canImport ? (
     <button type="button" className="btn" onClick={() => setImporting('Entregues')}>
       <Icon name="atualizar" />
       <span className="rot">Carga da aba Entregues</span>
     </button>
   ) : null;
-  const shipmentActions = canImport ? (
-    <button type="button" className="btn" onClick={() => setImporting('Embarques')}>
-      <Icon name="atualizar" />
-      <span className="rot">Carga da aba Embarques</span>
-    </button>
-  ) : null;
+  const shipmentActions = (
+    <>
+      <button type="button" className="btn" onClick={() => void exportShipments()} disabled={exporting}>
+        <Icon name="arquivo" />
+        <span className="rot">{exporting ? 'Gerando…' : 'Baixar .xlsx'}</span>
+      </button>
+      {canImport && (
+        <button type="button" className="btn" onClick={() => setImporting('Embarques')}>
+          <Icon name="atualizar" />
+          <span className="rot">Carga da aba Embarques</span>
+        </button>
+      )}
+    </>
+  );
 
   return (
     <div className="pagina">
@@ -505,7 +559,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
               <span className="rot">Novo item</span>
             </button>
           )}
-          <UserMenu user={user} onPassword={() => setChangingPassword(true)} onLogout={onLogout} />
+          <UserMenu user={user} onPassword={() => setChangingPassword(true)} onLogout={onLogout} onBackup={canImport ? () => void downloadFullCopy() : undefined} />
         </div>
       </header>
 

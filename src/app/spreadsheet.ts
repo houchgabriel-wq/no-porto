@@ -68,6 +68,37 @@ export interface ExportColumn<T> {
   numFmt?: string;
 }
 
+/**
+ * Planilha com várias abas de linhas prontas (a cópia completa): cabeçalho na primeira linha, datas
+ * ({ date: 'AAAA-MM-DD' }) como data do Excel e ISBN como texto, para não virar número científico.
+ */
+export async function buildSheets(sheets: readonly { name: string; header: readonly string[]; rows: readonly (string | number | { date: string } | null)[][]; widths?: readonly number[] }[]): Promise<ArrayBuffer> {
+  const wb = await newWorkbook();
+  wb.creator = 'No Porto';
+  for (const s of sheets) {
+    const sheet = wb.addWorksheet(s.name, { views: [{ state: 'frozen', ySplit: 1 }] });
+    sheet.addRow([...s.header]);
+    const head = sheet.getRow(1);
+    head.font = { bold: true };
+    for (const row of s.rows) {
+      sheet.addRow(row.map((c) => (c && typeof c === 'object' ? new Date(`${c.date}T00:00:00Z`) : c)));
+    }
+    s.header.forEach((h, i) => {
+      const col = sheet.getColumn(i + 1);
+      col.width = s.widths?.[i] ?? (h === 'Produto' ? 60 : 14);
+      if (h === 'ISBN') col.numFmt = '@';
+    });
+    // Datas no formato dia/mês/ano.
+    sheet.eachRow((row, n) => {
+      if (n === 1) return;
+      row.eachCell((cell) => {
+        if (cell.value instanceof Date) cell.numFmt = 'dd/mm/yyyy';
+      });
+    });
+  }
+  return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+}
+
 /** Monta uma planilha simples com uma aba, cabeçalho fixo e as colunas pedidas. */
 export async function buildExport<T>(sheetName: string, columns: readonly ExportColumn<T>[], rows: readonly T[]): Promise<ArrayBuffer> {
   const wb = await newWorkbook();
