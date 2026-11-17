@@ -317,7 +317,7 @@ async function getData(env: Env, session: Session, now: Date): Promise<Response>
   const seeValues = can(session.user.role, 'see_values');
   const today = spDate(now);
   const cutoff = new Date(Date.parse(`${today}T00:00:00Z`) - RECENT_ARRIVAL_DAYS * 86_400_000).toISOString().slice(0, 10);
-  const [s, o, i, b, v, pay] = await env.DB.batch([
+  const [s, o, i, b, v, pay, docs] = await env.DB.batch([
     env.DB.prepare('SELECT id, name FROM suppliers ORDER BY name COLLATE NOCASE'),
     env.DB.prepare('SELECT id, code, ordered_at, notes FROM purchase_orders'),
     env.DB.prepare(
@@ -337,7 +337,9 @@ async function getData(env: Env, session: Session, now: Date): Promise<Response>
                AND NOT EXISTS (SELECT 1 FROM order_items i WHERE i.invoice_id = v.id AND i.status = 'entregue' AND i.deleted_at IS NULL))`,
     ).bind(cutoff),
     env.DB.prepare('SELECT id, invoice_id, paid_at, amount_cents, exchange_rate_e4, notes FROM payments ORDER BY created_at, rowid'),
+    env.DB.prepare('SELECT bill_of_lading_id, name, size FROM bill_documents'),
   ]);
+  const documents = new Map((docs!.results as { bill_of_lading_id: string; name: string; size: number }[]).map((d) => [d.bill_of_lading_id, { name: d.name, size: d.size }]));
   const suppliers: Supplier[] = s!.results as Supplier[];
   const orders: PurchaseOrder[] = (o!.results as { id: string; code: string; ordered_at: string | null; notes: string }[]).map((r) => ({
     id: r.id,
@@ -358,6 +360,7 @@ async function getData(env: Env, session: Session, now: Date): Promise<Response>
     eta: r.eta,
     arrivedAt: r.arrived_at,
     notes: r.notes,
+    document: documents.get(r.id) ?? null,
   }));
   const invoices: Invoice[] = invoiceRows.map((r) => ({
     id: r.id,

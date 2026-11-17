@@ -12,6 +12,8 @@ export interface Bill {
   /** Chegada real (AAAA-MM-DD). */
   arrivedAt: string | null;
   notes: string;
+  /** Arquivo do BL anexado (PDF ou imagem), quando há. */
+  document?: { name: string; size: number } | null;
 }
 
 export interface Invoice {

@@ -14,6 +14,7 @@ import { routeHistory } from './history';
 import { routeSuppliers } from './suppliers';
 import { routeExport } from './export';
 import { routeReset } from './reset';
+import { routeBillDocuments } from './billDocuments';
 
 // ---------- Esquemas de entrada ----------
 
@@ -381,6 +382,8 @@ async function routeLoggedIn(
 
   const orders = await routeOrders(request, env, session, key, path, now);
   if (orders) return orders;
+  const billDocument = await routeBillDocuments(request, env, session, path, now);
+  if (billDocument) return billDocument;
   const shipments = await routeShipments(request, env, session, key, path, now);
   if (shipments) return shipments;
   const history = await routeHistory(request, env, session, key, path, now);

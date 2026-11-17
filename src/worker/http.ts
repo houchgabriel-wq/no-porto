@@ -52,13 +52,13 @@ export function checkMutation(request: Request): void {
   }
 }
 
-export async function readBody<T>(request: Request, schema: z.ZodType<T>): Promise<T> {
+export async function readBody<T>(request: Request, schema: z.ZodType<T>, maxBytes = MAX_BODY_BYTES): Promise<T> {
   // Recusa antes de ler, quando o tamanho vem declarado; e confere de novo depois de ler.
-  if (Number(request.headers.get('content-length') ?? 0) > MAX_BODY_BYTES) throw new HttpError(413, 'Conteúdo grande demais.');
+  if (Number(request.headers.get('content-length') ?? 0) > maxBytes) throw new HttpError(413, 'Conteúdo grande demais.');
   let raw: unknown;
   try {
     const text = await request.text();
-    if (text.length > MAX_BODY_BYTES) throw new HttpError(413, 'Conteúdo grande demais.');
+    if (text.length > maxBytes) throw new HttpError(413, 'Conteúdo grande demais.');
     raw = JSON.parse(text);
   } catch (e) {
     if (e instanceof HttpError) throw e;

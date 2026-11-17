@@ -32,6 +32,13 @@ export function testApp(now = new Date('2026-11-17T12:00:00Z')) {
     return { status: res.status, data: (await res.json()) as any, cookie: setCookie ? setCookie.split(';')[0]! : undefined };
   }
 
+  /** A resposta como veio (para arquivos, que não são JSON). */
+  async function raw(method: string, path: string, opts: CallOptions = {}) {
+    const headers: Record<string, string> = { 'cf-connecting-ip': '10.0.0.1' };
+    if (opts.cookie) headers.cookie = opts.cookie;
+    return handleApi(new Request(`${ORIGIN}${path}`, { method, headers }), env, opts.at ?? now);
+  }
+
   /** Cria o admin, um editor e um leitor, já com senha definitiva. */
   async function accounts() {
     const setup = await call('POST', '/api/setup', {
@@ -50,5 +57,5 @@ export function testApp(now = new Date('2026-11-17T12:00:00Z')) {
     return { admin, editor: await make('editor', 'Bia Editora'), leitor: await make('leitor', 'Leo Leitor') };
   }
 
-  return { env, call, accounts };
+  return { env, call, raw, accounts };
 }

@@ -1,5 +1,5 @@
 // Começar do zero (SPEC.md, seção 7): o admin apaga fornecedores, produtos, POs, itens, BLs, invoices,
-// pagamentos e o histórico de alterações, para fazer de novo a carga completa da planilha. Usuários e
+// pagamentos, arquivos dos BLs e o histórico de alterações, para fazer de novo a carga completa da planilha. Usuários e
 // sessões ficam. Pede a palavra APAGAR, para não acontecer por engano.
 
 import { z } from 'zod';
@@ -14,7 +14,7 @@ export const RESET_WORD = 'APAGAR';
 const resetBody = z.object({ confirm: z.string().refine((s) => s.trim().toUpperCase() === RESET_WORD, `Digite ${RESET_WORD} para confirmar.`) });
 
 /** Na ordem das chaves: o que aponta para outra tabela sai antes dela. */
-const TABLES = ['payments', 'events', 'order_items', 'invoices', 'bills_of_lading', 'purchase_orders', 'products', 'suppliers'] as const;
+const TABLES = ['bill_document_parts', 'bill_documents', 'payments', 'events', 'order_items', 'invoices', 'bills_of_lading', 'purchase_orders', 'products', 'suppliers'] as const;
 
 async function reset(request: Request, env: Env): Promise<Response> {
   checkMutation(request);
