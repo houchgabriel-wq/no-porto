@@ -4,6 +4,7 @@
 
 import { z } from 'zod';
 import { allocateInvoices } from '../core/allocation';
+import { itemOrigin, planShipmentUndo, type ItemEvent } from '../core/undoShipment';
 import { IMPORT_BATCH, newImportItems } from '../core/importProduction';
 import { invoiceKey, shipmentKey } from '../core/importShipments';
 import { isbnDigits, isbnProblem } from '../core/isbn';
@@ -216,7 +217,8 @@ function shipItemStatements(
         userId,
         item.id,
       ),
-      eventStatement(env, item.id, userId, 'shipped', { invoice: invoice.number, quantity }, at),
+      // O preço e as peças de antes ficam no histórico, para voltar a eles se o embarque for excluído.
+      eventStatement(env, item.id, userId, 'shipped', { invoice: invoice.number, quantity, previousPriceMicros: item.unitPriceMicros ?? null, previousPieces: item.piecesPerCarton }, at),
     ];
   }
   const id = crypto.randomUUID();
@@ -522,6 +524,119 @@ async function registerArrival(request: Request, env: Env, session: Session, now
   return json({ invoices: results.length });
 }
 
+// ---------- Excluir um embarque ou um container ----------
+
+/**
+ * Instruções que desfazem as invoices (SPEC.md, seção 3): o que saiu da produção volta para ela (a
+ * parte dividida se junta ao saldo), o que não estava na produção é apagado, e os pagamentos e as
+ * invoices são excluídos. Recusa invoice que já chegou.
+ */
+async function undoInvoices(env: Env, invoiceIds: string[], userId: string, at: string): Promise<{ statements: D1PreparedStatement[]; back: number; merged: number; removed: number }> {
+  const ids = JSON.stringify(invoiceIds);
+  const [itemRows, eventRows] = await env.DB.batch([
+    env.DB.prepare(`${ITEM_SELECT} WHERE i.deleted_at IS NULL AND i.invoice_id IN (SELECT value FROM json_each(?))`).bind(ids),
+    env.DB.prepare(
+      `SELECT entity_id, type, detail FROM events
+        WHERE entity = 'item' AND entity_id IN (SELECT id FROM order_items WHERE invoice_id IN (SELECT value FROM json_each(?)))
+        ORDER BY created_at, rowid`,
+    ).bind(ids),
+  ]);
+  const items = (itemRows!.results as ItemRow[]).map(toItem);
+  const events = new Map<string, ItemEvent[]>();
+  for (const r of eventRows!.results as { entity_id: string; type: string; detail: string }[]) {
+    let detail: Record<string, unknown> = {};
+    try {
+      detail = JSON.parse(r.detail) as Record<string, unknown>;
+    } catch {
+      // Registro ilegível: conta como sem detalhes.
+    }
+    events.set(r.entity_id, [...(events.get(r.entity_id) ?? []), { type: r.type, detail }]);
+  }
+  const withOrigin = items.map((i) => ({ id: i.id, quantity: i.quantity, origin: itemOrigin(events.get(i.id) ?? []) }));
+  const targets = [...new Set(withOrigin.flatMap((i) => (i.origin.kind === 'split' ? [i.origin.from] : [])))];
+  const alive = new Set<string>();
+  if (targets.length) {
+    const { results } = await env.DB.prepare(
+      "SELECT id FROM order_items WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL AND status = 'producao'",
+    )
+      .bind(JSON.stringify(targets))
+      .all<{ id: string }>();
+    for (const r of results) alive.add(r.id);
+  }
+  const plan = planShipmentUndo(withOrigin, (id) => alive.has(id));
+  const statements: D1PreparedStatement[] = [];
+  for (const b of plan.back) {
+    statements.push(
+      env.DB.prepare(
+        `UPDATE order_items SET invoice_id = NULL, status = 'producao', updated_at = ?, updated_by = ?,
+                unit_price_micros = CASE WHEN ? THEN ? ELSE unit_price_micros END,
+                pieces_per_carton = CASE WHEN ? THEN ? ELSE pieces_per_carton END
+          WHERE id = ?`,
+      ).bind(at, userId, b.priceMicros !== undefined ? 1 : 0, b.priceMicros ?? null, b.pieces !== undefined ? 1 : 0, b.pieces ?? null, b.id),
+    );
+    statements.push(eventStatement(env, b.id, userId, 'unshipped', { reason: 'embarque excluído' }, at));
+  }
+  for (const m of plan.merge) {
+    statements.push(env.DB.prepare('UPDATE order_items SET quantity = quantity + ?, updated_at = ?, updated_by = ? WHERE id = ?').bind(m.quantity, at, userId, m.into));
+    statements.push(env.DB.prepare('UPDATE order_items SET deleted_at = ?, invoice_id = NULL, updated_at = ?, updated_by = ? WHERE id = ?').bind(at, at, userId, m.id));
+    statements.push(eventStatement(env, m.into, userId, 'merged', { quantity: m.quantity, from: m.id, reason: 'embarque excluído' }, at));
+    statements.push(eventStatement(env, m.id, userId, 'deleted', { mergedInto: m.into, reason: 'embarque excluído' }, at));
+  }
+  for (const id of plan.remove) {
+    statements.push(env.DB.prepare('UPDATE order_items SET deleted_at = ?, invoice_id = NULL, updated_at = ?, updated_by = ? WHERE id = ?').bind(at, at, userId, id));
+    statements.push(eventStatement(env, id, userId, 'deleted', { reason: 'embarque excluído' }, at));
+  }
+  // Itens apagados antes ainda apontam para a invoice: soltam para ela poder ser excluída.
+  statements.push(env.DB.prepare('UPDATE order_items SET invoice_id = NULL WHERE invoice_id IN (SELECT value FROM json_each(?))').bind(ids));
+  statements.push(env.DB.prepare('DELETE FROM payments WHERE invoice_id IN (SELECT value FROM json_each(?))').bind(ids));
+  statements.push(env.DB.prepare('DELETE FROM invoices WHERE id IN (SELECT value FROM json_each(?))').bind(ids));
+  return { statements, back: plan.back.length, merged: plan.merge.length, removed: plan.remove.length };
+}
+
+function deleteBillStatements(env: Env, billId: string): D1PreparedStatement[] {
+  return [
+    env.DB.prepare('DELETE FROM bill_document_parts WHERE document_id IN (SELECT id FROM bill_documents WHERE bill_of_lading_id = ?)').bind(billId),
+    env.DB.prepare('DELETE FROM bill_documents WHERE bill_of_lading_id = ?').bind(billId),
+    env.DB.prepare('DELETE FROM bills_of_lading WHERE id = ?').bind(billId),
+  ];
+}
+
+/** Exclui um container (a invoice). Se o BL fica sem invoices, ele sai junto. */
+async function deleteInvoice(request: Request, env: Env, session: Session, id: string, now: Date): Promise<Response> {
+  checkMutation(request);
+  const invoice = await env.DB.prepare('SELECT id, number, ref, supplier_id, bill_of_lading_id, eta, arrived_at FROM invoices WHERE id = ?').bind(id).first<InvoiceRow>();
+  if (!invoice) return error(404, 'Invoice não encontrada.');
+  if (await invoiceArrival(env, invoice)) return error(409, `A invoice ${invoice.number} já chegou. Para excluir, apague antes a data de chegada.`);
+  const undo = await undoInvoices(env, [id], session.user.id, now.toISOString());
+  let billRemoved = false;
+  if (invoice.bill_of_lading_id) {
+    const others = await env.DB.prepare('SELECT COUNT(*) AS n FROM invoices WHERE bill_of_lading_id = ? AND id <> ?').bind(invoice.bill_of_lading_id, id).first<{ n: number }>();
+    if (!others?.n) {
+      undo.statements.push(...deleteBillStatements(env, invoice.bill_of_lading_id));
+      billRemoved = true;
+    }
+  }
+  await env.DB.batch(undo.statements);
+  return json({ back: undo.back, merged: undo.merged, removed: undo.removed, billRemoved });
+}
+
+/** Exclui o embarque inteiro: o BL, todas as suas invoices e o arquivo do BL. */
+async function deleteBill(request: Request, env: Env, session: Session, id: string, now: Date): Promise<Response> {
+  checkMutation(request);
+  const bill = await env.DB.prepare('SELECT id, number, eta, arrived_at FROM bills_of_lading WHERE id = ?').bind(id).first<BillRow>();
+  if (!bill) return error(404, 'BL não encontrado.');
+  const { results } = await env.DB.prepare('SELECT id, number, arrived_at FROM invoices WHERE bill_of_lading_id = ?').bind(id).all<{ id: string; number: string; arrived_at: string | null }>();
+  if (bill.arrived_at || results.some((r) => r.arrived_at)) return error(409, `O BL ${bill.number} (ou uma das invoices) já chegou. Para excluir, apague antes a data de chegada.`);
+  const undo = await undoInvoices(
+    env,
+    results.map((r) => r.id),
+    session.user.id,
+    now.toISOString(),
+  );
+  await env.DB.batch([...undo.statements, ...deleteBillStatements(env, id)]);
+  return json({ back: undo.back, merged: undo.merged, removed: undo.removed, invoices: results.length });
+}
+
 // ---------- Carga da aba Embarques ----------
 
 async function importShipments(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
@@ -617,10 +732,13 @@ export async function routeShipments(request: Request, env: Env, session: Sessio
   }
   let m = /^\/api\/items\/([^/]+)\/unship$/.exec(path);
   if (m && request.method === 'POST') return onlyEdit() ?? unship(request, env, session, decodeURIComponent(m[1]!), now);
+  const onlyAdmin = () => (can(role, 'delete') ? null : error(403, 'Só o admin exclui embarques.'));
   m = /^\/api\/bills\/([^/]+)$/.exec(path);
   if (m && request.method === 'PATCH') return onlyEdit() ?? updateBill(request, env, session, decodeURIComponent(m[1]!), now);
+  if (m && request.method === 'DELETE') return onlyAdmin() ?? deleteBill(request, env, session, decodeURIComponent(m[1]!), now);
   m = /^\/api\/invoices\/([^/]+)$/.exec(path);
   if (m && request.method === 'PATCH') return onlyEdit() ?? updateInvoice(request, env, session, decodeURIComponent(m[1]!), now);
+  if (m && request.method === 'DELETE') return onlyAdmin() ?? deleteInvoice(request, env, session, decodeURIComponent(m[1]!), now);
   m = /^\/api\/invoices\/([^/]+)\/payments$/.exec(path);
   if (m && request.method === 'POST') {
     // Pagamento é valor: quem não vê valores também não registra.

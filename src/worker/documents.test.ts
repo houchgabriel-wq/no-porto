@@ -225,3 +225,88 @@ describe('container entregue', () => {
     expect(missing.status).toBe(404);
   });
 });
+
+describe('excluir embarque ou container', () => {
+  const ship = (body: object) => app.call('POST', '/api/shipments', { cookie: who.editor.cookie, body });
+
+  async function setup() {
+    await order('PO-050', 'Claire', [line({ quantity: 5000, unitPriceMicros: 1_700_000, piecesPerCarton: 20 })]);
+    await order('PO-024', 'Claire', [line({ quantity: 3000, unitPriceMicros: 1_700_000, piecesPerCarton: 20 })]);
+    const claire = (await data()).suppliers[0].id as string;
+    const res = await ship({
+      bill: 'MEDU1',
+      eta: '2026-12-20',
+      invoices: [
+        { supplierId: claire, number: 'C1', lines: [line({ quantity: 4000, piecesPerCarton: 22 }), line({ row: 8, description: 'A Odisseia', isbn: ODISSEIA, quantity: 200 })] },
+        { supplierId: claire, number: 'C2', lines: [line({ quantity: 500 })] },
+      ],
+    });
+    await app.call('POST', `/api/invoices/${res.data.invoiceIds[0]}/payments`, { cookie: who.admin.cookie, body: { paidAt: '2026-11-01', amountCents: 100, exchangeRateE4: null, notes: '' } });
+    return { claire, billId: res.data.billId as string, invoiceIds: res.data.invoiceIds as string[] };
+  }
+
+  const production = async () =>
+    ((await data()).items as Row[])
+      .filter((i) => i.status === 'producao')
+      .map((i) => [i.quantity, i.unitPriceMicros, (i as unknown as { piecesPerCarton: number | null }).piecesPerCarton])
+      .sort((a, b) => Number(a[0]) - Number(b[0]));
+
+  it('excluir um container: o que saiu volta para a produção (juntando as partes), o resto é apagado; o BL fica', async () => {
+    const { invoiceIds } = await setup();
+    // C1 levou toda a PO-024 (3.000) e 1.000 da PO-050; C2 levou mais 500 da PO-050. Ficaram 3.500.
+    expect(await production()).toEqual([[3500, 1_700_000, 20]]);
+    expect((await app.call('DELETE', `/api/invoices/${invoiceIds[0]}`, { cookie: who.editor.cookie })).status).toBe(403);
+    const res = await app.call('DELETE', `/api/invoices/${invoiceIds[0]}`, { cookie: who.admin.cookie });
+    expect(res.status).toBe(200);
+    expect(res.data).toEqual({ back: 1, merged: 1, removed: 1, billRemoved: false });
+    // A PO-024 volta com o preço e as peças de antes; a parte da PO-050 se junta ao saldo.
+    expect(await production()).toEqual([
+      [3000, 1_700_000, 20],
+      [4500, 1_700_000, 20],
+    ]);
+    const d = await data();
+    expect(d.invoices.map((v: { number: string }) => v.number)).toEqual(['C2']);
+    expect(d.bills).toHaveLength(1);
+    expect(d.payments).toEqual([]);
+    expect((d.items as Row[]).some((i) => i.description === 'A Odisseia')).toBe(false);
+  });
+
+  it('excluir o embarque inteiro: o BL e todas as invoices; a produção volta ao que era', async () => {
+    const { billId } = await setup();
+    const res = await app.call('DELETE', `/api/bills/${billId}`, { cookie: who.admin.cookie });
+    expect(res.status).toBe(200);
+    expect(res.data).toMatchObject({ invoices: 2 });
+    expect(await production()).toEqual([
+      [3000, 1_700_000, 20],
+      [5000, 1_700_000, 20],
+    ]);
+    const d = await data();
+    expect([d.bills.length, d.invoices.length]).toEqual([0, 0]);
+  });
+
+  it('o último container leva o BL junto; o que já chegou não se exclui', async () => {
+    const { billId, invoiceIds } = await setup();
+    await app.call('POST', '/api/arrivals', { cookie: who.editor.cookie, body: { invoiceIds: [invoiceIds[1]], arrivedAt: '2026-11-16' } });
+    const arrived = await app.call('DELETE', `/api/invoices/${invoiceIds[1]}`, { cookie: who.admin.cookie });
+    expect(arrived.status).toBe(409);
+    expect(arrived.data.error).toBe('A invoice C2 já chegou. Para excluir, apague antes a data de chegada.');
+    expect((await app.call('DELETE', `/api/bills/${billId}`, { cookie: who.admin.cookie })).status).toBe(409);
+    await app.call('PATCH', `/api/invoices/${invoiceIds[1]}`, { cookie: who.editor.cookie, body: { arrivedAt: null } });
+    await app.call('DELETE', `/api/invoices/${invoiceIds[0]}`, { cookie: who.admin.cookie });
+    const last = await app.call('DELETE', `/api/invoices/${invoiceIds[1]}`, { cookie: who.admin.cookie });
+    expect(last.data.billRemoved).toBe(true);
+    expect((await data()).bills).toEqual([]);
+  });
+
+  it('o que veio da carga da aba Embarques é apagado', async () => {
+    const imported = await app.call('POST', '/api/import/shipments', {
+      cookie: who.admin.cookie,
+      body: { items: [{ row: 2, description: 'Livro da planilha', isbn: null, supplier: 'Sara', quantity: 100, piecesPerCarton: null, unitPriceMicros: null, notes: '', invoice: 'P1', ref: '', bill: null, eta: null, paid: true }] },
+    });
+    expect(imported.status).toBe(201);
+    const inv = (await data()).invoices[0].id;
+    const res = await app.call('DELETE', `/api/invoices/${inv}`, { cookie: who.admin.cookie });
+    expect(res.data).toEqual({ back: 0, merged: 0, removed: 1, billRemoved: false });
+    expect((await data()).items).toEqual([]);
+  });
+});
