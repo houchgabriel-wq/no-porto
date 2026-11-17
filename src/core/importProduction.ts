@@ -139,6 +139,7 @@ export function parseProductionRows(rows: readonly string[][]): ImportReport | {
 
     const priceText = clean(cell(row, 'unitPrice'));
     let unitPriceMicros: number | null = null;
+    let warnedRounding = false;
     if (!priceText) {
       warn(`"${description}": sem preço.`);
     } else if (looksLikeReais(priceText)) {
@@ -151,10 +152,14 @@ export function parseProductionRows(rows: readonly string[][]): ImportReport | {
         warn(`"${description}": preço "${priceText}" não reconhecido; entra sem preço.`);
       } else {
         unitPriceMicros = price.micros;
-        if (price.rounded) warn(`"${description}": preço ${priceText} arredondado para três casas.`);
+        if (price.rounded) {
+          warnedRounding = true;
+          warn(`"${description}": preço ${priceText} arredondado para três casas.`);
+        }
       }
     }
-    if (unitPriceMicros !== null) {
+    // Com o preço arredondado, o total digitado naturalmente difere um pouco: não avisa de novo.
+    if (unitPriceMicros !== null && !warnedRounding) {
       const typed = parseCents(clean(cell(row, 'total')));
       const computed = itemTotalCents(quantity, unitPriceMicros);
       if (typed !== null && typed !== 0 && Math.abs(typed - computed) > 1) {

@@ -95,6 +95,13 @@ describe('carga da aba Produção', () => {
     expect(r.warnings[0]!.message).toContain('não bate');
   });
 
+  it('preço arredondado não gera aviso de total diferente', () => {
+    const r = parseProductionRows([HEADER, ['', 'Livro Noites Brancas - Série Ouro - Editora Garnier', '', '', '30000', '0.6539', '19617', 'Sara', '', '', 'PO-063', '']]);
+    if ('error' in r) throw new Error(r.error);
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]!.message).toContain('arredondado');
+  });
+
   it('arredonda o preço para três casas, com aviso', () => {
     const r = parseProductionRows([HEADER, ['', 'Livro Noites Brancas - Série Ouro', '', '', '30000', '0.653924268502582', '19617.72806', 'Claire', '', '', 'PO-050', '']]);
     if ('error' in r) throw new Error(r.error);

@@ -9,10 +9,11 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
   *Teste do Gabriel:* criar o admin, um editor e um leitor e entrar com cada um.
   *Fechado em 17/11/2026:* no ar no Cloudflare; o Gabriel fez o primeiro acesso.
 
-- [ ] **Marco 2: POs em produção.**
+- [x] **Marco 2: POs em produção.**
   Fornecedores, produtos e POs com itens. Tabela com busca e filtros. Carga da aba Produção.
   *Teste do Gabriel:* conferir se o total em produção por fornecedor bate com a planilha.
   *Pronto para o teste em 17/11/2026:* tela Produção com os totais por fornecedor, busca, filtros, agrupamento por PO, ficha do item e Baixar .xlsx; carga da aba Produção pelo admin; painel só com a produção, por enquanto. Com a planilha de 17/11/2026, a carga dá 524 itens, 4.796.377 exemplares e US$ 3.042.056,46.
+  *Fechado em 17/11/2026:* no ar; o Gabriel fez a carga e conferiu os totais. A pedido dele, o preço tem no máximo três casas e uma PO tem um fornecedor só (migração `0003`). Na planilha ajustada: 524 itens em 44 POs, 4.796.377 exemplares, sem POs com dois fornecedores; o total do sistema fica US$ 6,53 acima da soma da planilha por causa de três preços arredondados.
 
 - [ ] **Marco 3: embarques e chegadas.**
   BLs (número e chegada prevista) com suas invoices; embarcar itens da PO (inteiros ou em parte); marcar entregue; lista de chegadas com atraso. Pagamentos por invoice com câmbio. Carga da aba Embarques.
