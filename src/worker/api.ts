@@ -8,6 +8,7 @@ import { clearedCookie, createSession, endSession, endUserSessions, loadSession,
 import { hashPassword, newTempPassword, timingSafeEqual, verifyPassword, type PasswordHash } from './crypto';
 import type { Env } from './env';
 import { checkMutation, error, HttpError, json, readBody } from './http';
+import { routeOrders } from './orders';
 
 // ---------- Esquemas de entrada ----------
 
@@ -372,6 +373,9 @@ async function routeLoggedIn(
       if (match[2] && request.method === 'POST') return resetPassword(request, env, session, id);
     }
   }
+
+  const orders = await routeOrders(request, env, session, key, path, now);
+  if (orders) return orders;
 
   return error(404, 'Rota não encontrada.');
 }
