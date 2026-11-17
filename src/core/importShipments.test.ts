@@ -76,7 +76,7 @@ describe('resumo e repetição', () => {
     expect(s.total).toEqual({ items: 4, quantity: 26_440, valueCents: 901_520 });
   });
 
-  it('a chave junta invoice, produto, quantidade e preço', () => {
-    expect(shipmentKey(parse().items[0]!)).toBe('2026-46A|9786561267106|cartilha magica 01 - alfabeto|9440|330000');
+  it('a chave junta invoice, BL, produto, quantidade e preço', () => {
+    expect(shipmentKey(parse().items[0]!)).toBe('2026-46A|ROECHN26093881|9786561267106|cartilha magica 01 - alfabeto|9440|330000');
   });
 });

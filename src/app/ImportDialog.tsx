@@ -5,16 +5,17 @@
 import { useState } from 'react';
 import { IMPORT_BATCH, parseProductionRows, summarizeImport, type ImportReport } from '../core/importProduction';
 import { parseShipmentRows, summarizeShipments, type ShipmentImportReport } from '../core/importShipments';
-import { formatDay } from '../core/shipments';
+import { parseHistoryRows, summarizeHistory, type HistoryImportReport } from '../core/importHistory';
+import { formatDay, spDate } from '../core/shipments';
 import { formatQuantity, formatUsd } from '../core/money';
 import { api, ApiError } from './api';
 import { Dialog, FormError } from './components';
 import { Icon } from './icons';
 import type { Production } from './production';
 
-export type ImportSheet = 'Produção' | 'Embarques';
+export type ImportSheet = 'Produção' | 'Embarques' | 'Entregues';
 
-type Report = ImportReport | ShipmentImportReport;
+type Report = ImportReport | ShipmentImportReport | HistoryImportReport;
 
 type Step =
   | { kind: 'escolher' }
@@ -42,7 +43,7 @@ export function ImportDialog({ sheet, production, onClose, onToast }: { sheet: I
       const { readSheetRows } = await import('./spreadsheet');
       const res = await readSheetRows(await file.arrayBuffer(), SHEET);
       if ('missing' in res) throw new Error(`A planilha não tem a aba "${SHEET}". Abas encontradas: ${res.missing.join(', ') || 'nenhuma'}.`);
-      const report = SHEET === 'Produção' ? parseProductionRows(res.rows) : parseShipmentRows(res.rows);
+      const report = SHEET === 'Produção' ? parseProductionRows(res.rows) : SHEET === 'Embarques' ? parseShipmentRows(res.rows) : parseHistoryRows(res.rows, spDate(new Date()));
       if ('error' in report) throw new Error(report.error);
       if (report.items.length === 0) throw new Error(`A aba "${SHEET}" não tem itens.`);
       setStep({ kind: 'conferir', file: file.name, report });
@@ -66,7 +67,9 @@ export function ImportDialog({ sheet, production, onClose, onToast }: { sheet: I
           const res =
             SHEET === 'Produção'
               ? await api.importProduction(part as ImportReport['items'])
-              : { ...(await api.importShipments(part as ShipmentImportReport['items'])), withoutOrder: [] };
+              : SHEET === 'Embarques'
+                ? { ...(await api.importShipments(part as ShipmentImportReport['items'])), withoutOrder: [] }
+                : { ...(await api.importHistory(part as HistoryImportReport['items'])), withoutOrder: [] };
           inserted += res.inserted;
           skipped += res.skipped;
           withoutOrder.push(...res.withoutOrder);
@@ -90,7 +93,7 @@ export function ImportDialog({ sheet, production, onClose, onToast }: { sheet: I
         <div className="dlg-corpo">
           <p className="dica-texto">
             Envie a planilha <b>status_importações</b> em .xlsx (no Google Planilhas: Arquivo → Fazer download → Microsoft Excel). Só a aba <b>{SHEET}</b> é lida. Antes de
-            gravar, aparece um resumo {SHEET === 'Produção' ? 'por fornecedor' : 'por invoice'} para comparar com a planilha.
+            gravar, aparece um resumo {SHEET === 'Produção' ? 'por fornecedor' : SHEET === 'Embarques' ? 'por invoice' : 'por ano de chegada'} para comparar com a planilha.
           </p>
           <label className="btn primario arquivo">
             <Icon name="arquivo" />
@@ -111,8 +114,10 @@ export function ImportDialog({ sheet, production, onClose, onToast }: { sheet: I
       ) : step.kind === 'conferir' ? (
         SHEET === 'Produção' ? (
           <Review report={step.report as ImportReport} file={step.file} error={error} onBack={() => setStep({ kind: 'escolher' })} onSave={() => void save(step.report)} />
-        ) : (
+        ) : SHEET === 'Embarques' ? (
           <ShipmentReview report={step.report as ShipmentImportReport} file={step.file} error={error} onBack={() => setStep({ kind: 'escolher' })} onSave={() => void save(step.report)} />
+        ) : (
+          <HistoryReview report={step.report as HistoryImportReport} file={step.file} error={error} onBack={() => setStep({ kind: 'escolher' })} onSave={() => void save(step.report)} />
         )
       ) : step.kind === 'gravando' ? (
         <div className="dlg-corpo" role="status">
@@ -335,6 +340,71 @@ function ShipmentReview({ report, file, error, onBack, onSave }: { report: Shipm
         </div>
         <Notes report={report} />
         <p className="dica">Itens já cadastrados (mesma invoice, produto, quantidade e preço) são pulados. Invoice marcada como paga entra como paga, sem data e sem câmbio.</p>
+        <FormError message={error} />
+      </div>
+      <div className="dlg-pe">
+        <button type="button" className="btn" onClick={onBack}>
+          Outra planilha
+        </button>
+        <button type="button" className="btn primario" onClick={onSave}>
+          Gravar {report.items.length} itens
+        </button>
+      </div>
+    </>
+  );
+}
+
+function HistoryReview({ report, file, error, onBack, onSave }: { report: HistoryImportReport; file: string; error: string | null; onBack: () => void; onSave: () => void }) {
+  const summary = summarizeHistory(report.items);
+  return (
+    <>
+      <div className="dlg-corpo">
+        <p className="dica-texto">
+          {file && (
+            <>
+              <b>{file}</b>:{' '}
+            </>
+          )}
+          {report.items.length} itens em {summary.invoices} invoices. A chegada está quase sempre sem o ano na planilha: o ano vem do bloco do ano na própria aba (e, sem ele, do BL,
+          da invoice, da ref. ou da ordem das linhas). Compare os totais por ano com os subtotais da aba antes de gravar.
+        </p>
+        <div className="tabela-caixa resumo-caixa">
+          <table className="tabela-resumo">
+            <thead>
+              <tr>
+                <th>Ano de chegada</th>
+                <th className="num">Itens</th>
+                <th className="num">Exemplares</th>
+                <th className="num">Valor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.byYear.map((r) => (
+                <tr key={r.year}>
+                  <td>{r.year}</td>
+                  <td className="num">{r.items}</td>
+                  <td className="num">{formatQuantity(r.quantity)}</td>
+                  <td className="num">{formatUsd(r.valueCents)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th scope="row">Total</th>
+                <td className="num">{summary.total.items}</td>
+                <td className="num">{formatQuantity(summary.total.quantity)}</td>
+                <td className="num">{formatUsd(summary.total.valueCents)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        {summary.withoutDate > 0 && (
+          <p className="dica">
+            {summary.withoutDate} itens ficam sem data de chegada (a planilha só tem a data de embarque, ou nenhuma). Eles entram como entregues, no grupo &quot;Sem data&quot;.
+          </p>
+        )}
+        <Notes report={report} />
+        <p className="dica">Itens já cadastrados (mesma invoice, produto, quantidade e preço) são pulados. O texto original da chegada fica anotado na invoice.</p>
         <FormError message={error} />
       </div>
       <div className="dlg-pe">

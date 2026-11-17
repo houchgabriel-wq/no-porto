@@ -6,6 +6,7 @@
 // trazem ano e mês do embarque); do ano da ref. do embarque; e, por fim, da ordem das linhas.
 
 import { clean, findHeader, readItemCells, type RowNote } from './importProduction';
+import { invoiceKey } from './importShipments';
 import { itemTotalCents } from './money';
 import { searchKey } from './items';
 import { daysBetween, parseDate } from './shipments';
@@ -266,6 +267,6 @@ export function summarizeHistory(items: readonly ImportedHistoryItem[]): { byYea
     }
   }
   const byYear = [...groups.values()].sort((a, b) => (a.year === 'Sem data' ? 1 : b.year === 'Sem data' ? -1 : a.year.localeCompare(b.year)));
-  const invoices = new Set(items.map((i) => `${searchKey(i.supplier ?? '')}|${i.invoice.toUpperCase()}`)).size;
+  const invoices = new Set(items.map((i) => invoiceKey(searchKey(i.supplier ?? ''), i.invoice, i.bill))).size;
   return { byYear, total, invoices, withoutDate: items.filter((i) => !i.arrivedAt).length };
 }

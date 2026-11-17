@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { itemExportRows } from '../core/exportItems';
+import type { HistoryRow } from '../core/history';
 import { EMPTY_FILTERS, filterItems, sortItems, type ItemFilters, type ItemSort } from '../core/items';
 import { can, ROLE_LABELS } from '../core/roles';
 import { api, ApiError, setUnauthorizedHandler, type Me } from './api';
@@ -12,6 +13,8 @@ import { ImportDialog, type ImportSheet } from './ImportDialog';
 import { ItemDialog, type ItemDialogState } from './ItemDialog';
 import { useProduction } from './production';
 import { ProductionView } from './Production';
+import { HistoryView, type HistoryData } from './History';
+import { ProductDialog } from './ProductDialog';
 import { ShipDialog } from './ShipDialog';
 import { ShipmentDialog } from './ShipmentDialog';
 import { ShipmentsView } from './Shipments';
@@ -61,7 +64,7 @@ function applyTheme(theme: Theme) {
   }
 }
 
-const VIEWS = ['painel', 'producao', 'embarques', 'usuarios'] as const;
+const VIEWS = ['painel', 'producao', 'embarques', 'historico', 'usuarios'] as const;
 type View = (typeof VIEWS)[number];
 
 function viewFromHash(): View {
@@ -274,10 +277,11 @@ function Welcome({ user, onImport, onNew }: { user: Me; onImport?: () => void; o
   );
 }
 
-const TABS: { view: View; label: string; icon: 'inicio' | 'caixa' | 'navio' }[] = [
+const TABS: { view: View; label: string; icon: 'inicio' | 'caixa' | 'navio' | 'arquivo' }[] = [
   { view: 'painel', label: 'Painel', icon: 'inicio' },
   { view: 'producao', label: 'Produção', icon: 'caixa' },
   { view: 'embarques', label: 'Embarques', icon: 'navio' },
+  { view: 'historico', label: 'Histórico', icon: 'arquivo' },
 ];
 
 function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
@@ -293,6 +297,9 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [shipping, setShipping] = useState<string[] | null>(null);
   const [shipment, setShipment] = useState<string | null>(null);
+  const [product, setProduct] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryData | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const production = useProduction();
   const data = production.data;
   // A tela Produção só mostra o que está em produção; as outras telas usam tudo.
@@ -314,6 +321,50 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   }, []);
 
   const current: View = view === 'usuarios' && !isAdmin ? 'painel' : view;
+
+  // O histórico é grande: só é carregado ao abrir a tela (e de novo a cada vez que ela é aberta).
+  const loadHistory = useCallback(async () => {
+    setHistoryError(null);
+    try {
+      setHistory(await api.history());
+    } catch (e) {
+      setHistoryError(e instanceof ApiError ? e.message : 'Não foi possível carregar o histórico.');
+    }
+  }, []);
+  useEffect(() => {
+    if (current === 'historico') void loadHistory();
+  }, [current, loadHistory]);
+
+  async function exportHistory(rows: HistoryRow[]) {
+    if (!data) return;
+    setExporting(true);
+    try {
+      const names = new Map(data.suppliers.map((s) => [s.id, s.name]));
+      const seeValues = history?.seeValues ?? false;
+      const { buildExport } = await import('./spreadsheet');
+      const columns: { header: string; width: number; value: (r: HistoryRow) => string | number | null; numFmt?: string }[] = [
+        { header: 'Chegada', width: 12, value: (r) => (r.arrivedAt ? r.arrivedAt.split('-').reverse().join('/') : '') },
+        { header: 'Fornecedor', width: 14, value: (r) => (r.item.supplierId ? (names.get(r.item.supplierId) ?? '') : '') },
+        { header: 'Produto', width: 60, value: (r) => r.item.description },
+        { header: 'ISBN', width: 16, value: (r) => r.item.isbn ?? '' },
+        { header: 'Invoice', width: 18, value: (r) => r.invoice?.number ?? '' },
+        { header: 'Ref. embarque', width: 18, value: (r) => r.invoice?.ref ?? '' },
+        { header: 'BL', width: 18, value: (r) => r.invoice?.billNumber ?? '' },
+        { header: 'Quantidade', width: 12, value: (r) => r.item.quantity, numFmt: '#,##0' },
+        { header: 'pcs/ctn', width: 9, value: (r) => r.item.piecesPerCarton },
+      ];
+      if (seeValues) {
+        columns.push({ header: '$ unitário', width: 12, value: (r) => (r.item.unitPriceMicros == null ? null : r.item.unitPriceMicros / 1_000_000), numFmt: '0.00#' });
+        columns.push({ header: '$ total', width: 14, value: (r) => (r.item.totalCents == null ? null : r.item.totalCents / 100), numFmt: '#,##0.00' });
+      }
+      columns.push({ header: 'Observações', width: 50, value: (r) => [r.invoice?.notes, r.item.notes].filter(Boolean).join(' · ') });
+      downloadXlsx(await buildExport('Histórico', columns, rows), `historico-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch {
+      showToast('Não foi possível gerar a planilha.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   function goToProduction(f: Partial<ItemFilters>) {
     setFilters({ ...EMPTY_FILTERS, ...f });
@@ -363,6 +414,12 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
       )}
     </>
   );
+  const historyActions = canImport ? (
+    <button type="button" className="btn" onClick={() => setImporting('Entregues')}>
+      <Icon name="atualizar" />
+      <span className="rot">Carga da aba Entregues</span>
+    </button>
+  ) : null;
   const shipmentActions = canImport ? (
     <button type="button" className="btn" onClick={() => setImporting('Embarques')}>
       <Icon name="atualizar" />
@@ -428,7 +485,22 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                 <span>Sem conexão com o servidor. Os dados podem estar desatualizados.</span>
               </p>
             )}
-            {data.items.length === 0 && data.invoices.length === 0 ? (
+            {current === 'historico' ? (
+              history ? (
+                <HistoryView history={history} suppliers={data.suppliers} onProduct={setProduct} onExport={(rows) => void exportHistory(rows)} exporting={exporting} actions={historyActions} />
+              ) : historyError ? (
+                <div className="erro-carga">
+                  <FormError message={historyError} />
+                  <button className="btn" onClick={() => void loadHistory()}>
+                    Tentar de novo
+                  </button>
+                </div>
+              ) : (
+                <p className="carregando" role="status">
+                  Carregando o histórico…
+                </p>
+              )
+            ) : data.items.length === 0 && data.invoices.length === 0 ? (
               <Welcome user={user} onImport={canImport ? () => setImporting('Produção') : undefined} onNew={canEdit ? () => setDialog({ mode: 'new' }) : undefined} />
             ) : current === 'painel' ? (
               <Dashboard
@@ -460,8 +532,19 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
         )}
       </main>
 
-      {data && <ItemDialog state={dialog} me={user} data={data} production={production} onClose={() => setDialog(null)} onToast={showToast} />}
-      {canImport && <ImportDialog sheet={importing} production={production} onClose={() => setImporting(null)} onToast={showToast} />}
+      {data && <ItemDialog state={dialog} me={user} data={data} production={production} onClose={() => setDialog(null)} onToast={showToast} onProduct={setProduct} />}
+      {canImport && (
+        <ImportDialog
+          sheet={importing}
+          production={production}
+          onClose={() => {
+            if (importing === 'Entregues' && current === 'historico') void loadHistory();
+            setImporting(null);
+          }}
+          onToast={showToast}
+        />
+      )}
+      {data && <ProductDialog productId={product} suppliers={data.suppliers} onClose={() => setProduct(null)} />}
       {data && canEdit && (
         <ShipDialog
           items={shipping ? data.items.filter((i) => shipping.includes(i.id)) : null}

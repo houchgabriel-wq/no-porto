@@ -76,6 +76,22 @@ describe('carga da aba Entregues', () => {
     expect(JSON.stringify(h)).not.toContain('750000');
   });
 
+  it('o mesmo número de invoice em outro BL é outra invoice (não mistura com o embarque a caminho)', async () => {
+    await app.call('POST', '/api/import/shipments', {
+      cookie: who.admin.cookie,
+      body: { items: [{ ...row({ invoice: 'HSC20260411', bill: 'ROECHN26102353', ref: 'HSC20260411', supplier: 'Nicola', isbn: null }), eta: '2026-11-19', arrivedAt: undefined, arrivalNote: undefined }] },
+    });
+    await app.call('POST', '/api/import/history', {
+      cookie: who.admin.cookie,
+      body: { items: [row({ invoice: 'HSC20260411', bill: 'ROECHN26070618', ref: 'HSC20260411', supplier: 'Nicola', isbn: null, arrivedAt: '2026-08-14' })] },
+    });
+    const h = await history();
+    expect(h.invoices).toMatchObject([{ number: 'HSC20260411', billNumber: 'ROECHN26070618', arrivedAt: '2026-08-14' }]);
+    const d = (await app.call('GET', '/api/data', { cookie: who.admin.cookie })).data;
+    expect(d.invoices).toHaveLength(1);
+    expect(d.items).toMatchObject([{ status: 'embarcado' }]);
+  });
+
   it('cabe no limite de consultas', async () => {
     const many = Array.from({ length: 500 }, (_, i) => row({ row: i + 2, description: `Livro ${i}`, isbn: null, invoice: `INV-${i % 40}`, bill: `BL-${i % 15}` }));
     const before = (app.env.DB as unknown as { queries: number }).queries;

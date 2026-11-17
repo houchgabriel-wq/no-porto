@@ -23,6 +23,7 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
 - [ ] **Marco 4: histórico e produtos.**
   Carga da aba Entregues, com a lista de conferência das datas. Ficha do produto com todas as compras e preços.
   *Teste do Gabriel:* procurar alguns títulos que ele conhece e conferir quantidades e preços.
+  *Pronto para o teste em 17/11/2026:* aba Histórico com os anos em destaque, busca, filtros e Baixar .xlsx; ficha do produto com todas as compras e a variação do preço; carga da aba Entregues pelo admin, com o ano da chegada deduzido (3.991 itens, e cada ano bate com o subtotal da aba).
 
 - [ ] **Marco 5: painel e acabamento.**
   Painel de valores, baixar .xlsx em todas as listas, tema escuro, celular, acessibilidade. A partir daqui a planilha sai de uso.

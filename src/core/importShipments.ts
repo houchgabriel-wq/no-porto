@@ -103,7 +103,7 @@ export function summarizeShipments(items: readonly ImportedShipmentItem[]): { in
   const byInvoice = new Map<string, ShipmentSummaryRow>();
   const total = { items: 0, quantity: 0, valueCents: 0 };
   for (const item of items) {
-    const key = `${searchKey(item.supplier ?? '')}|${item.invoice.toUpperCase()}`;
+    const key = invoiceKey(searchKey(item.supplier ?? ''), item.invoice, item.bill);
     const row = byInvoice.get(key) ?? { bill: item.bill, invoice: item.invoice, ref: item.ref, supplier: item.supplier ?? NO_SUPPLIER, eta: item.eta, items: 0, quantity: 0, valueCents: 0, paid: item.paid };
     byInvoice.set(key, row);
     const value = item.unitPriceMicros === null ? 0 : itemTotalCents(item.quantity, item.unitPriceMicros);
@@ -118,7 +118,16 @@ export function summarizeShipments(items: readonly ImportedShipmentItem[]): { in
   return { invoices: [...byInvoice.values()], bills, total };
 }
 
-/** Chave para não repetir a carga: invoice, ISBN, nome do produto, quantidade e preço. */
-export function shipmentKey(item: { invoice: string; isbn: string | null; description: string; quantity: number; unitPriceMicros: number | null }): string {
-  return [item.invoice.toUpperCase(), item.isbn ?? '', searchKey(item.description), item.quantity, item.unitPriceMicros ?? ''].join('|');
+/**
+ * Chave para não repetir a carga: invoice e BL, ISBN, nome do produto, quantidade e preço. O BL entra
+ * porque o mesmo número de invoice aparece em dois embarques (HSC20260411: um BL chegou em agosto,
+ * outro ainda está a caminho).
+ */
+export function shipmentKey(item: { invoice: string; bill: string | null; isbn: string | null; description: string; quantity: number; unitPriceMicros: number | null }): string {
+  return [item.invoice.toUpperCase(), (item.bill ?? '').toUpperCase(), item.isbn ?? '', searchKey(item.description), item.quantity, item.unitPriceMicros ?? ''].join('|');
+}
+
+/** Chave da invoice: fornecedor, número e BL (o mesmo número pode estar em dois BLs). */
+export function invoiceKey(supplierId: string | null, number: string, bill: string | null): string {
+  return `${supplierId ?? ''}|${number.toUpperCase()}|${(bill ?? '').toUpperCase()}`;
 }

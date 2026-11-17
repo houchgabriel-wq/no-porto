@@ -4,7 +4,7 @@
 
 import { z } from 'zod';
 import { IMPORT_BATCH, newImportItems } from '../core/importProduction';
-import { shipmentKey } from '../core/importShipments';
+import { invoiceKey, shipmentKey } from '../core/importShipments';
 import { isbnDigits, isbnProblem } from '../core/isbn';
 import { isValidUnitPrice } from '../core/money';
 import { can } from '../core/roles';
@@ -359,18 +359,22 @@ async function importShipments(request: Request, env: Env, session: Session, now
   const bills = await loadBills(env, at, statements);
 
   const [inv, existing, paid] = await env.DB.batch([
-    env.DB.prepare('SELECT id, number, ref, supplier_id, bill_of_lading_id, eta, arrived_at FROM invoices'),
     env.DB.prepare(
-      `SELECT v.number AS invoice, p.isbn, i.description, i.quantity, i.unit_price_micros
+      `SELECT v.id, v.number, v.ref, v.supplier_id, v.bill_of_lading_id, v.eta, v.arrived_at, b.number AS bill_number
+         FROM invoices v LEFT JOIN bills_of_lading b ON b.id = v.bill_of_lading_id`,
+    ),
+    env.DB.prepare(
+      `SELECT v.number AS invoice, b.number AS bill, p.isbn, i.description, i.quantity, i.unit_price_micros
          FROM order_items i JOIN products p ON p.id = i.product_id JOIN invoices v ON v.id = i.invoice_id
+         LEFT JOIN bills_of_lading b ON b.id = v.bill_of_lading_id
         WHERE i.deleted_at IS NULL`,
     ),
     env.DB.prepare('SELECT DISTINCT invoice_id FROM payments'),
   ]);
-  const invoices = new Map((inv!.results as InvoiceRow[]).map((r) => [`${r.supplier_id ?? ''}|${r.number.toUpperCase()}`, r]));
+  const invoices = new Map((inv!.results as (InvoiceRow & { bill_number: string | null })[]).map((r) => [invoiceKey(r.supplier_id, r.number, r.bill_number), r as InvoiceRow]));
   const withPayment = new Set((paid!.results as { invoice_id: string }[]).map((r) => r.invoice_id));
-  const keys = (existing!.results as { invoice: string; isbn: string | null; description: string; quantity: number; unit_price_micros: number | null }[]).map((r) =>
-    shipmentKey({ invoice: r.invoice, isbn: r.isbn, description: r.description, quantity: r.quantity, unitPriceMicros: r.unit_price_micros }),
+  const keys = (existing!.results as { invoice: string; bill: string | null; isbn: string | null; description: string; quantity: number; unit_price_micros: number | null }[]).map((r) =>
+    shipmentKey({ invoice: r.invoice, bill: r.bill, isbn: r.isbn, description: r.description, quantity: r.quantity, unitPriceMicros: r.unit_price_micros }),
   );
   const keep = newImportItems(body.items, keys, shipmentKey);
 
@@ -378,7 +382,7 @@ async function importShipments(request: Request, env: Env, session: Session, now
   for (const index of keep) {
     const input = body.items[index]!;
     const supplierId = refs.supplier(input.supplier);
-    const key = `${supplierId ?? ''}|${input.invoice.toUpperCase()}`;
+    const key = invoiceKey(supplierId, input.invoice, input.bill);
     let invoice = invoices.get(key);
     if (!invoice) {
       const bill = input.bill ? bills.resolve(input.bill, input.eta, supplierId) : null;

@@ -152,6 +152,23 @@ describe('tela de embarques', () => {
     ]);
   });
 
+  it('BL sem chegada própria chega quando todas as invoices chegaram (a última data)', () => {
+    const units = shipmentUnits(
+      [bill('b1', null), bill('b2', null)],
+      [
+        { ...invoice('c1', 'b1', 's1'), arrivedAt: '2025-08-29' },
+        { ...invoice('c2', 'b1', 's1'), arrivedAt: '2025-09-02' },
+        { ...invoice('c3', 'b2', 's1'), arrivedAt: '2025-09-02' },
+        invoice('c4', 'b2', 's1'),
+      ],
+      '2026-11-17',
+    );
+    expect(units.map((u) => [u.key, u.group, u.arrivedAt])).toEqual([
+      ['bl:b2', 'sem_previsao', null],
+      ['bl:b1', 'chegaram', '2025-09-02'],
+    ]);
+  });
+
   it('a pagar: soma o que falta nas invoices, sem as quitadas', () => {
     const base = { productId: '', isbn: null, description: '', supplierId: 's', purchaseOrderId: null, status: 'embarcado' as const, piecesPerCarton: null, notes: '', createdAt: '', updatedAt: '' };
     const items: Item[] = [

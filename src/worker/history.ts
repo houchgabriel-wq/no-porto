@@ -3,7 +3,7 @@
 
 import { z } from 'zod';
 import { IMPORT_BATCH, newImportItems } from '../core/importProduction';
-import { shipmentKey } from '../core/importShipments';
+import { invoiceKey, shipmentKey } from '../core/importShipments';
 import { isbnDigits, isbnProblem } from '../core/isbn';
 import { itemForViewer } from '../core/items';
 import { isValidUnitPrice } from '../core/money';
@@ -112,27 +112,28 @@ async function importHistory(request: Request, env: Env, session: Session, now: 
   const statements: D1PreparedStatement[] = [];
 
   const [inv, bl, existing, paid] = await env.DB.batch([
-    env.DB.prepare('SELECT id, number, supplier_id FROM invoices'),
+    env.DB.prepare('SELECT v.id, v.number, v.supplier_id, b.number AS bill_number FROM invoices v LEFT JOIN bills_of_lading b ON b.id = v.bill_of_lading_id'),
     env.DB.prepare('SELECT id, number FROM bills_of_lading'),
     env.DB.prepare(
-      `SELECT v.number AS invoice, p.isbn, i.description, i.quantity, i.unit_price_micros
+      `SELECT v.number AS invoice, b.number AS bill, p.isbn, i.description, i.quantity, i.unit_price_micros
          FROM order_items i JOIN products p ON p.id = i.product_id JOIN invoices v ON v.id = i.invoice_id
+         LEFT JOIN bills_of_lading b ON b.id = v.bill_of_lading_id
         WHERE i.deleted_at IS NULL`,
     ),
     env.DB.prepare('SELECT DISTINCT invoice_id FROM payments'),
   ]);
-  const invoices = new Map((inv!.results as { id: string; number: string; supplier_id: string | null }[]).map((r) => [`${r.supplier_id ?? ''}|${r.number.toUpperCase()}`, r.id]));
+  const invoices = new Map((inv!.results as { id: string; number: string; supplier_id: string | null; bill_number: string | null }[]).map((r) => [invoiceKey(r.supplier_id, r.number, r.bill_number), r.id]));
   const bills = new Map((bl!.results as { id: string; number: string }[]).map((r) => [r.number.toUpperCase(), r.id]));
   const withPayment = new Set((paid!.results as { invoice_id: string }[]).map((r) => r.invoice_id));
-  const keys = (existing!.results as { invoice: string; isbn: string | null; description: string; quantity: number; unit_price_micros: number | null }[]).map((r) =>
-    shipmentKey({ invoice: r.invoice, isbn: r.isbn, description: r.description, quantity: r.quantity, unitPriceMicros: r.unit_price_micros }),
+  const keys = (existing!.results as { invoice: string; bill: string | null; isbn: string | null; description: string; quantity: number; unit_price_micros: number | null }[]).map((r) =>
+    shipmentKey({ invoice: r.invoice, bill: r.bill, isbn: r.isbn, description: r.description, quantity: r.quantity, unitPriceMicros: r.unit_price_micros }),
   );
   const keep = newImportItems(body.items, keys, shipmentKey);
 
   for (const index of keep) {
     const input = body.items[index]!;
     const supplierId = refs.supplier(input.supplier);
-    const key = `${supplierId ?? ''}|${input.invoice.toUpperCase()}`;
+    const key = invoiceKey(supplierId, input.invoice, input.bill);
     let invoiceId = invoices.get(key);
     if (!invoiceId) {
       let billId: string | null = null;

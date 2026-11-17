@@ -20,6 +20,8 @@ interface Props {
   production: Production;
   onClose: () => void;
   onToast: (msg: string) => void;
+  /** Abre a ficha do produto, com todas as compras. */
+  onProduct?: (productId: string) => void;
 }
 
 interface Draft {
@@ -81,7 +83,7 @@ function validate(d: Draft, seeValues: boolean): { input: ItemInput } | { error:
   };
 }
 
-export function ItemDialog({ state, me, data, production, onClose, onToast }: Props) {
+export function ItemDialog({ state, me, data, production, onClose, onToast, onProduct }: Props) {
   const item = state?.mode === 'edit' ? state.item : null;
   const canEdit = can(me.role, 'edit');
   const canDelete = can(me.role, 'delete') && item !== null;
@@ -197,6 +199,11 @@ export function ItemDialog({ state, me, data, production, onClose, onToast }: Pr
                 )}{' '}
                 · {arrivalText(shipment.state)}
               </span>
+            )}
+            {onProduct && (
+              <button type="button" className="btn-texto" onClick={() => onProduct(item.productId)}>
+                Todas as compras deste produto
+              </button>
             )}
             {canEdit && item.status === 'embarcado' && (
               <button type="button" className="btn-texto" onClick={() => void unship()} disabled={busy}>

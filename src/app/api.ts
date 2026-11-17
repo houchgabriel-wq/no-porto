@@ -2,6 +2,8 @@
 
 import type { ImportedItem } from '../core/importProduction';
 import type { ImportedShipmentItem } from '../core/importShipments';
+import type { ImportedHistoryItem } from '../core/importHistory';
+import type { InvoiceInfo } from '../core/history';
 import type { Bill, Invoice, Payment } from '../core/shipments';
 import type { Item, PurchaseOrder, Supplier } from '../core/items';
 import type { Role } from '../core/roles';
@@ -116,6 +118,13 @@ export const api = {
     request<{ id: string }>('POST', `/api/invoices/${encodeURIComponent(invoiceId)}/payments`, body),
   deletePayment: (id: string) => request<{ ok: true }>('DELETE', `/api/payments/${encodeURIComponent(id)}`),
   importShipments: (items: ImportedShipmentItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/shipments', { items }),
+  history: () => request<{ items: Item[]; invoices: InvoiceInfo[]; seeValues: boolean }>('GET', '/api/history'),
+  product: (id: string) =>
+    request<{ product: { id: string; isbn: string | null; title: string }; items: Item[]; invoices: InvoiceInfo[]; orders: { id: string; code: string }[]; seeValues: boolean }>(
+      'GET',
+      `/api/products/${encodeURIComponent(id)}`,
+    ),
+  importHistory: (items: ImportedHistoryItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/history', { items }),
   createItem: (body: ItemInput) => request<{ item: Item }>('POST', '/api/items', body),
   updateItem: (id: string, body: Partial<ItemInput>) => request<{ item: Item }>('PATCH', `/api/items/${encodeURIComponent(id)}`, body),
   deleteItem: (id: string) => request<{ ok: true }>('DELETE', `/api/items/${encodeURIComponent(id)}`),

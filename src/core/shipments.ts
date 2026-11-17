@@ -250,6 +250,16 @@ export function shipmentUnits(bills: readonly Bill[], invoices: readonly Invoice
     unit.invoices.push(invoice);
     if (!unit.supplierIds.includes(invoice.supplierId)) unit.supplierIds.push(invoice.supplierId);
   }
+  // Um BL chegou quando o BL tem a chegada registrada ou, sem ela, quando todas as suas invoices
+  // chegaram (no histórico, cada container chegou num dia): vale a última chegada.
+  for (const unit of units.values()) {
+    if (!unit.bill || unit.arrivedAt || unit.invoices.length === 0) continue;
+    const dates = unit.invoices.map((v) => v.arrivedAt);
+    if (dates.every((d): d is string => d !== null)) {
+      unit.arrivedAt = dates.sort().at(-1)!;
+      unit.group = arrivalGroup(unit.eta, unit.arrivedAt, today);
+    }
+  }
   // BL sem invoice (todas desfeitas) também aparece, para poder ser corrigido.
   for (const bill of bills) {
     if (!units.has(`bl:${bill.id}`)) {
