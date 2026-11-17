@@ -77,19 +77,23 @@ Documentos dos fornecedores (feitos depois do marco 5; decisão de 17/11/2026, n
 
 Pagamento é registrado na invoice, à parte da situação dos itens: data, valor em dólar e taxa de câmbio; o valor em reais é calculado. Uma invoice pode ter mais de um pagamento (na planilha há casos como "Pago 2/3"); a situação dela é a pagar, paga em parte ou paga, conforme a soma dos pagamentos e o total dos itens. O pagamento antigo da planilha (sem valor) quita a invoice. Admin e editor registram pagamentos; só o admin exclui. "A pagar", no painel e na tela Embarques, é a soma do que falta nas invoices.
 
-## 4. Perfis e permissões (proposta, menos o leitor sem valores, que é decidido)
+## 4. Perfis e permissões (proposta, menos o que está marcado como decidido)
 
-| Ação | Admin | Editor | Leitor |
-| --- | --- | --- | --- |
-| Ver painel, POs, embarques e histórico | sim | sim | sim |
-| Ver preços, valores e pagamentos | sim | sim | **não** (decidido) |
-| Cadastrar e alterar POs, itens, invoices e BLs | sim | sim | não |
-| Registrar pagamentos | sim | sim | não |
-| Cadastrar fornecedores | sim | sim | não |
-| Carga de planilha e exclusões | sim | não | não |
-| Usuários | sim | não | não |
+Cinco perfis. Consulta e Embarques foram pedidos pelo Gabriel em 17/11/2026, para a equipe (migração `0006`).
 
-O servidor tira preços, totais, câmbio e pagamentos das respostas para o leitor; não basta esconder na tela. No painel, o leitor vê quantidades (exemplares, itens, embarques) no lugar de valores.
+| Ação | Admin | Editor | Consulta | Leitor | Embarques |
+| --- | --- | --- | --- | --- | --- |
+| Ver os embarques a caminho | sim | sim | sim | sim | sim (decidido) |
+| Ver painel, produção, histórico, fornecedores e fichas de produto | sim | sim | sim (decidido) | sim | **não** (decidido) |
+| Ver preços, valores e pagamentos; baixar o arquivo do BL | sim | sim | sim (decidido) | **não** (decidido) | **não** (decidido) |
+| Cadastrar e alterar POs, itens, invoices, BLs, chegadas e pagamentos | sim | sim | **não** (decidido) | não | não (decidido) |
+| Cadastrar fornecedores | sim | sim | não | não | não |
+| Carga de planilha e exclusões | sim | não | não | não | não |
+| Usuários | sim | não | não | não | não |
+
+O servidor tira preços, totais, câmbio e pagamentos das respostas para o leitor e para o perfil Embarques; não basta esconder na tela. No painel, o leitor vê quantidades (exemplares, itens, embarques) no lugar de valores. O perfil Embarques recebe do servidor só os itens no mar, com as invoices, os BLs, as POs e os fornecedores deles (nada da produção nem do que já chegou); o histórico, os fornecedores, as fichas de produto e a cópia completa são recusados para ele, e a tela mostra só a aba Embarques (as duas visões, por embarque e por item, sem valores).
+
+Equipe (17/11/2026): Marcelo, com acesso de quem lança pedidos e embarques (Administrador ou Editor, escolha do Gabriel ao criar a conta); Leonardo e Paulo, Consulta; Antonio e Vinicius, Embarques. As contas são criadas pelo admin na tela Usuários.
 
 ## 5. Telas (proposta)
 
