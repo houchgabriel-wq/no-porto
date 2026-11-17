@@ -6,7 +6,7 @@ import { receivedInYear, type SupplierSummary } from '../core/suppliers';
 import { EMPTY_FILTERS, filterItems, sortItems, type ItemFilters, type ItemSort } from '../core/items';
 import { can, ROLE_LABELS } from '../core/roles';
 import { api, ApiError, setUnauthorizedHandler, type Me } from './api';
-import { Avatar, Brand, Dialog, FormError, hueStyle, STATUS_PREVIEW, useToast } from './components';
+import { Avatar, Brand, Dialog, FormError, hueStyle, setSupplierHues, STATUS_PREVIEW, useToast } from './components';
 import { Dashboard } from './Dashboard';
 import { downloadXlsx } from './download';
 import { ForcedPasswordScreen, LoginScreen, PasswordForm, SetupScreen } from './Entry';
@@ -320,6 +320,8 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const production = useProduction();
   const data = production.data;
+  // Cores dos fornecedores, dos que têm mais itens para os que têm menos (antes de desenhar as telas).
+  if (data) setSupplierHues(data.suppliers, data.items);
   // A tela Produção só mostra o que está em produção; as outras telas usam tudo.
   const productionData = useMemo(() => (data ? { ...data, items: data.items.filter((i) => i.status === 'producao') } : null), [data]);
   // Itens marcados que já não estão em produção (embarcados por outra pessoa) saem da marcação.
@@ -339,6 +341,10 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   }, []);
 
   const current: View = view === 'usuarios' && !isAdmin ? 'painel' : view;
+  // No celular, as abas rolam de lado: a aba atual fica à vista.
+  useEffect(() => {
+    document.querySelector('.abas .aba[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [current]);
 
   // O histórico é grande: só é carregado ao abrir a tela (e de novo a cada vez que ela é aberta).
   const loadHistory = useCallback(async () => {

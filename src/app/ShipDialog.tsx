@@ -164,7 +164,7 @@ export function ShipDialog({ items, data, production, onClose, onDone }: Props) 
             )}
           </fieldset>
 
-          <div className="tabela-caixa resumo-caixa">
+          <div className="tabela-caixa resumo-caixa" tabIndex={0} role="region" aria-label="Itens a embarcar">
             <table className="tabela-embarcar">
               <thead>
                 <tr>

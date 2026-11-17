@@ -8,7 +8,7 @@ import { can } from '../core/roles';
 import { formatDay } from '../core/shipments';
 import type { Amount, SupplierSummary } from '../core/suppliers';
 import { api, ApiError, type Me } from './api';
-import { Dialog, FormError, hueFor, hueStyle } from './components';
+import { Dialog, FormError, supplierHue, hueStyle } from './components';
 import { Icon } from './icons';
 import { itemsCount } from './Production';
 
@@ -64,7 +64,7 @@ export function SuppliersView({ data, year, onOpen, actions }: Props) {
               <tr key={s.supplierId ?? 'sem'}>
                 <td>
                   <button type="button" className="abrir-item" onClick={() => onOpen(s)}>
-                    <span className="forn-ponto h" style={hueStyle(s.supplierId ? hueFor(s.supplierId) : 0)} aria-hidden="true" />
+                    <span className="forn-ponto h" style={hueStyle(s.supplierId ? supplierHue(s.supplierId) : 0)} aria-hidden="true" />
                     {s.name}
                   </button>
                   {s.notes && <span className="t-isbn">{s.notes}</span>}
@@ -152,7 +152,7 @@ export function SupplierDialog({
           </div>
         </div>
         {supplier.byYear.length > 0 && (
-          <div className="tabela-caixa resumo-caixa">
+          <div className="tabela-caixa resumo-caixa" tabIndex={0} role="region" aria-label="Recebido por ano">
             <table className="tabela-resumo">
               <thead>
                 <tr>

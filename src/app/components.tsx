@@ -26,7 +26,25 @@ export function Brand({ subtitle = true }: { subtitle?: boolean }) {
   );
 }
 
-/** Matiz estável a partir do id, para cada pessoa (e cada fornecedor) ter sempre a mesma cor. */
+/**
+ * Cor de cada fornecedor: espaçada pelo ângulo áureo, começando pelos que têm mais itens, para os
+ * fornecedores principais nunca ficarem com cores parecidas (a cor pelo id deixava quatro deles
+ * verdes). A lista é informada quando os dados chegam (setSupplierHues).
+ */
+const supplierHues = new Map<string, number>();
+export function setSupplierHues(suppliers: readonly { id: string; name: string }[], items: readonly { supplierId: string | null }[]) {
+  const count = new Map<string, number>();
+  for (const i of items) if (i.supplierId) count.set(i.supplierId, (count.get(i.supplierId) ?? 0) + 1);
+  supplierHues.clear();
+  [...suppliers]
+    .sort((a, b) => (count.get(b.id) ?? 0) - (count.get(a.id) ?? 0) || a.name.localeCompare(b.name, 'pt-BR'))
+    .forEach((s, i) => supplierHues.set(s.id, Math.round((i * 137.508 + 200) % 360)));
+}
+export function supplierHue(id: string): number {
+  return supplierHues.get(id) ?? hueFor(id);
+}
+
+/** Matiz estável a partir do id, para cada pessoa ter sempre a mesma cor. */
 export function hueFor(id: string): number {
   // FNV-1a: espalha bem mesmo quando os ids diferem só em poucos caracteres.
   let h = 0x811c9dc5;

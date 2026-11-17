@@ -88,7 +88,7 @@ export function ProductDialog({ productId, suppliers, onClose }: { productId: st
                 </>
               )}
             </div>
-            <div className="tabela-caixa resumo-caixa prod-caixa">
+            <div className="tabela-caixa resumo-caixa prod-caixa" tabIndex={0} role="region" aria-label="Compras do produto">
               <table className="tabela-produto">
                 <thead>
                   <tr>

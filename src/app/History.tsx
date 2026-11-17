@@ -6,7 +6,7 @@ import { EMPTY_HISTORY_FILTERS, filterHistory, historyRows, NO_DATE, totalsByYea
 import { NO_SUPPLIER, totals, type Item, type Supplier } from '../core/items';
 import { formatQuantity, formatUnitPrice, formatUsd, formatUsdWhole } from '../core/money';
 import { formatDay } from '../core/shipments';
-import { hueFor, hueStyle } from './components';
+import { supplierHue, hueStyle } from './components';
 import { Icon } from './icons';
 import { headline, itemsCount } from './Production';
 
@@ -164,7 +164,7 @@ export function HistoryView({ history, suppliers, onProduct, onExport, exporting
                       <span className="t-isbn">{item.isbn ?? 'Sem ISBN'}</span>
                     </td>
                     <td className="nowrap">
-                      <span className="forn-ponto h" style={hueStyle(item.supplierId ? hueFor(item.supplierId) : 0)} aria-hidden="true" />
+                      <span className="forn-ponto h" style={hueStyle(item.supplierId ? supplierHue(item.supplierId) : 0)} aria-hidden="true" />
                       {item.supplierId ? (names.get(item.supplierId) ?? NO_SUPPLIER) : NO_SUPPLIER}
                     </td>
                     <td>

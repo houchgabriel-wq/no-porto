@@ -19,7 +19,7 @@ import {
 } from '../core/items';
 import { formatQuantity, formatUnitPrice, formatUsd, formatUsdWhole } from '../core/money';
 import type { ProductionData } from './api';
-import { hueFor, hueStyle } from './components';
+import { supplierHue, hueStyle } from './components';
 import { Icon } from './icons';
 
 /** Largura em que a tabela vira lista de cartões. */
@@ -120,7 +120,7 @@ export function ProductionView({ data, filters, onFilters, sort, onSort, grouped
                 <button
                   type="button"
                   className="forn h"
-                  style={hueStyle(s.supplierId ? hueFor(s.supplierId) : 0)}
+                  style={hueStyle(s.supplierId ? supplierHue(s.supplierId) : 0)}
                   aria-pressed={active}
                   onClick={() => onFilters({ ...filters, supplierId: active ? '' : id })}
                 >
@@ -329,7 +329,7 @@ function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
       </td>
       <td className={item.purchaseOrderId ? 'nowrap' : 'nowrap mudo'}>{item.purchaseOrderId ? ctx.codes.get(item.purchaseOrderId) : NO_ORDER}</td>
       <td className={item.supplierId ? 'nowrap' : 'nowrap mudo'}>
-        <span className="forn-ponto h" style={hueStyle(item.supplierId ? hueFor(item.supplierId) : 0)} aria-hidden="true" />
+        <span className="forn-ponto h" style={hueStyle(item.supplierId ? supplierHue(item.supplierId) : 0)} aria-hidden="true" />
         {supplier}
       </td>
       <td className="num">{formatQuantity(item.quantity)}</td>
@@ -384,7 +384,7 @@ function ItemCard({ item, ctx }: { item: Item; ctx: Ctx }) {
       <button type="button" className="item-cartao" onClick={() => ctx.onOpen(item)}>
         <span className="item-cartao-titulo">{item.description}</span>
         <span className="item-cartao-meta">
-          <span className="forn-ponto h" style={hueStyle(item.supplierId ? hueFor(item.supplierId) : 0)} aria-hidden="true" />
+          <span className="forn-ponto h" style={hueStyle(item.supplierId ? supplierHue(item.supplierId) : 0)} aria-hidden="true" />
           {supplier} · {item.purchaseOrderId ? ctx.codes.get(item.purchaseOrderId) : NO_ORDER}
         </span>
         <span className="item-cartao-num">

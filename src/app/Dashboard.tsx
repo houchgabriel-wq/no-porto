@@ -8,7 +8,7 @@ import { formatQuantity, formatUsdWhole } from '../core/money';
 import { arrivalState, arrivalText, formatDay, shipmentUnits, totalDue } from '../core/shipments';
 import type { Amount } from '../core/suppliers';
 import type { ProductionData } from './api';
-import { hueFor, hueStyle } from './components';
+import { supplierHue, hueStyle } from './components';
 import { Icon } from './icons';
 import { headline, itemsCount } from './Production';
 
@@ -153,7 +153,7 @@ export function Dashboard({ data, onSupplier, onOrder, onShipment, received }: P
           <ul className="lista">
             {bySupplier.map((s) => (
               <li key={s.supplierId ?? 'sem'}>
-                <button type="button" className="barra-linha h" style={hueStyle(s.supplierId ? hueFor(s.supplierId) : 0)} onClick={() => onSupplier(s.supplierId ?? 'sem')}>
+                <button type="button" className="barra-linha h" style={hueStyle(s.supplierId ? supplierHue(s.supplierId) : 0)} onClick={() => onSupplier(s.supplierId ?? 'sem')}>
                   <span className="barra-nome">{s.name}</span>
                   <b>{headline(s)}</b>
                   <span className="barra larga" aria-hidden="true">

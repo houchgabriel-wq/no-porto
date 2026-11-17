@@ -19,7 +19,7 @@ import {
   type ShipmentUnit,
 } from '../core/shipments';
 import type { ProductionData } from './api';
-import { hueFor, hueStyle } from './components';
+import { supplierHue, hueStyle } from './components';
 import { Icon } from './icons';
 import { headline, itemsCount } from './Production';
 
@@ -196,7 +196,7 @@ function UnitCard({ unit, ctx }: { unit: ShipmentUnit; ctx: Ctx }) {
         {suppliers.map((s, i) => (
           <span key={s}>
             {i > 0 && ', '}
-            <span className="forn-ponto h" style={hueStyle(unit.supplierIds[i] ? hueFor(unit.supplierIds[i]!) : 0)} aria-hidden="true" />
+            <span className="forn-ponto h" style={hueStyle(unit.supplierIds[i] ? supplierHue(unit.supplierIds[i]!) : 0)} aria-hidden="true" />
             {s}
           </span>
         ))}

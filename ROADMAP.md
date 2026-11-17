@@ -28,6 +28,7 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
 - [ ] **Marco 5: painel e acabamento.**
   Painel de valores, baixar .xlsx em todas as listas, tema escuro, celular, acessibilidade. A partir daqui a planilha sai de uso.
   *Teste do Gabriel:* conferir os números do painel e usar o app por uma semana no lugar da planilha.
+  *Pronto para o teste em 17/11/2026:* tela Fornecedores (com recebido por ano, nome e observações), recebido no ano no painel, Baixar .xlsx em todas as listas, cópia completa no formato da planilha (admin), revisão de acessibilidade sem violações e abas que rolam no celular.
 
 ## Depois
 

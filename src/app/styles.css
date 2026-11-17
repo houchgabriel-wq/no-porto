@@ -1019,14 +1019,14 @@ dialog.dlg-embarque { width: min(760px, calc(100vw - 32px)); }
 .heroi-bloco { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .heroi-bloco + .heroi-bloco { border-left: 1px solid var(--fio); padding-left: 28px; }
 .heroi-bloco .heroi-rot { margin: 0; }
-.heroi-valor { font-family: var(--f-display); font-weight: 800; font-size: clamp(30px, 3.4vw, 44px); line-height: 1; letter-spacing: -0.035em; white-space: nowrap; }
+.heroi-valor { font-family: var(--f-display); font-weight: 800; font-size: clamp(28px, 2.9vw, 40px); line-height: 1; letter-spacing: -0.035em; white-space: nowrap; }
 .heroi-sub { color: var(--tinta-3); font-size: 13px; font-weight: 500; }
 .chegada-linha { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border: 0; border-top: 1px solid var(--fio); background: none; text-align: left; cursor: pointer; }
 .lista li:first-child .chegada-linha { border-top: 0; }
 .chegada-linha:hover .barra-nome { color: var(--acento); }
 .chegada-dia { width: 46px; height: 46px; border-radius: 12px; background: var(--sulco); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
 .chegada-dia b { font-family: var(--f-display); font-size: 18px; font-weight: 700; }
-.chegada-dia span { font-size: 11px; color: var(--tinta-3); text-transform: uppercase; font-weight: 600; }
+.chegada-dia span { font-size: 11px; color: var(--tinta-2); text-transform: uppercase; font-weight: 600; }
 .chegada-dia.liberacao { background: var(--alerta-suave); color: var(--alerta); }
 .chegada-dia.liberacao span { color: var(--alerta); }
 .alerta-texto { color: var(--alerta); font-weight: 600; }
@@ -1080,3 +1080,13 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
 .tabela-forn td { vertical-align: top; }
 .tabela-forn td.num b { font-variant-numeric: tabular-nums; }
 .tabela-forn .abrir-item { display: inline-flex; align-items: center; }
+
+/* Caixas de tabela que rolam por dentro recebem foco pelo teclado (para rolar com as setas). */
+.resumo-caixa:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+
+/* Cinco abas não cabem em telas estreitas: a faixa rola de lado, com a aba atual à vista. */
+@media (max-width: 420px) {
+  .abas { overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .abas::-webkit-scrollbar { display: none; }
+  .abas .aba { flex: 0 0 auto; padding-inline: 11px; font-size: 13px; }
+}

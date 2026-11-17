@@ -173,7 +173,7 @@ function Review({ report, file, error, onBack, onSave }: { report: ImportReport;
           )}
           {report.items.length} itens em {summary.orders} POs. Compare com a planilha antes de gravar.
         </p>
-        <div className="tabela-caixa resumo-caixa">
+        <div className="tabela-caixa resumo-caixa" tabIndex={0} role="region" aria-label="Resumo da carga">
           <table className="tabela-resumo">
             <thead>
               <tr>
@@ -297,7 +297,7 @@ function ShipmentReview({ report, file, error, onBack, onSave }: { report: Shipm
           )}
           {report.items.length} itens em {summary.invoices.length} invoices e {summary.bills} BLs. Compare com a planilha antes de gravar.
         </p>
-        <div className="tabela-caixa resumo-caixa">
+        <div className="tabela-caixa resumo-caixa" tabIndex={0} role="region" aria-label="Resumo da carga">
           <table className="tabela-resumo">
             <thead>
               <tr>
@@ -368,7 +368,7 @@ function HistoryReview({ report, file, error, onBack, onSave }: { report: Histor
           {report.items.length} itens em {summary.invoices} invoices. A chegada está quase sempre sem o ano na planilha: o ano vem do bloco do ano na própria aba (e, sem ele, do BL,
           da invoice, da ref. ou da ordem das linhas). Compare os totais por ano com os subtotais da aba antes de gravar.
         </p>
-        <div className="tabela-caixa resumo-caixa">
+        <div className="tabela-caixa resumo-caixa" tabIndex={0} role="region" aria-label="Resumo da carga">
           <table className="tabela-resumo">
             <thead>
               <tr>

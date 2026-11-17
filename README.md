@@ -43,3 +43,7 @@ A partir daí, cada push em `main` publica sozinho. O `SETUP_TOKEN` só serve en
 3. Trocar a branch de produção no painel não publica de novo sozinho: a publicação seguinte acontece no próximo push em `main` (ou em **Deployments → Tentar de novo**).
 
 Para usar um endereço do `editoraonline.com.br` (por exemplo, `noporto.editoraonline.com.br`), a TI cria o registro no DNS e o domínio é ligado ao Worker em **Configurações → Domínios e rotas**, como no No Prelo.
+
+## Cópia de segurança
+
+No menu do admin, **Baixar cópia completa** gera uma planilha com as abas Produção, Embarques e Entregues, nas mesmas colunas da `status_importações`. Guarde uma cópia de tempos em tempos fora da Cloudflare (no Drive, por exemplo). Se um dia for preciso, ela volta pelas cargas do próprio sistema.
