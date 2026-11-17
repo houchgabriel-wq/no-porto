@@ -24,6 +24,7 @@ import { ShipDialog } from './ShipDialog';
 import { SupplierDialog, SuppliersView, type SuppliersData } from './Suppliers';
 import { ShipmentDialog } from './ShipmentDialog';
 import { ShipmentsView } from './Shipments';
+import { ShipmentItemsView } from './ShipmentItems';
 import { UpdateNotice } from './update';
 import { UsersScreen } from './Users';
 
@@ -31,6 +32,26 @@ type Theme = 'sistema' | 'claro' | 'escuro';
 const THEME_KEY = 'no-porto:tema';
 const GROUP_KEY = 'no-porto:agrupar-po';
 const BACKUP_KEY = 'no-porto:copia-completa';
+const SHIPMENTS_MODE_KEY = 'no-porto:embarques-visao';
+
+type ShipmentsMode = 'embarque' | 'item';
+
+function readShipmentsMode(): ShipmentsMode {
+  try {
+    return localStorage.getItem(SHIPMENTS_MODE_KEY) === 'item' ? 'item' : 'embarque';
+  } catch {
+    return 'embarque';
+  }
+}
+
+function saveShipmentsMode(mode: ShipmentsMode) {
+  try {
+    if (mode === 'item') localStorage.setItem(SHIPMENTS_MODE_KEY, mode);
+    else localStorage.removeItem(SHIPMENTS_MODE_KEY);
+  } catch {
+    // Só não lembra a escolha.
+  }
+}
 
 /** Dia da última cópia completa baixada neste navegador. */
 function readLastBackup(): string | null {
@@ -349,6 +370,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [upload, setUpload] = useState<'pedido' | 'embarque' | null>(null);
   const [arrival, setArrival] = useState<string[] | null>(null);
   const [fullImport, setFullImport] = useState(false);
+  const [shipmentsMode, setShipmentsMode] = useState<ShipmentsMode>(readShipmentsMode);
   const [product, setProduct] = useState<string | null>(null);
   const [lastBackup, setLastBackup] = useState(readLastBackup);
   const [backingUp, setBackingUp] = useState(false);
@@ -714,7 +736,34 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
               />
               </>
             ) : current === 'embarques' ? (
-              <ShipmentsView data={data} onOpen={setShipment} actions={shipmentActions} />
+              <>
+                <div className="seg visao-troca" role="group" aria-label="Visão dos embarques">
+                  {(
+                    [
+                      ['embarque', 'Por embarque', 'navio'],
+                      ['item', 'Por item', 'tabela'],
+                    ] as const
+                  ).map(([mode, label, icon]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={shipmentsMode === mode}
+                      onClick={() => {
+                        setShipmentsMode(mode);
+                        saveShipmentsMode(mode);
+                      }}
+                    >
+                      <Icon name={icon} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {shipmentsMode === 'item' ? (
+                  <ShipmentItemsView data={data} onOpen={(item) => setDialog({ mode: 'edit', item })} actions={shipmentActions} />
+                ) : (
+                  <ShipmentsView data={data} onOpen={setShipment} actions={shipmentActions} />
+                )}
+              </>
             ) : (
               <ProductionView
                 data={productionData!}

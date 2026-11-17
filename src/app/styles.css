@@ -1129,3 +1129,5 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
 .carga-aba-corpo { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
 .carga-zerar { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .carga-confirma { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.visao-troca { margin-bottom: 14px; }
+.tabela-embarcados td.num { white-space: nowrap; }
