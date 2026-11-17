@@ -13,6 +13,7 @@ import { routeShipments } from './shipments';
 import { routeHistory } from './history';
 import { routeSuppliers } from './suppliers';
 import { routeExport } from './export';
+import { routeReset } from './reset';
 
 // ---------- Esquemas de entrada ----------
 
@@ -388,6 +389,8 @@ async function routeLoggedIn(
   if (suppliers) return suppliers;
   const exported = await routeExport(env, session, key);
   if (exported) return exported;
+  const wiped = await routeReset(request, env, session, key);
+  if (wiped) return wiped;
 
   return error(404, 'Rota não encontrada.');
 }
