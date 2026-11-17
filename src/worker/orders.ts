@@ -104,6 +104,22 @@ const importBody = z.object({
     .max(IMPORT_BATCH, `Envie no máximo ${IMPORT_BATCH} itens por vez.`),
 });
 
+const day = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida.')
+  .refine((t) => !Number.isNaN(Date.parse(`${t}T00:00:00Z`)), 'Data inválida.')
+  .nullable();
+
+const orderBody = z.object({
+  code: orderCode.refine((c) => c !== null, 'Informe o número da PO (como PO-065).'),
+  supplier: supplier.refine((t) => t !== null, 'Informe o fornecedor.'),
+  orderedAt: day.default(null),
+  items: z
+    .array(z.object({ description, isbn: isbn.default(null), quantity, piecesPerCarton: piecesPerCarton.default(null), unitPriceMicros: unitPriceMicros.default(null), notes: notes.default(''), row: z.number().int().min(1) }))
+    .min(1, 'A PO não tem itens.')
+    .max(IMPORT_BATCH, `Envie no máximo ${IMPORT_BATCH} itens por vez.`),
+});
+
 type ItemInput = z.output<typeof createItemBody>;
 
 // ---------- Banco ----------
@@ -493,6 +509,39 @@ async function importProduction(request: Request, env: Env, session: Session, no
   return json({ inserted: statements.length / 2, skipped, withoutOrder: moved.map((m) => m.message) }, 201);
 }
 
+/**
+ * Novo pedido (SPEC.md, seção 3): a PO que a editora mandou ao fornecedor entra inteira na produção.
+ * Uma PO que já tem itens não entra de novo (para acrescentar, use Novo item).
+ */
+async function createOrder(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
+  checkMutation(request);
+  const body = await readBody(request, orderBody);
+  const code = body.code!;
+  const existing = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM order_items i JOIN purchase_orders o ON o.id = i.purchase_order_id WHERE o.code = ? AND i.deleted_at IS NULL`,
+  )
+    .bind(code)
+    .first<{ n: number }>();
+  if (existing && existing.n > 0) {
+    return error(409, `A ${code} já está cadastrada, com ${existing.n} ${existing.n === 1 ? 'item' : 'itens'}. Para acrescentar itens, use Novo item.`);
+  }
+  const at = now.toISOString();
+  const userId = session.user.id;
+  const refs = await loadRefs(env, at);
+  const supplierId = refs.supplier(body.supplier);
+  const orderId = refs.order(code)!;
+  const statements: D1PreparedStatement[] = [];
+  for (const input of body.items) {
+    const id = crypto.randomUUID();
+    statements.push(insertItem(env, id, input, { productId: refs.product(input.isbn, input.description), supplierId, orderId }, userId, at));
+    statements.push(eventStatement(env, id, userId, 'created', { order: code, row: input.row }, at));
+  }
+  // A data do pedido fica na PO (as POs da carga da planilha não têm).
+  if (body.orderedAt) statements.push(env.DB.prepare('UPDATE purchase_orders SET ordered_at = ? WHERE id = ?').bind(body.orderedAt, orderId));
+  await env.DB.batch([...refs.statements, ...statements]);
+  return json({ orderId, inserted: body.items.length }, 201);
+}
+
 export async function routeOrders(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {
   const role = session.user.role;
   if (key === 'GET /api/data') return getData(env, session, now);
@@ -502,6 +551,10 @@ export async function routeOrders(request: Request, env: Env, session: Session, 
     return importProduction(request, env, session, now);
   }
 
+  if (key === 'POST /api/orders') {
+    if (!can(role, 'edit')) return error(403, 'Seu perfil só pode acompanhar.');
+    return createOrder(request, env, session, now);
+  }
   if (key === 'POST /api/items') {
     if (!can(role, 'edit')) return error(403, 'Seu perfil só pode acompanhar.');
     return createItem(request, env, session, now);

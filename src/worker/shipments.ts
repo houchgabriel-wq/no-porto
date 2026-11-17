@@ -3,12 +3,14 @@
 // Embarques. Toda rota confere o perfil.
 
 import { z } from 'zod';
+import { allocateShipment } from '../core/allocation';
 import { IMPORT_BATCH, newImportItems } from '../core/importProduction';
 import { invoiceKey, shipmentKey } from '../core/importShipments';
 import { isbnDigits, isbnProblem } from '../core/isbn';
 import { isValidUnitPrice } from '../core/money';
 import { can } from '../core/roles';
 import { itemStatusFor, shipProblem } from '../core/shipments';
+import type { Item, ItemStatus } from '../core/items';
 import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, HttpError, json, readBody } from './http';
@@ -65,6 +67,30 @@ const isbn = z
   .nullable()
   .refine((s) => !s || isbnProblem(s) === null, 'ISBN inválido.')
   .transform((s) => (s ? isbnDigits(s) : null));
+
+const receiveBody = z.object({
+  supplierId: z.string().min(1, 'Escolha o fornecedor.').max(100),
+  invoice: z.object({ number: invoiceNumber, ref: text(60, 'Ref.').default(''), bill: billNumber.default(null), eta: day.default(null) }),
+  lines: z
+    .array(
+      z.object({
+        row: z.number().int().min(1),
+        description: text(300, 'Produto').pipe(z.string().min(1, 'Informe o produto.')),
+        isbn,
+        quantity: z.number().int().positive('A quantidade precisa ser maior que zero.').max(100_000_000),
+        piecesPerCarton: z.number().int().positive().max(1_000_000).nullable().default(null),
+        unitPriceMicros: z.number().int().min(0).max(1_000_000_000).refine(isValidUnitPrice, 'O preço unitário tem no máximo três casas decimais.').nullable(),
+        orderCode: z.string().max(20).nullable().default(null),
+      }),
+    )
+    .min(1, 'A invoice não tem itens.')
+    .max(IMPORT_BATCH, `Envie no máximo ${IMPORT_BATCH} linhas por vez.`),
+});
+
+const arrivalBody = z.object({
+  invoiceIds: z.array(z.string().max(100)).min(1, 'Escolha as invoices que chegaram.').max(200, 'Escolha no máximo 200 invoices por vez.'),
+  arrivedAt: day.refine((d) => d !== null, 'Informe o dia da chegada.'),
+});
 
 const importBody = z.object({
   items: z
@@ -151,6 +177,44 @@ async function loadBills(env: Env, at: string, statements: D1PreparedStatement[]
   };
 }
 
+/**
+ * Instruções que levam o item (inteiro ou em parte) para a invoice. Em parte, o item fica com o saldo
+ * em produção e a parte embarcada vira um item novo. `priceMicros` troca o preço da parte embarcada
+ * (o preço da invoice do fornecedor); null mantém o do item.
+ */
+function shipItemStatements(
+  env: Env,
+  item: Item,
+  quantity: number,
+  invoice: { id: string; number: string },
+  status: ItemStatus,
+  priceMicros: number | null,
+  userId: string,
+  at: string,
+): D1PreparedStatement[] {
+  const price = priceMicros ?? item.unitPriceMicros ?? null;
+  if (quantity === item.quantity) {
+    return [
+      env.DB.prepare('UPDATE order_items SET invoice_id = ?, status = ?, unit_price_micros = ?, updated_at = ?, updated_by = ? WHERE id = ?').bind(invoice.id, status, price, at, userId, item.id),
+      eventStatement(env, item.id, userId, 'shipped', { invoice: invoice.number, quantity }, at),
+    ];
+  }
+  const id = crypto.randomUUID();
+  return [
+    env.DB.prepare('UPDATE order_items SET quantity = ?, updated_at = ?, updated_by = ? WHERE id = ?').bind(item.quantity - quantity, at, userId, item.id),
+    insertItem(
+      env,
+      id,
+      { description: item.description, quantity, piecesPerCarton: item.piecesPerCarton, unitPriceMicros: price, notes: item.notes },
+      { productId: item.productId, supplierId: item.supplierId, orderId: item.purchaseOrderId, invoiceId: invoice.id, status },
+      userId,
+      at,
+    ),
+    eventStatement(env, item.id, userId, 'split', { invoice: invoice.number, shipped: quantity, left: item.quantity - quantity, newItem: id }, at),
+    eventStatement(env, id, userId, 'shipped', { invoice: invoice.number, quantity, splitFrom: item.id }, at),
+  ];
+}
+
 // ---------- Embarcar e desfazer ----------
 
 async function ship(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
@@ -204,32 +268,7 @@ async function ship(request: Request, env: Env, session: Session, now: Date): Pr
   if (problem) return error(400, problem);
 
   const status = itemStatusFor(invoice.id, arrivedAt);
-  for (const { item, quantity } of lines) {
-    if (quantity === item.quantity) {
-      statements.push(
-        env.DB.prepare('UPDATE order_items SET invoice_id = ?, status = ?, updated_at = ?, updated_by = ? WHERE id = ?').bind(invoice.id, status, at, userId, item.id),
-      );
-      statements.push(eventStatement(env, item.id, userId, 'shipped', { invoice: invoice.number, quantity }, at));
-    } else {
-      // Embarque em parte: o item fica com o saldo em produção e a parte embarcada vira um item novo.
-      const id = crypto.randomUUID();
-      statements.push(
-        env.DB.prepare('UPDATE order_items SET quantity = ?, updated_at = ?, updated_by = ? WHERE id = ?').bind(item.quantity - quantity, at, userId, item.id),
-      );
-      statements.push(
-        insertItem(
-          env,
-          id,
-          { description: item.description, quantity, piecesPerCarton: item.piecesPerCarton, unitPriceMicros: item.unitPriceMicros ?? null, notes: item.notes },
-          { productId: item.productId, supplierId: item.supplierId, orderId: item.purchaseOrderId, invoiceId: invoice.id, status },
-          userId,
-          at,
-        ),
-      );
-      statements.push(eventStatement(env, item.id, userId, 'split', { invoice: invoice.number, shipped: quantity, left: item.quantity - quantity, newItem: id }, at));
-      statements.push(eventStatement(env, id, userId, 'shipped', { invoice: invoice.number, quantity, splitFrom: item.id }, at));
-    }
-  }
+  for (const { item, quantity } of lines) statements.push(...shipItemStatements(env, item, quantity, { id: invoice.id, number: invoice.number }, status, null, userId, at));
   await env.DB.batch(statements);
   return json({ invoiceId: invoice.id, shipped: lines.length }, 201);
 }
@@ -347,6 +386,103 @@ async function deletePayment(request: Request, env: Env, id: string): Promise<Re
   return json({ ok: true });
 }
 
+// ---------- Novo embarque pela invoice do fornecedor ----------
+
+/**
+ * A invoice (ou packing list) que o fornecedor mandou: o que ela traz sai da produção do mesmo
+ * fornecedor, a mais antiga primeiro, e vai para a invoice nova (SPEC.md, seção 3). O que não estava
+ * na produção entra embarcado assim mesmo, sem PO, com uma observação para conferir.
+ */
+async function receiveShipment(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
+  checkMutation(request);
+  const body = await readBody(request, receiveBody);
+  const at = now.toISOString();
+  const userId = session.user.id;
+  const supplier = await env.DB.prepare('SELECT id, name FROM suppliers WHERE id = ?').bind(body.supplierId).first<{ id: string; name: string }>();
+  if (!supplier) return error(404, 'Fornecedor não encontrado.');
+  const n = body.invoice;
+  const same = await env.DB.prepare('SELECT number FROM invoices WHERE number = ? COLLATE NOCASE AND supplier_id = ?').bind(n.number, supplier.id).first<{ number: string }>();
+  if (same) return error(409, `A invoice ${same.number} da ${supplier.name} já foi registrada.`);
+
+  const statements: D1PreparedStatement[] = [];
+  let billId: string | null = null;
+  if (n.bill) {
+    const bill = (await loadBills(env, at, statements)).resolve(n.bill, n.eta, supplier.id);
+    if (bill.arrived_at) return error(409, `O BL ${bill.number} já chegou. Confira o número do BL.`);
+    billId = bill.id;
+  }
+  const invoice = { id: crypto.randomUUID(), number: n.number };
+  statements.push(
+    env.DB.prepare('INSERT INTO invoices (id, number, ref, supplier_id, bill_of_lading_id, eta, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(
+      invoice.id,
+      n.number,
+      n.ref,
+      supplier.id,
+      billId,
+      billId ? null : n.eta,
+      at,
+    ),
+  );
+
+  const [rows, orderRows] = await env.DB.batch([
+    env.DB.prepare(`${ITEM_SELECT} WHERE i.deleted_at IS NULL AND i.status = 'producao' AND i.supplier_id = ? ORDER BY i.created_at, i.rowid`).bind(supplier.id),
+    env.DB.prepare('SELECT id, code FROM purchase_orders'),
+  ]);
+  const production = (rows!.results as ItemRow[]).map(toItem);
+  const byId = new Map(production.map((i) => [i.id, i]));
+  const allocation = allocateShipment(body.lines, production, orderRows!.results as { id: string; code: string }[], supplier.id);
+
+  const refs = await loadRefs(env, at);
+  let taken = 0;
+  let extra = 0;
+  body.lines.forEach((line, index) => {
+    const { takes, extra: missing } = allocation[index]!;
+    for (const take of takes) {
+      const item = byId.get(take.itemId)!;
+      statements.push(...shipItemStatements(env, item, take.quantity, invoice, 'embarcado', line.unitPriceMicros, userId, at));
+      // O item segue com o saldo: a próxima linha do mesmo produto parte do que sobrou.
+      byId.set(item.id, { ...item, quantity: item.quantity - take.quantity });
+      taken += take.quantity;
+    }
+    if (missing > 0) {
+      extra += missing;
+      const id = crypto.randomUUID();
+      const notes = `Não estava na produção da ${supplier.name}${line.orderCode ? ` (a invoice cita a ${line.orderCode})` : ''}. Confira.`;
+      statements.push(
+        insertItem(
+          env,
+          id,
+          { description: line.description, quantity: missing, piecesPerCarton: line.piecesPerCarton, unitPriceMicros: line.unitPriceMicros, notes },
+          { productId: refs.product(line.isbn, line.description), supplierId: supplier.id, orderId: null, invoiceId: invoice.id, status: 'embarcado' },
+          userId,
+          at,
+        ),
+      );
+      statements.push(eventStatement(env, id, userId, 'shipped', { invoice: invoice.number, quantity: missing, notInProduction: true, row: line.row }, at));
+    }
+  });
+  // Produtos novos e a invoice antes dos itens, que apontam para eles.
+  await env.DB.batch([...refs.statements, ...statements]);
+  return json({ invoiceId: invoice.id, taken, extra }, 201);
+}
+
+// ---------- Container entregue ----------
+
+/** As invoices que chegaram no dia informado: os itens delas vão para o histórico. */
+async function registerArrival(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
+  checkMutation(request);
+  const body = await readBody(request, arrivalBody);
+  const ids = JSON.stringify([...new Set(body.invoiceIds)]);
+  const { results } = await env.DB.prepare('SELECT id FROM invoices WHERE id IN (SELECT value FROM json_each(?))').bind(ids).all<{ id: string }>();
+  if (results.length !== new Set(body.invoiceIds).size) return error(404, 'Uma das invoices não foi encontrada. Atualize a página e tente de novo.');
+  const at = now.toISOString();
+  await env.DB.batch([
+    env.DB.prepare('UPDATE invoices SET arrived_at = ? WHERE id IN (SELECT value FROM json_each(?))').bind(body.arrivedAt, ids),
+    itemsStatusStatement(env, ids, body.arrivedAt, at, session.user.id),
+  ]);
+  return json({ invoices: results.length });
+}
+
 // ---------- Carga da aba Embarques ----------
 
 async function importShipments(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
@@ -434,6 +570,8 @@ export async function routeShipments(request: Request, env: Env, session: Sessio
   const onlyEdit = () => (can(role, 'edit') ? null : error(403, 'Seu perfil só pode acompanhar.'));
 
   if (key === 'POST /api/ship') return onlyEdit() ?? ship(request, env, session, now);
+  if (key === 'POST /api/shipments') return onlyEdit() ?? receiveShipment(request, env, session, now);
+  if (key === 'POST /api/arrivals') return onlyEdit() ?? registerArrival(request, env, session, now);
   if (key === 'POST /api/import/shipments') {
     if (!can(role, 'import')) return error(403, 'Só o admin faz a carga da planilha.');
     return importShipments(request, env, session, now);
