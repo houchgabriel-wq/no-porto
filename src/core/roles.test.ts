@@ -1,37 +1,37 @@
 import { describe, expect, it } from 'vitest';
-import { can, isRole } from './roles';
+import { can, isRole, ROLES } from './roles';
 
 describe('can', () => {
-  it('todos os perfis veem', () => {
-    for (const role of ['admin', 'editor', 'leitor'] as const) expect(can(role, 'view')).toBe(true);
+  it('todos os perfis entram e acompanham os embarques', () => {
+    for (const role of ROLES) expect(can(role, 'view')).toBe(true);
   });
 
-  it('o leitor não vê valores', () => {
-    expect(can('admin', 'see_values')).toBe(true);
-    expect(can('editor', 'see_values')).toBe(true);
-    expect(can('leitor', 'see_values')).toBe(false);
+  it('o perfil Embarques só vê os embarques: sem painel, produção, histórico e fornecedores', () => {
+    for (const role of ['admin', 'editor', 'consulta', 'leitor'] as const) expect(can(role, 'view_all')).toBe(true);
+    expect(can('embarques', 'view_all')).toBe(false);
   });
 
-  it('admin e editor alteram; o leitor só acompanha', () => {
-    expect(can('admin', 'edit')).toBe(true);
-    expect(can('editor', 'edit')).toBe(true);
-    expect(can('leitor', 'edit')).toBe(false);
+  it('leitor e Embarques não veem valores; Consulta vê', () => {
+    for (const role of ['admin', 'editor', 'consulta'] as const) expect(can(role, 'see_values')).toBe(true);
+    for (const role of ['leitor', 'embarques'] as const) expect(can(role, 'see_values')).toBe(false);
+  });
+
+  it('só admin e editor alteram', () => {
+    for (const role of ['admin', 'editor'] as const) expect(can(role, 'edit')).toBe(true);
+    for (const role of ['consulta', 'leitor', 'embarques'] as const) expect(can(role, 'edit')).toBe(false);
   });
 
   it('só o admin faz a carga, exclui e cuida dos usuários', () => {
     for (const action of ['import', 'delete', 'manage_users'] as const) {
       expect(can('admin', action)).toBe(true);
-      expect(can('editor', action)).toBe(false);
-      expect(can('leitor', action)).toBe(false);
+      for (const role of ['editor', 'consulta', 'leitor', 'embarques'] as const) expect(can(role, action)).toBe(false);
     }
   });
 });
 
 describe('perfis', () => {
-  it('aceita só os três perfis', () => {
-    expect(isRole('admin')).toBe(true);
-    expect(isRole('editor')).toBe(true);
-    expect(isRole('leitor')).toBe(true);
+  it('aceita só os cinco perfis', () => {
+    for (const role of ['admin', 'editor', 'consulta', 'leitor', 'embarques']) expect(isRole(role)).toBe(true);
     expect(isRole('gerente_redacao')).toBe(false);
     expect(isRole(undefined)).toBe(false);
   });
