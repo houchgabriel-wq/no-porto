@@ -33,7 +33,7 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
 - [ ] **Marco 6: documentos dos fornecedores.**
   Novo pedido pelo Excel da PO; novo embarque pela invoice ou packing list, tirando da produção do mesmo fornecedor, a mais antiga primeiro; registrar a chegada de cada invoice.
   *Teste do Gabriel:* cadastrar a próxima PO pelo arquivo, registrar o próximo embarque pela invoice do fornecedor e marcar a chegada do próximo container.
-  *Pronto para o teste em 17/11/2026:* lidos sem erro os arquivos reais da PO-062 (Claire), PO-064 (Sara) e PO-065 (Nicola) e as invoices CTNR04 da Claire, HSC20260920 da Nicola e GN-509 da Brijbasi.
+  *Pronto para o teste em 17/11/2026:* carga completa da planilha (as três abas de uma vez, com a opção de apagar antes para começar do zero); lidos sem erro os arquivos reais da PO-062 (Claire), PO-064 (Sara) e PO-065 (Nicola) e as invoices CTNR04 da Claire, HSC20260920 da Nicola e GN-509 da Brijbasi.
 
 ## Depois
 

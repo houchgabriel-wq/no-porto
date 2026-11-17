@@ -46,4 +46,4 @@ Para usar um endereço do `editoraonline.com.br` (por exemplo, `noporto.editorao
 
 ## Cópia de segurança
 
-No menu do admin, **Baixar cópia completa** gera uma planilha com as abas Produção, Embarques e Entregues, nas mesmas colunas da `status_importações`. Guarde uma cópia de tempos em tempos fora da Cloudflare (no Drive, por exemplo). Se um dia for preciso, ela volta pelas cargas do próprio sistema.
+No menu do admin, **Baixar cópia completa** gera uma planilha com as abas Produção, Embarques e Entregues, nas mesmas colunas da `status_importações`. Guarde uma cópia de tempos em tempos fora da Cloudflare (no Drive, por exemplo). Se um dia for preciso, ela volta pela **Carga completa da planilha**, no mesmo menu, que pode apagar o que está no app antes de carregar (pede para digitar APAGAR).
