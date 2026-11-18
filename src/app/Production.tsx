@@ -36,12 +36,15 @@ function useNarrow(): boolean {
   return narrow;
 }
 
-/** Valor em destaque: dólares para quem vê valores; exemplares para o leitor. */
-export function headline(t: Totals): string {
+/**
+ * Valor em destaque: dólares para quem vê valores; exemplares para o leitor. `cents` mostra os
+ * centavos (nos embarques, onde o valor é o que se paga).
+ */
+export function headline(t: Totals, cents = false): string {
   if (t.valueCents === undefined) return `${formatQuantity(t.quantity)} ex.`;
   // Nenhum item com preço: "US$ 0" daria a impressão de que não custa nada.
   if (t.valueCents === 0 && t.items > 0 && t.unpriced === t.items) return 'Sem preço';
-  return formatUsdWhole(t.valueCents);
+  return cents ? formatUsd(t.valueCents) : formatUsdWhole(t.valueCents);
 }
 
 export function itemsCount(n: number): string {

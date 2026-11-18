@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from 'react';
 import { NO_SUPPLIER, searchKey, totals, type Item } from '../core/items';
-import { formatQuantity, formatUsd, formatUsdWhole } from '../core/money';
+import { formatQuantity, formatUsd } from '../core/money';
 import {
   ARRIVAL_GROUP_LABELS,
   arrivalState,
@@ -98,7 +98,7 @@ export function ShipmentsView({ data, onOpen, actions }: Props) {
               <Icon name="check" />
             </span>
             <div>
-              <b>{formatUsdWhole(due.dueCents)}</b>
+              <b>{formatUsd(due.dueCents)}</b>
               <span>{due.invoices ? `a pagar em ${due.invoices} ${due.invoices === 1 ? 'invoice' : 'invoices'}` : 'tudo pago'}</span>
             </div>
           </div>
@@ -225,7 +225,7 @@ function UnitCard({ unit, ctx }: { unit: ShipmentUnit; ctx: Ctx }) {
         <span>
           {itemsCount(t.items)} · {formatQuantity(t.quantity)} ex.
         </span>
-        {data.seeValues && <b>{formatUsdWhole(t.valueCents ?? 0)}</b>}
+        {data.seeValues && <b>{formatUsd(t.valueCents ?? 0)}</b>}
       </span>
     </button>
   );

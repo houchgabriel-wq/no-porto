@@ -170,7 +170,7 @@ export function ShipmentItemsView({ data, onOpen, actions }: Props) {
       <p className="contagem-linha" role="status">
         {filtered ? (
           <>
-            {shown.length} de {itemsCount(rows.length)} · {headline(shownTotals)}
+            {shown.length} de {itemsCount(rows.length)} · {headline(shownTotals, true)}
             {seeValues && ` · ${formatQuantity(shownTotals.quantity)} ex.`}{' '}
             <button type="button" className="btn-texto" onClick={() => setFilters(EMPTY_SHIPPED_FILTERS)}>
               Limpar filtros
@@ -275,7 +275,7 @@ function Table({ rows, groups, ctx, sort, onSort }: { rows: ShippedRow[]; groups
                   <span className="grupo-po">{group.label}</span>
                   <span className="grupo-info">{groupInfo(group, ctx.seeValues)}</span>
                   <GroupPayments group={group} ctx={ctx} />
-                  <b className="grupo-valor">{headline(group)}</b>
+                  <b className="grupo-valor">{headline(group, true)}</b>
                 </th>
               </tr>
               {list.map((r) => (
@@ -355,7 +355,7 @@ function Cards({ rows, groups, ctx }: { rows: ShippedRow[]; groups: ShippedGroup
         <section key={group.unitKey} aria-label={group.label}>
           <h3 className="grupo-cab">
             <span className="grupo-po">{group.label}</span>
-            <b className="grupo-valor">{headline(group)}</b>
+            <b className="grupo-valor">{headline(group, true)}</b>
             <span className="grupo-info">{groupInfo(group, ctx.seeValues)}</span>
             <GroupPayments group={group} ctx={ctx} />
           </h3>
