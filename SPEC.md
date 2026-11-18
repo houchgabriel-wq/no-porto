@@ -124,7 +124,7 @@ Em `src/core`, com teste, como no No Prelo:
 - ISBN: mesmas regras do No Prelo (ISBN-13 ou ISBN-10, dígito verificador conferido). Produto sem ISBN é aceito, identificado pelo título.
 - Dólar guardado em centavos e preço unitário em milionésimos de dólar, sempre com no máximo três casas (0,575 é guardado como 575.000), para não errar arredondamento. Taxa de câmbio com quatro casas.
 - Uma PO, um fornecedor: o dono da PO e a recusa de item de outro fornecedor.
-- Nos números em destaque (painel e totais por fornecedor), dólares inteiros, como US$ 3.042.056, para dar para comparar com a planilha; na tabela e na ficha, com centavos.
+- Nos números em destaque (painel, "No mar" e totais por fornecedor), dólares inteiros, como US$ 3.042.056, para dar para comparar com a planilha; na tabela e na ficha, com centavos. Na tela Embarques, o que é pagamento sai com centavos (pedido do Gabriel em 18/11/2026): o "a pagar" do topo, o total de cada embarque, o total de cada grupo e a soma filtrada da visão por item.
 - Permissões, inclusive o que o leitor não pode ver.
 
 ## 7. Carga da planilha (proposta)
