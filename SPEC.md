@@ -84,14 +84,15 @@ Cinco perfis. Consulta e Embarques foram pedidos pelo Gabriel em 17/11/2026, par
 | Ação | Admin | Editor | Consulta | Leitor | Embarques |
 | --- | --- | --- | --- | --- | --- |
 | Ver os embarques a caminho | sim | sim | sim | sim | sim (decidido) |
-| Ver painel, produção, histórico, fornecedores e fichas de produto | sim | sim | sim (decidido) | sim | **não** (decidido) |
+| Ver o histórico (o que já chegou) | sim | sim | sim (decidido) | sim | sim, sem o recebido por ano no topo (decidido em 18/11/2026) |
+| Ver painel, produção, fornecedores e fichas de produto | sim | sim | sim (decidido) | sim | **não** (decidido) |
 | Ver preços, valores e pagamentos; baixar o arquivo do BL | sim | sim | sim (decidido) | **não** (decidido) | **não** (decidido) |
 | Cadastrar e alterar POs, itens, invoices, BLs, chegadas e pagamentos | sim | sim | **não** (decidido) | não | não (decidido) |
 | Cadastrar fornecedores | sim | sim | não | não | não |
 | Carga de planilha e exclusões | sim | não | não | não | não |
 | Usuários | sim | não | não | não | não |
 
-O servidor tira preços, totais, câmbio e pagamentos das respostas para o leitor e para o perfil Embarques; não basta esconder na tela. No painel, o leitor vê quantidades (exemplares, itens, embarques) no lugar de valores. O perfil Embarques recebe do servidor só os itens no mar, com as invoices, os BLs, as POs e os fornecedores deles (nada da produção nem do que já chegou); o histórico, os fornecedores, as fichas de produto e a cópia completa são recusados para ele, e a tela mostra só a aba Embarques (as duas visões, por embarque e por item, sem valores).
+O servidor tira preços, totais, câmbio e pagamentos das respostas para o leitor e para o perfil Embarques; não basta esconder na tela. No painel, o leitor vê quantidades (exemplares, itens, embarques) no lugar de valores. O perfil Embarques recebe do servidor, nos dados das telas, só os itens no mar, com as invoices, os BLs, as POs e os fornecedores deles (nada da produção). Desde 18/11/2026 ele vê também o Histórico, sem valores (o servidor tira preço e total) e sem os cartões de recebido por ano no topo; a busca, os filtros por fornecedor e ano, a contagem em exemplares e o Baixar .xlsx (sem valores) continuam, e o nome do produto não abre a ficha. Os fornecedores, as fichas de produto e a cópia completa são recusados para ele; a tela mostra as abas Embarques e Histórico.
 
 Equipe (17/11/2026): Marcelo, com acesso de quem lança pedidos e embarques (Administrador ou Editor, escolha do Gabriel ao criar a conta); Leonardo e Paulo, Consulta; Antonio e Vinicius, Embarques. As contas são criadas pelo admin na tela Usuários.
 
