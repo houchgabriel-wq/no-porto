@@ -24,7 +24,7 @@ O que a planilha mostra sobre a relação entre os dados (conferido em 17/11/202
 | Tema | Decisão |
 | --- | --- |
 | Nome | No Porto (17/11/2026) |
-| Domínio | `editoraonline.com.br`, como o No Prelo; o DNS é da equipe de TI (17/11/2026) |
+| Domínio | `editoraonline.com.br`, como o No Prelo; o DNS é da equipe de TI (17/11/2026). O endereço é **noporto.editoraonline.com.br** (18/11/2026), por uma porta de entrada no Cloudflare Pages (pasta `portal/`), porque o DNS está na HostGator e Worker só aceita domínio próprio com o DNS na Cloudflare; o Pages repassa cada pedido ao Worker por uma ligação interna, e o `workers.dev` continua funcionando. Configuração em `portal/README.md` |
 | Onde mora | Repositório próprio (`houchgabriel-wq/no-porto`), separado do No Prelo, com login próprio (17/11/2026) |
 | Base técnica | A mesma do No Prelo e do `mytrainer`: Cloudflare Workers, D1, React com Vite, Vitest |
 | Hospedagem | Cloudflare, na conta pessoal do Gabriel |
