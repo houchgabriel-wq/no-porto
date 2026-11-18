@@ -6,9 +6,15 @@ describe('can', () => {
     for (const role of ROLES) expect(can(role, 'view')).toBe(true);
   });
 
-  it('o perfil Embarques só vê os embarques: sem painel, produção, histórico e fornecedores', () => {
+  it('o perfil Embarques não vê painel, produção, fornecedores nem fichas de produto', () => {
     for (const role of ['admin', 'editor', 'consulta', 'leitor'] as const) expect(can(role, 'view_all')).toBe(true);
     expect(can('embarques', 'view_all')).toBe(false);
+  });
+
+  it('o perfil Embarques vê o histórico, sem o recebido por ano', () => {
+    for (const role of ROLES) expect(can(role, 'view_history')).toBe(true);
+    for (const role of ['admin', 'editor', 'consulta', 'leitor'] as const) expect(can(role, 'see_year_totals')).toBe(true);
+    expect(can('embarques', 'see_year_totals')).toBe(false);
   });
 
   it('leitor e Embarques não veem valores; Consulta vê', () => {

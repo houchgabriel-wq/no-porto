@@ -60,9 +60,23 @@ describe('perfil Embarques', () => {
     expect(d.suppliers.map((s: { name: string }) => s.name)).toEqual(['Claire']);
   });
 
-  it('não vê histórico, fornecedores, fichas de produto nem o arquivo do BL; não altera', async () => {
+  it('vê o histórico, sem preço nem total', async () => {
+    await app.call('POST', '/api/arrivals', {
+      cookie: who.editor.cookie,
+      body: { invoiceIds: (await app.call('GET', '/api/data', { cookie: who.admin.cookie })).data.invoices.map((v: { id: string }) => v.id), arrivedAt: '2026-11-16' },
+    });
+    const h = await app.call('GET', '/api/history', { cookie: who.embarques.cookie });
+    expect(h.status).toBe(200);
+    expect(h.data.seeValues).toBe(false);
+    expect(h.data.items).toHaveLength(1);
+    expect(h.data.items[0]).toMatchObject({ status: 'entregue', quantity: 1000 });
+    expect(h.data.items[0]).not.toHaveProperty('unitPriceMicros');
+    expect(h.data.items[0]).not.toHaveProperty('totalCents');
+  });
+
+  it('não vê fornecedores, fichas de produto nem o arquivo do BL; não altera', async () => {
     const admin = (await app.call('GET', '/api/data', { cookie: who.admin.cookie })).data;
-    for (const path of ['/api/history', '/api/suppliers', `/api/products/${admin.items[0].productId}`, '/api/export']) {
+    for (const path of ['/api/suppliers', `/api/products/${admin.items[0].productId}`, '/api/export']) {
       expect((await app.call('GET', path, { cookie: who.embarques.cookie })).status, path).toBe(403);
     }
     expect((await app.raw('GET', `/api/bills/${admin.bills[0].id}/document`, { cookie: who.embarques.cookie })).status).toBe(403);

@@ -73,13 +73,18 @@ const INVOICE_INFO = `SELECT v.id, v.number, v.ref, v.supplier_id, b.number AS b
 /** Todos os itens que chegaram, com as invoices deles. Carregado quando a pessoa abre o Histórico. */
 async function getHistory(env: Env, session: Session): Promise<Response> {
   const seeValues = can(session.user.role, 'see_values');
-  const [i, v] = await env.DB.batch([
+  const [i, v, s] = await env.DB.batch([
     env.DB.prepare(`${ITEM_SELECT} WHERE i.deleted_at IS NULL AND i.status = 'entregue'`),
     env.DB.prepare(`${INVOICE_INFO} WHERE EXISTS (SELECT 1 FROM order_items i WHERE i.invoice_id = v.id AND i.status = 'entregue' AND i.deleted_at IS NULL)`),
+    // Os fornecedores do histórico vêm junto: o perfil Embarques só recebe, em /api/data, os dos itens no mar.
+    env.DB.prepare(
+      `SELECT id, name FROM suppliers WHERE id IN (SELECT supplier_id FROM order_items WHERE status = 'entregue' AND deleted_at IS NULL) ORDER BY name COLLATE NOCASE`,
+    ),
   ]);
   return json({
     items: (i!.results as ItemRow[]).map((r) => itemForViewer(toItem(r), seeValues)),
     invoices: (v!.results as InvoiceInfoRow[]).map(invoiceInfo),
+    suppliers: s!.results as { id: string; name: string }[],
     seeValues,
   });
 }
@@ -179,11 +184,12 @@ async function importHistory(request: Request, env: Env, session: Session, now: 
 }
 
 export async function routeHistory(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {
-  if (key === 'GET /api/history' || /^\/api\/products\//.test(path)) {
-    // O perfil Embarques só vê os embarques a caminho.
-    if (!can(session.user.role, 'view_all')) return error(403, 'Seu perfil vê só os embarques.');
+  // O histórico sai sem valores para quem não os vê; a ficha do produto não é para o perfil Embarques.
+  if (key === 'GET /api/history') {
+    if (!can(session.user.role, 'view_history')) return error(403, 'Seu perfil não vê o histórico.');
+    return getHistory(env, session);
   }
-  if (key === 'GET /api/history') return getHistory(env, session);
+  if (/^\/api\/products\//.test(path) && !can(session.user.role, 'view_all')) return error(403, 'Seu perfil não vê a ficha do produto.');
   if (key === 'POST /api/import/history') {
     if (!can(session.user.role, 'import')) return error(403, 'Só o admin faz a carga da planilha.');
     return importHistory(request, env, session, now);
