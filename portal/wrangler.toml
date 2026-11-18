@@ -1,0 +1,10 @@
+# Porta de entrada do No Porto no Cloudflare Pages (ver README.md desta pasta). O projeto Pages usa esta
+# pasta como raiz; as ligações vêm daqui, e não do painel.
+name = "noporto"
+pages_build_output_dir = "public"
+compatibility_date = "2026-10-01"
+
+# Ligação interna com o Worker do No Porto, que cuida de tudo (telas, banco, arquivos dos BLs).
+[[services]]
+binding = "NO_PORTO"
+service = "no-porto"
