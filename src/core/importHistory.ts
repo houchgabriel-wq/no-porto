@@ -20,6 +20,8 @@ export interface ImportedHistoryItem {
   piecesPerCarton: number | null;
   unitPriceMicros: number | null;
   notes: string;
+  /** Especificação do produto (só na cópia completa do app). */
+  specification: string;
   /** Número da invoice; sem invoice, a ref.; sem as duas, "Planilha, linha N". */
   invoice: string;
   ref: string;
@@ -173,7 +175,9 @@ export function parseHistoryRows(rows: readonly string[][], today?: string): His
     }
     const at = (col: keyof typeof COLS) => row[COLS[col]] ?? '';
     const warn = (message: string) => report.warnings.push({ row: line, message });
-    const cells = readItemCells((col) => at(col), warn);
+    // A especificação não tem posição fixa: é a coluna "Especificação", quando existe (cópia completa).
+    const specCol = header.cols.specification;
+    const cells = readItemCells((col) => (col === 'specification' ? (specCol === undefined ? '' : (row[specCol] ?? '')) : at(col)), warn);
     if ('skip' in cells) {
       report.skipped.push({ row: line, message: cells.skip });
       continue;

@@ -44,6 +44,8 @@ export interface Item {
   /** Ausente para quem não vê valores. null: item sem preço. */
   totalCents?: number | null;
   notes: string;
+  /** Especificação do produto: só na cópia completa (as telas carregam ao abrir a ficha). */
+  specification?: string;
   createdAt: string;
   updatedAt: string;
 }

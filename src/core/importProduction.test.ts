@@ -39,6 +39,8 @@ describe('carga da aba Produção', () => {
       piecesPerCarton: 40,
       unitPriceMicros: 880_000,
       notes: '',
+      // A status_importações não tem a coluna Especificação.
+      specification: '',
     });
   });
 

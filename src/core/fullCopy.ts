@@ -8,9 +8,11 @@ import type { Item, PurchaseOrder, Supplier } from './items';
 /** Célula da cópia: texto, número, data (AAAA-MM-DD, vira data no Excel) ou vazio. */
 export type CopyCell = string | number | { date: string } | null;
 
-export const PRODUCTION_HEADER = ['', 'Produto', 'ISBN', 'pcs/ctn', 'Quantidade', '$ unitário', '$ total', 'Fornecedor', 'Embarque', 'Pagamento', '', 'Observações'];
-export const SHIPMENTS_HEADER = ['Ref. embarque', 'Produto', 'ISBN', 'pcs/ctn', 'Quantidade', '$ unitário', '$ total', 'Fornecedor', 'Chegada', 'Pagamento', 'Invoice', 'BL', 'Observações'];
-export const DELIVERED_HEADER = ['Ref. embarque', 'Produto', 'ISBN', 'pcs/ctn', 'Quantidade', '$ unitário', '$ total', 'Fornecedor', 'Chegada na editora', 'Pagamento', 'Invoice', 'BL', 'Observações'];
+// A última coluna, Especificação, não existe na status_importações: guarda a especificação do produto
+// e volta pela carga.
+export const PRODUCTION_HEADER = ['', 'Produto', 'ISBN', 'pcs/ctn', 'Quantidade', '$ unitário', '$ total', 'Fornecedor', 'Embarque', 'Pagamento', '', 'Observações', 'Especificação'];
+export const SHIPMENTS_HEADER = ['Ref. embarque', 'Produto', 'ISBN', 'pcs/ctn', 'Quantidade', '$ unitário', '$ total', 'Fornecedor', 'Chegada', 'Pagamento', 'Invoice', 'BL', 'Observações', 'Especificação'];
+export const DELIVERED_HEADER = ['Ref. embarque', 'Produto', 'ISBN', 'pcs/ctn', 'Quantidade', '$ unitário', '$ total', 'Fornecedor', 'Chegada na editora', 'Pagamento', 'Invoice', 'BL', 'Observações', 'Especificação'];
 
 export interface CopyInput {
   items: readonly Item[];
@@ -61,12 +63,12 @@ export function copySheets(input: CopyInput, seeValues = true): CopySheets {
   const production = input.items
     .filter((i) => i.status === 'producao')
     .sort((a, b) => (orderCode.get(a.purchaseOrderId ?? '') ?? 'ZZZ').localeCompare(orderCode.get(b.purchaseOrderId ?? '') ?? 'ZZZ', 'pt-BR', { numeric: true }))
-    .map((i): CopyCell[] => ['-', ...common(i), 'Em produção', 'Não Pago', i.purchaseOrderId ? (orderCode.get(i.purchaseOrderId) ?? '') : '', i.notes || null]);
+    .map((i): CopyCell[] => ['-', ...common(i), 'Em produção', 'Não Pago', i.purchaseOrderId ? (orderCode.get(i.purchaseOrderId) ?? '') : '', i.notes || null, i.specification || null]);
 
   const shipRow = (i: Item, date: string | null): CopyCell[] => {
     const v = invoices.get(i.invoiceId!)!;
     const bill = v.billId ? bills.get(v.billId) : undefined;
-    return [v.ref || v.number, ...common(i), date ? { date } : null, paymentText(v.id), v.number, bill?.number ?? null, [v.notes, i.notes].filter(Boolean).join(' · ') || null];
+    return [v.ref || v.number, ...common(i), date ? { date } : null, paymentText(v.id), v.number, bill?.number ?? null, [v.notes, i.notes].filter(Boolean).join(' · ') || null, i.specification || null];
   };
   const arrival = (v: Invoice) => {
     const bill = v.billId ? bills.get(v.billId) : undefined;

@@ -15,6 +15,8 @@ export interface ImportedShipmentItem {
   piecesPerCarton: number | null;
   unitPriceMicros: number | null;
   notes: string;
+  /** Especificação do produto (só na cópia completa do app). */
+  specification: string;
   invoice: string;
   ref: string;
   bill: string | null;

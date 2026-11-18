@@ -5,6 +5,7 @@
 import { isbnDigits, isbnProblem } from './isbn';
 import { searchKey, normalizeOrderCode, NO_SUPPLIER, orderOwners } from './items';
 import { itemTotalCents, looksLikeReais, parseCents, parseSheetUnitPrice } from './money';
+import { cleanSpecification } from './specification';
 
 /** Itens por envio ao servidor; a planilha vai em partes deste tamanho. */
 export const IMPORT_BATCH = 500;
@@ -22,6 +23,8 @@ export interface ImportedItem {
   piecesPerCarton: number | null;
   unitPriceMicros: number | null;
   notes: string;
+  /** Especificação do produto (só na cópia completa do app). */
+  specification: string;
 }
 
 export interface RowNote {
@@ -45,6 +48,8 @@ const ITEM_HEADERS = {
   unitPrice: ['$ unitario', 'preco unitario', 'us$ unitario'],
   total: ['$ total', 'total'],
   supplier: ['fornecedor'],
+  // Só na cópia completa do app (a status_importações não tem): a especificação do produto.
+  specification: ['especificacao'],
 } as const;
 
 const PO_PATTERN = /^\s*PO[\s-]*\d+\s*$/i;
@@ -94,6 +99,7 @@ export interface ItemCells {
   piecesPerCarton: number | null;
   unitPriceMicros: number | null;
   notes: string[];
+  specification: string;
 }
 
 /**
@@ -163,7 +169,7 @@ export function readItemCells(cell: (col: keyof typeof ITEM_HEADERS) => string, 
       warn(`"${description}": o total da planilha não bate com quantidade × preço; vale quantidade × preço.`);
     }
   }
-  return { description, isbn, supplier, quantity, piecesPerCarton, unitPriceMicros, notes };
+  return { description, isbn, supplier, quantity, piecesPerCarton, unitPriceMicros, notes, specification: cleanSpecification(cell('specification')) };
 }
 
 /** A coluna da PO não tem título: é a coluna sem título com mais códigos "PO-0xx". */
