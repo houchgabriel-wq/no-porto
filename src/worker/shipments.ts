@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import { allocateInvoices } from '../core/allocation';
 import { itemOrigin, planShipmentUndo, type ItemEvent } from '../core/undoShipment';
+import { cleanSpecification, SPECIFICATION_MAX } from '../core/specification';
 import { IMPORT_BATCH, newImportItems } from '../core/importProduction';
 import { invoiceKey, shipmentKey } from '../core/importShipments';
 import { isbnDigits, isbnProblem } from '../core/isbn';
@@ -118,6 +119,7 @@ const importBody = z.object({
         piecesPerCarton: z.number().int().positive().max(1_000_000).nullable(),
         unitPriceMicros: z.number().int().min(0).max(1_000_000_000).refine(isValidUnitPrice, 'O preço unitário tem no máximo três casas decimais.').nullable(),
         notes: z.string().max(2000),
+        specification: z.string().max(SPECIFICATION_MAX + 2000).transform(cleanSpecification).default(''),
         invoice: invoiceNumber,
         ref: text(60, 'Ref.'),
         bill: billNumber,

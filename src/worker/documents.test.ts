@@ -343,6 +343,20 @@ describe('especificação do produto', () => {
     expect((await spec(item!.id)).data.specification).toBe('15x23\n\ncapa dura');
   });
 
+  it('vai na cópia completa e volta pela carga', async () => {
+    await order('PO-055', 'Sara', [line({ specification: '20,5x27,5\nwire-o binding' })]);
+    const copy = (await app.call('GET', '/api/export', { cookie: who.admin.cookie })).data;
+    expect(copy.items[0].specification).toBe('20,5x27,5\nwire-o binding');
+    await app.call('POST', '/api/reset', { cookie: who.admin.cookie, body: { confirm: 'APAGAR' } });
+    const res = await app.call('POST', '/api/import/production', {
+      cookie: who.admin.cookie,
+      body: { items: [{ row: 2, description: 'Coleção Alice', isbn: ALICE, supplier: 'Sara', orderCode: 'PO-055', quantity: 1000, piecesPerCarton: null, unitPriceMicros: 1_750_000, notes: '', specification: '20,5x27,5\nwire-o binding' }] },
+    });
+    expect(res.status).toBe(201);
+    const [item] = await items();
+    expect((await spec(item!.id)).data.specification).toBe('20,5x27,5\nwire-o binding');
+  });
+
   it('guarda as especificações de uma PO que já estava cadastrada', async () => {
     await order('PO-062', 'Claire', [line({}), line({ row: 8, description: 'A Odisseia', isbn: ODISSEIA, quantity: 500 })]);
     const res = await app.call('POST', '/api/orders/PO-062/specifications', {

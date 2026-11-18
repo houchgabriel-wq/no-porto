@@ -8,7 +8,7 @@ import { isbnDigits, isbnProblem } from '../core/isbn';
 import { itemForViewer } from '../core/items';
 import { isValidUnitPrice } from '../core/money';
 import { can } from '../core/roles';
-import { latestSpecification } from '../core/specification';
+import { cleanSpecification, latestSpecification, SPECIFICATION_MAX } from '../core/specification';
 import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, json, readBody } from './http';
@@ -39,6 +39,7 @@ const importBody = z.object({
         piecesPerCarton: z.number().int().positive().max(1_000_000).nullable(),
         unitPriceMicros: z.number().int().min(0).max(1_000_000_000).refine(isValidUnitPrice, 'O preço unitário tem no máximo três casas decimais.').nullable(),
         notes: z.string().max(2000),
+        specification: z.string().max(SPECIFICATION_MAX + 2000).transform(cleanSpecification).default(''),
         invoice: text(80).pipe(z.string().min(1, 'Informe a invoice.')),
         ref: text(60),
         bill: text(40)
