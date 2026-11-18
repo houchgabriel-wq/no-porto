@@ -57,6 +57,8 @@ export interface ItemInput {
   piecesPerCarton: number | null;
   unitPriceMicros: number | null;
   notes: string;
+  /** Especificação do produto nesta compra; ausente para não mexer na que existe. */
+  specification?: string;
 }
 
 export class ApiError extends Error {
@@ -130,13 +132,24 @@ export const api = {
   deleteBillDocument: (billId: string) => request<{ ok: true }>('DELETE', `/api/bills/${encodeURIComponent(billId)}/document`),
   deleteInvoice: (id: string) => request<{ back: number; merged: number; removed: number; billRemoved: boolean }>('DELETE', `/api/invoices/${encodeURIComponent(id)}`),
   deleteBill: (id: string) => request<{ back: number; merged: number; removed: number; invoices: number }>('DELETE', `/api/bills/${encodeURIComponent(id)}`),
+  itemSpecification: (id: string) =>
+    request<{ specification: string; latest: { specification: string; createdAt: string; orderCode: string | null } | null }>('GET', `/api/items/${encodeURIComponent(id)}/specification`),
+  saveOrderSpecifications: (code: string, items: { description: string; isbn: string | null; specification: string }[]) =>
+    request<{ updated: number; items: number }>('POST', `/api/orders/${encodeURIComponent(code)}/specifications`, { items }),
   registerArrival: (invoiceIds: string[], arrivedAt: string) => request<{ invoices: number }>('POST', '/api/arrivals', { invoiceIds, arrivedAt }),
   reset: (confirm: string) => request<{ items: number }>('POST', '/api/reset', { confirm }),
   importShipments: (items: ImportedShipmentItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/shipments', { items }),
   sales: () => request<{ today: string; rows: SalesArrival[] }>('GET', '/api/sales'),
   history: () => request<{ items: Item[]; invoices: InvoiceInfo[]; suppliers: Supplier[]; seeValues: boolean }>('GET', '/api/history'),
   product: (id: string) =>
-    request<{ product: { id: string; isbn: string | null; title: string }; items: Item[]; invoices: InvoiceInfo[]; orders: { id: string; code: string }[]; seeValues: boolean }>(
+    request<{
+      product: { id: string; isbn: string | null; title: string };
+      items: Item[];
+      invoices: InvoiceInfo[];
+      orders: { id: string; code: string }[];
+      specification: { specification: string; createdAt: string; orderCode: string | null } | null;
+      seeValues: boolean;
+    }>(
       'GET',
       `/api/products/${encodeURIComponent(id)}`,
     ),

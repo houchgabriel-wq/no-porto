@@ -88,6 +88,17 @@ export function ProductDialog({ productId, suppliers, onClose }: { productId: st
                 </>
               )}
             </div>
+            {data.specification ? (
+              <details className="conferir espec-produto" open>
+                <summary>
+                  Especificação
+                  {data.specification.orderCode && <span className="mudo"> · da {data.specification.orderCode}</span>}
+                </summary>
+                <p>{data.specification.specification}</p>
+              </details>
+            ) : (
+              <p className="dica">Sem especificação registrada. Ela vem da coluna Specifications da PO, no Novo pedido.</p>
+            )}
             <div className="tabela-caixa resumo-caixa prod-caixa" tabIndex={0} role="region" aria-label="Compras do produto">
               <table className="tabela-produto">
                 <thead>

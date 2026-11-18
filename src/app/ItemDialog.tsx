@@ -7,6 +7,7 @@ import { NO_ORDER, NO_SUPPLIER, normalizeOrderCode, orderOwners, STATUS_LABELS, 
 import { formatQuantity, formatUsd, itemTotalCents, parseUnitPrice, unitPriceInput } from '../core/money';
 import { arrivalOf, arrivalState, arrivalText } from '../core/shipments';
 import { can } from '../core/roles';
+import { isReprintSpecification } from '../core/specification';
 import { api, ApiError, type ItemInput, type Me, type ProductionData } from './api';
 import { Dialog, FormError } from './components';
 import type { Production } from './production';
@@ -33,10 +34,11 @@ interface Draft {
   piecesPerCarton: string;
   unitPrice: string;
   notes: string;
+  specification: string;
 }
 
 function draftFrom(item: Item | null, data: ProductionData): Draft {
-  if (!item) return { description: '', isbn: '', supplier: '', orderCode: '', quantity: '', piecesPerCarton: '', unitPrice: '', notes: '' };
+  if (!item) return { description: '', isbn: '', supplier: '', orderCode: '', quantity: '', piecesPerCarton: '', unitPrice: '', notes: '', specification: '' };
   return {
     description: item.description,
     isbn: item.isbn ?? '',
@@ -46,6 +48,8 @@ function draftFrom(item: Item | null, data: ProductionData): Draft {
     piecesPerCarton: item.piecesPerCarton === null ? '' : String(item.piecesPerCarton),
     unitPrice: unitPriceInput(item.unitPriceMicros ?? null),
     notes: item.notes,
+    // Carregada ao abrir a ficha (as listas não trazem esse texto).
+    specification: '',
   };
 }
 
@@ -79,8 +83,14 @@ function validate(d: Draft, seeValues: boolean): { input: ItemInput } | { error:
       piecesPerCarton: pieces,
       unitPriceMicros: price,
       notes: d.notes,
+      specification: d.specification,
     },
   };
+}
+
+/** Mostra a última especificação do produto quando a deste item está vazia ou é só "reprint". */
+function showLatest(current: string, latest: { specification: string } | null): boolean {
+  return latest !== null && (current.trim() === '' || isReprintSpecification(current)) && latest.specification !== current;
 }
 
 export function ItemDialog({ state, me, data, production, onClose, onToast, onProduct }: Props) {
@@ -92,6 +102,8 @@ export function ItemDialog({ state, me, data, production, onClose, onToast, onPr
   const [error, setError] = useState<{ message: string; field?: keyof Draft } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Especificação do item e a última do produto, carregadas ao abrir a ficha.
+  const [spec, setSpec] = useState<{ loaded: boolean; latest: { specification: string; orderCode: string | null } | null }>({ loaded: false, latest: null });
   const ids = useId();
   // De quem é cada PO, para a sugestão mostrar ("PO-063 · Sara") e evitar misturar fornecedores.
   const owners = useMemo(() => {
@@ -105,6 +117,21 @@ export function ItemDialog({ state, me, data, production, onClose, onToast, onPr
     setError(null);
     setBusy(false);
     setConfirmDelete(false);
+    setSpec({ loaded: !item, latest: null });
+    if (item) {
+      let alive = true;
+      api
+        .itemSpecification(item.id)
+        .then((r) => {
+          if (!alive) return;
+          setDraft((d) => ({ ...d, specification: d.specification || r.specification }));
+          setSpec({ loaded: true, latest: r.latest });
+        })
+        .catch(() => alive && setSpec({ loaded: false, latest: null }));
+      return () => {
+        alive = false;
+      };
+    }
     // Só ao abrir outra ficha; a recarga periódica não apaga o que a pessoa está digitando.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
@@ -137,8 +164,9 @@ export function ItemDialog({ state, me, data, production, onClose, onToast, onPr
     setError(null);
     try {
       // Quem não vê valores não manda preço (nem apaga o que existe).
-      const { unitPriceMicros, ...rest } = checked.input;
-      const body = seeValues ? checked.input : rest;
+      // Sem a especificação carregada, ela não vai (para não apagar a que existe).
+      const { unitPriceMicros, specification, ...rest } = checked.input;
+      const body = { ...rest, ...(seeValues ? { unitPriceMicros } : {}), ...(spec.loaded ? { specification } : {}) };
       const res = await production.write(() => (item ? api.updateItem(item.id, body) : api.createItem(body as ItemInput)));
       production.putItem(res.item);
       onToast(item ? 'Item salvo.' : 'Item cadastrado.');
@@ -298,6 +326,26 @@ export function ItemDialog({ state, me, data, production, onClose, onToast, onPr
               Observações
             </label>
             <textarea className="campo" {...field('notes')} rows={3} value={draft.notes} onChange={(e) => set('notes')(e.target.value)} />
+          </div>
+          <div className="grupo largo">
+            <label className="rotulo" htmlFor={`${ids}-specification`}>
+              Especificação
+            </label>
+            <textarea
+              className="campo campo-espec"
+              {...field('specification')}
+              rows={5}
+              value={draft.specification}
+              onChange={(e) => set('specification')(e.target.value)}
+              placeholder={item && !spec.loaded ? 'Carregando…' : 'Formato, papel, acabamento (vem da PO)'}
+              aria-describedby={showLatest(draft.specification, spec.latest) ? `${ids}-espec-ultima` : undefined}
+            />
+            {showLatest(draft.specification, spec.latest) && (
+              <div className="espec-ultima" id={`${ids}-espec-ultima`}>
+                <span className="rotulo">Última especificação registrada{spec.latest!.orderCode ? ` (${spec.latest!.orderCode})` : ''}</span>
+                <p>{spec.latest!.specification}</p>
+              </div>
+            )}
           </div>
         </fieldset>
         <div className="dlg-corpo sem-topo">

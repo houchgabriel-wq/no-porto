@@ -137,6 +137,23 @@ export function OrderUploadDialog({
     }
   }
 
+  /** PO já cadastrada: guarda só as especificações do arquivo nos itens dela. */
+  async function saveSpecifications() {
+    if (!doc || !normalized) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const items = doc.lines.filter((l) => l.specification).map((l) => ({ description: l.description, isbn: l.isbn, specification: l.specification }));
+      const res = await production.write(() => api.saveOrderSpecifications(normalized, items));
+      onDone(`${normalized}: especificação guardada em ${res.updated} de ${res.items} ${res.items === 1 ? 'item' : 'itens'}.`, existing!.id);
+      onClose();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Não foi possível gravar.');
+      setBusy(false);
+    }
+  }
+
+  const withSpecs = doc ? doc.lines.filter((l) => l.specification).length : 0;
   const total = doc ? doc.lines.reduce((s, l) => s + l.quantity, 0) : 0;
   return (
     <Dialog title="Novo pedido" open={open} onClose={onClose} wide>
@@ -187,6 +204,7 @@ export function OrderUploadDialog({
                 <Icon name="alerta" />
                 <span>
                   A {normalized} já está cadastrada, com {existingItems} {existingItems === 1 ? 'item' : 'itens'}. Confira o número.
+                  {withSpecs > 0 && ' Se for ela mesma, dá para guardar só as especificações deste arquivo nos itens que já estão no app.'}
                 </span>
               </p>
             )}
@@ -211,6 +229,7 @@ export function OrderUploadDialog({
                       <td>
                         {l.description}
                         <span className="t-isbn">{l.isbn ?? 'Sem ISBN'}</span>
+                        {l.specification && <span className="t-isbn espec-po">{l.specification}</span>}
                       </td>
                       <td className="num" data-rot="Quantidade">{formatQuantity(l.quantity)}</td>
                       {data.seeValues && (
@@ -231,9 +250,15 @@ export function OrderUploadDialog({
             <button type="button" className="btn" onClick={() => setDoc(null)} disabled={busy}>
               Outro arquivo
             </button>
-            <button type="submit" className="btn primario" disabled={busy || existingItems > 0}>
-              {busy ? 'Gravando…' : `Pôr ${doc.lines.length === 1 ? 'o item' : `os ${doc.lines.length} itens`} em produção`}
-            </button>
+            {existingItems > 0 && withSpecs > 0 ? (
+              <button type="button" className="btn primario" disabled={busy} onClick={() => void saveSpecifications()}>
+                {busy ? 'Gravando…' : 'Guardar só as especificações'}
+              </button>
+            ) : (
+              <button type="submit" className="btn primario" disabled={busy || existingItems > 0}>
+                {busy ? 'Gravando…' : `Pôr ${doc.lines.length === 1 ? 'o item' : `os ${doc.lines.length} itens`} em produção`}
+              </button>
+            )}
           </div>
         </form>
       )}
