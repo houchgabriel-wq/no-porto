@@ -1,7 +1,7 @@
 // Perfis e permissões (SPEC.md, seção 4). A interface usa estas regras para esconder controles;
 // o servidor usa as mesmas para recusar o que o perfil não pode fazer.
 
-export const ROLES = ['admin', 'editor', 'consulta', 'leitor', 'embarques'] as const;
+export const ROLES = ['admin', 'editor', 'consulta', 'leitor', 'embarques', 'vendas'] as const;
 export type Role = (typeof ROLES)[number];
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -10,10 +10,12 @@ export const ROLE_LABELS: Record<Role, string> = {
   consulta: 'Consulta',
   leitor: 'Leitor',
   embarques: 'Embarques',
+  vendas: 'Vendas',
 };
 
 export type Action =
-  | 'view' // entrar e acompanhar os embarques a caminho
+  | 'view' // entrar e ver os produtos a caminho, com a previsão de chegada (todos, inclusive Vendas)
+  | 'view_shipments' // a tela de embarques completa: fornecedor, invoice, BL e quantidades (Vendas não vê)
   | 'view_all' // painel, produção, fornecedores e fichas de produto (o perfil Embarques não vê)
   | 'view_history' // a lista do histórico (o perfil Embarques vê, sem valores: pedido em 18/11/2026)
   | 'see_year_totals' // o recebido por ano, no topo do histórico (o perfil Embarques não vê)
@@ -25,8 +27,9 @@ export type Action =
 
 const PERMISSIONS: Record<Action, readonly Role[]> = {
   view: ROLES,
+  view_shipments: ['admin', 'editor', 'consulta', 'leitor', 'embarques'],
   view_all: ['admin', 'editor', 'consulta', 'leitor'],
-  view_history: ROLES,
+  view_history: ['admin', 'editor', 'consulta', 'leitor', 'embarques'],
   see_year_totals: ['admin', 'editor', 'consulta', 'leitor'],
   see_values: ['admin', 'editor', 'consulta'],
   edit: ['admin', 'editor'],
