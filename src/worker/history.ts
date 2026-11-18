@@ -8,6 +8,7 @@ import { isbnDigits, isbnProblem } from '../core/isbn';
 import { itemForViewer } from '../core/items';
 import { isValidUnitPrice } from '../core/money';
 import { can } from '../core/roles';
+import { latestSpecification } from '../core/specification';
 import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, json, readBody } from './http';
@@ -94,16 +95,24 @@ async function getProduct(env: Env, session: Session, id: string): Promise<Respo
   const seeValues = can(session.user.role, 'see_values');
   const product = await env.DB.prepare('SELECT id, isbn, title FROM products WHERE id = ?').bind(id).first<{ id: string; isbn: string | null; title: string }>();
   if (!product) return error(404, 'Produto não encontrado.');
-  const [i, v, o] = await env.DB.batch([
+  const [i, v, o, sp] = await env.DB.batch([
     env.DB.prepare(`${ITEM_SELECT} WHERE i.deleted_at IS NULL AND i.product_id = ? ORDER BY i.created_at`).bind(id),
     env.DB.prepare(`${INVOICE_INFO} WHERE v.id IN (SELECT invoice_id FROM order_items WHERE product_id = ? AND deleted_at IS NULL)`).bind(id),
     env.DB.prepare('SELECT id, code FROM purchase_orders WHERE id IN (SELECT purchase_order_id FROM order_items WHERE product_id = ? AND deleted_at IS NULL)').bind(id),
+    env.DB.prepare(
+      `SELECT i.specification, i.created_at, o.code AS order_code FROM order_items i LEFT JOIN purchase_orders o ON o.id = i.purchase_order_id
+        WHERE i.product_id = ? AND i.deleted_at IS NULL AND i.specification <> ''`,
+    ).bind(id),
   ]);
+  const specification = latestSpecification(
+    (sp!.results as { specification: string; created_at: string; order_code: string | null }[]).map((r) => ({ specification: r.specification, createdAt: r.created_at, orderCode: r.order_code })),
+  );
   return json({
     product,
     items: (i!.results as ItemRow[]).map((r) => itemForViewer(toItem(r), seeValues)),
     invoices: (v!.results as InvoiceInfoRow[]).map(invoiceInfo),
     orders: o!.results as { id: string; code: string }[],
+    specification,
     seeValues,
   });
 }

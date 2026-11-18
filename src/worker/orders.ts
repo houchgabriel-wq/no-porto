@@ -8,6 +8,8 @@ import { isValidUnitPrice } from '../core/money';
 import { itemForViewer, normalizeOrderCode, orderOwners, orderSupplierProblem, searchKey, titleKey, type Item, type ItemStatus, type PurchaseOrder, type Supplier } from '../core/items';
 import { can } from '../core/roles';
 import { onlyShipped, salesArrivals } from '../core/shippedItems';
+import { cleanSpecification, latestSpecification, SPECIFICATION_MAX } from '../core/specification';
+import { sameProduct } from '../core/allocation';
 import { spDate, type Bill, type Invoice, type Payment } from '../core/shipments';
 import type { Session } from './auth';
 import type { Env } from './env';
@@ -71,6 +73,10 @@ const unitPriceMicros = z
   .refine(isValidUnitPrice, 'O preço unitário tem no máximo três casas decimais.')
   .nullable();
 const notes = z.string().max(2000, 'As observações podem ter no máximo 2.000 caracteres.').transform((s) => s.trim());
+const specification = z
+  .string()
+  .max(SPECIFICATION_MAX + 2000, 'A especificação pode ter no máximo 4.000 caracteres.')
+  .transform(cleanSpecification);
 
 const itemFields = {
   description,
@@ -81,6 +87,7 @@ const itemFields = {
   piecesPerCarton: piecesPerCarton.default(null),
   unitPriceMicros: unitPriceMicros.default(null),
   notes: notes.default(''),
+  specification: specification.default(''),
 };
 
 const createItemBody = z.object(itemFields);
@@ -94,6 +101,7 @@ const updateItemBody = z
     piecesPerCarton,
     unitPriceMicros,
     notes,
+    specification,
   })
   .partial()
   .refine((b) => Object.keys(b).length > 0, 'Nada para alterar.');
@@ -116,7 +124,18 @@ const orderBody = z.object({
   supplier: supplier.refine((t) => t !== null, 'Informe o fornecedor.'),
   orderedAt: day.default(null),
   items: z
-    .array(z.object({ description, isbn: isbn.default(null), quantity, piecesPerCarton: piecesPerCarton.default(null), unitPriceMicros: unitPriceMicros.default(null), notes: notes.default(''), row: z.number().int().min(1) }))
+    .array(
+      z.object({
+        description,
+        isbn: isbn.default(null),
+        quantity,
+        piecesPerCarton: piecesPerCarton.default(null),
+        unitPriceMicros: unitPriceMicros.default(null),
+        notes: notes.default(''),
+        specification: specification.default(''),
+        row: z.number().int().min(1),
+      }),
+    )
     .min(1, 'A PO não tem itens.')
     .max(IMPORT_BATCH, `Envie no máximo ${IMPORT_BATCH} itens por vez.`),
 });
@@ -271,7 +290,7 @@ export async function loadRefs(env: Env, at: string) {
   };
 }
 
-export type ItemFieldsInput = Pick<ItemInput, 'description' | 'quantity' | 'piecesPerCarton' | 'unitPriceMicros' | 'notes'>;
+export type ItemFieldsInput = Pick<ItemInput, 'description' | 'quantity' | 'piecesPerCarton' | 'unitPriceMicros' | 'notes'> & { specification?: string };
 
 export function insertItem(
   env: Env,
@@ -283,8 +302,8 @@ export function insertItem(
 ) {
   return env.DB.prepare(
     `INSERT INTO order_items (id, product_id, description, supplier_id, purchase_order_id, invoice_id, status, quantity, pieces_per_carton,
-                              unit_price_micros, notes, created_at, created_by, updated_at, updated_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                              unit_price_micros, notes, specification, created_at, created_by, updated_at, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     id,
     refs.productId,
@@ -297,6 +316,7 @@ export function insertItem(
     input.piecesPerCarton,
     input.unitPriceMicros,
     input.notes,
+    input.specification ?? '',
     at,
     userId,
     at,
@@ -422,6 +442,7 @@ const TRACKED: Record<string, string> = {
   piecesPerCarton: 'Peças por caixa',
   unitPriceMicros: 'Preço unitário',
   notes: 'Observações',
+  specification: 'Especificação',
 };
 
 async function updateItem(request: Request, env: Env, session: Session, id: string, now: Date): Promise<Response> {
@@ -432,9 +453,10 @@ async function updateItem(request: Request, env: Env, session: Session, id: stri
   const at = now.toISOString();
   const refs = await loadRefs(env, at);
 
-  const [names, codes] = await env.DB.batch([
+  const [names, codes, spec] = await env.DB.batch([
     env.DB.prepare('SELECT name FROM suppliers WHERE id = ?').bind(before.supplierId),
     env.DB.prepare('SELECT code FROM purchase_orders WHERE id = ?').bind(before.purchaseOrderId),
+    env.DB.prepare('SELECT specification FROM order_items WHERE id = ?').bind(id),
   ]);
   const old = {
     description: before.description,
@@ -445,6 +467,7 @@ async function updateItem(request: Request, env: Env, session: Session, id: stri
     piecesPerCarton: before.piecesPerCarton,
     unitPriceMicros: before.unitPriceMicros ?? null,
     notes: before.notes,
+    specification: (spec!.results[0] as { specification: string } | undefined)?.specification ?? '',
   };
   const next = { ...old, ...body };
   const changes = Object.keys(TRACKED)
@@ -474,9 +497,9 @@ async function updateItem(request: Request, env: Env, session: Session, id: stri
     ...refs.statements,
     env.DB.prepare(
       `UPDATE order_items SET product_id = ?, description = ?, supplier_id = ?, purchase_order_id = ?, quantity = ?, pieces_per_carton = ?,
-              unit_price_micros = ?, notes = ?, updated_at = ?, updated_by = ?
+              unit_price_micros = ?, notes = ?, specification = ?, updated_at = ?, updated_by = ?
         WHERE id = ?`,
-    ).bind(productId, next.description, supplierId, orderId, next.quantity, next.piecesPerCarton, next.unitPriceMicros, next.notes, at, session.user.id, id),
+    ).bind(productId, next.description, supplierId, orderId, next.quantity, next.piecesPerCarton, next.unitPriceMicros, next.notes, next.specification, at, session.user.id, id),
     eventStatement(env, id, session.user.id, 'changed', { changes }, at),
   ]);
   return json({ item: itemForViewer((await findItem(env, id))!, true) });
@@ -560,6 +583,61 @@ async function createOrder(request: Request, env: Env, session: Session, now: Da
   return json({ orderId, inserted: body.items.length }, 201);
 }
 
+const specificationsBody = z.object({
+  items: z
+    .array(z.object({ description, isbn: isbn.default(null), specification }))
+    .min(1, 'A PO não tem itens.')
+    .max(IMPORT_BATCH, `Envie no máximo ${IMPORT_BATCH} itens por vez.`),
+});
+
+/**
+ * Especificação do item e a última do produto (a reimpressão remete à compra anterior). Carregada ao
+ * abrir a ficha do item, para as listas não carregarem esses textos longos.
+ */
+async function getSpecification(env: Env, id: string): Promise<Response> {
+  const item = await env.DB.prepare('SELECT product_id, specification FROM order_items WHERE id = ? AND deleted_at IS NULL').bind(id).first<{ product_id: string; specification: string }>();
+  if (!item) return error(404, 'Item não encontrado.');
+  const { results } = await env.DB.prepare(
+    `SELECT i.specification, i.created_at, o.code AS order_code FROM order_items i LEFT JOIN purchase_orders o ON o.id = i.purchase_order_id
+      WHERE i.product_id = ? AND i.deleted_at IS NULL AND i.specification <> ''`,
+  )
+    .bind(item.product_id)
+    .all<{ specification: string; created_at: string; order_code: string | null }>();
+  const latest = latestSpecification(results.map((r) => ({ specification: r.specification, createdAt: r.created_at, orderCode: r.order_code })));
+  return json({ specification: item.specification, latest });
+}
+
+/**
+ * Guarda as especificações de uma PO já cadastrada (as que entraram antes deste campo existir): cada
+ * linha do arquivo vai para os itens do mesmo produto naquela PO, em produção, no mar ou já entregues.
+ */
+async function saveOrderSpecifications(request: Request, env: Env, session: Session, code: string, now: Date): Promise<Response> {
+  checkMutation(request);
+  const body = await readBody(request, specificationsBody);
+  const normalized = normalizeOrderCode(code);
+  if (!normalized) return error(400, 'Código de PO inválido.');
+  const { results } = await env.DB.prepare(
+    `SELECT i.id, p.isbn, i.description FROM order_items i JOIN products p ON p.id = i.product_id JOIN purchase_orders o ON o.id = i.purchase_order_id
+      WHERE o.code = ? AND i.deleted_at IS NULL`,
+  )
+    .bind(normalized)
+    .all<{ id: string; isbn: string | null; description: string }>();
+  if (results.length === 0) return error(404, `A ${normalized} não tem itens cadastrados.`);
+  const at = now.toISOString();
+  const statements: D1PreparedStatement[] = [];
+  const updated = new Set<string>();
+  for (const line of body.items) {
+    if (!line.specification) continue;
+    for (const item of results) {
+      if (updated.has(item.id) || !sameProduct(line, item)) continue;
+      updated.add(item.id);
+      statements.push(env.DB.prepare('UPDATE order_items SET specification = ?, updated_at = ?, updated_by = ? WHERE id = ?').bind(line.specification, at, session.user.id, item.id));
+    }
+  }
+  if (statements.length) await env.DB.batch(statements);
+  return json({ updated: updated.size, items: results.length });
+}
+
 export async function routeOrders(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {
   const role = session.user.role;
   if (key === 'GET /api/data') return getData(env, session, now);
@@ -573,6 +651,16 @@ export async function routeOrders(request: Request, env: Env, session: Session, 
   if (key === 'POST /api/orders') {
     if (!can(role, 'edit')) return error(403, 'Seu perfil só pode acompanhar.');
     return createOrder(request, env, session, now);
+  }
+  const specs = /^\/api\/orders\/([^/]+)\/specifications$/.exec(path);
+  if (specs && request.method === 'POST') {
+    if (!can(role, 'edit')) return error(403, 'Seu perfil só pode acompanhar.');
+    return saveOrderSpecifications(request, env, session, decodeURIComponent(specs[1]!), now);
+  }
+  const itemSpec = /^\/api\/items\/([^/]+)\/specification$/.exec(path);
+  if (itemSpec && request.method === 'GET') {
+    if (!can(role, 'view_shipments')) return error(403, 'Seu perfil vê só a lista de produtos a caminho.');
+    return getSpecification(env, decodeURIComponent(itemSpec[1]!));
   }
   if (key === 'POST /api/items') {
     if (!can(role, 'edit')) return error(403, 'Seu perfil só pode acompanhar.');

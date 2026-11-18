@@ -310,3 +310,50 @@ describe('excluir embarque ou container', () => {
     expect((await data()).items).toEqual([]);
   });
 });
+
+describe('especificação do produto', () => {
+  const spec = (id: string, cookie = who.admin.cookie) => app.call('GET', `/api/items/${id}/specification`, { cookie });
+  const items = async () => (await data()).items as Row[];
+
+  it('a PO guarda a especificação de cada item; a reimpressão mostra a última de verdade', async () => {
+    await order('PO-055', 'Sara', [line({ specification: '20,5x27,5\nwire-o binding' })]);
+    await order('PO-064', 'Sara', [line({ specification: 'REPRINT — same specs as last order (2026-08-27 (3))' })]);
+    const [first, reprint] = await items();
+    const a = await spec(reprint!.id);
+    expect(a.status).toBe(200);
+    expect(a.data).toEqual({
+      specification: 'REPRINT — same specs as last order (2026-08-27 (3))',
+      latest: { specification: '20,5x27,5\nwire-o binding', createdAt: expect.any(String), orderCode: 'PO-055' },
+    });
+    expect((await spec(first!.id)).data.specification).toBe('20,5x27,5\nwire-o binding');
+    // A parte embarcada leva a especificação.
+    const sara = (await data()).suppliers[0].id;
+    await app.call('POST', '/api/shipments', { cookie: who.editor.cookie, body: { bill: null, eta: null, invoices: [{ supplierId: sara, number: 'S1', lines: [line({ quantity: 400 })] }] } });
+    const shipped = (await items()).find((i) => i.status === 'embarcado')!;
+    expect((await spec(shipped.id)).data.specification).toBe('20,5x27,5\nwire-o binding');
+    // O perfil Vendas não vê; o Embarques vê.
+    expect((await spec(first!.id, who.vendas.cookie)).status).toBe(403);
+    expect((await spec(shipped.id, who.embarques.cookie)).status).toBe(200);
+  });
+
+  it('a especificação pode ser corrigida na ficha e entra no histórico do item', async () => {
+    await order('PO-055', 'Sara', [line({})]);
+    const [item] = await items();
+    expect((await app.call('PATCH', `/api/items/${item!.id}`, { cookie: who.editor.cookie, body: { specification: '  15x23\r\n\r\n\r\ncapa dura  ' } })).status).toBe(200);
+    expect((await spec(item!.id)).data.specification).toBe('15x23\n\ncapa dura');
+  });
+
+  it('guarda as especificações de uma PO que já estava cadastrada', async () => {
+    await order('PO-062', 'Claire', [line({}), line({ row: 8, description: 'A Odisseia', isbn: ODISSEIA, quantity: 500 })]);
+    const res = await app.call('POST', '/api/orders/PO-062/specifications', {
+      cookie: who.editor.cookie,
+      body: { items: [{ description: 'Coleção Alice', isbn: ALICE, specification: 'Box C1S 400gsm' }, { description: 'Outro livro', isbn: null, specification: 'x' }] },
+    });
+    expect(res.data).toEqual({ updated: 1, items: 2 });
+    const all = await items();
+    expect((await spec(all.find((i) => i.isbn === ALICE)!.id)).data.specification).toBe('Box C1S 400gsm');
+    expect((await spec(all.find((i) => i.isbn === ODISSEIA)!.id)).data.specification).toBe('');
+    expect((await app.call('POST', '/api/orders/PO-099/specifications', { cookie: who.editor.cookie, body: { items: [{ description: 'x', isbn: null, specification: 'y' }] } })).status).toBe(404);
+    expect((await app.call('POST', '/api/orders/PO-062/specifications', { cookie: who.consulta.cookie, body: { items: [{ description: 'x', isbn: null, specification: 'y' }] } })).status).toBe(403);
+  });
+});

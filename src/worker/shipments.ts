@@ -232,6 +232,8 @@ function shipItemStatements(
       userId,
       at,
     ),
+    // A parte embarcada leva a especificação do item.
+    env.DB.prepare('UPDATE order_items SET specification = (SELECT specification FROM order_items WHERE id = ?) WHERE id = ?').bind(item.id, id),
     eventStatement(env, item.id, userId, 'split', { invoice: invoice.number, shipped: quantity, left: item.quantity - quantity, newItem: id }, at),
     eventStatement(env, id, userId, 'shipped', { invoice: invoice.number, quantity, splitFrom: item.id }, at),
   ];
