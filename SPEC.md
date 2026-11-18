@@ -79,20 +79,22 @@ Pagamento é registrado na invoice, à parte da situação dos itens: data, valo
 
 ## 4. Perfis e permissões (proposta, menos o que está marcado como decidido)
 
-Cinco perfis. Consulta e Embarques foram pedidos pelo Gabriel em 17/11/2026, para a equipe (migração `0006`).
+Seis perfis. Consulta e Embarques foram pedidos pelo Gabriel em 17/11/2026, para a equipe (migração `0006`); Vendas, em 18/11/2026, para os vendedores (migração `0007`).
 
-| Ação | Admin | Editor | Consulta | Leitor | Embarques |
-| --- | --- | --- | --- | --- | --- |
-| Ver os embarques a caminho | sim | sim | sim | sim | sim (decidido) |
-| Ver o histórico (o que já chegou) | sim | sim | sim (decidido) | sim | sim, sem o recebido por ano no topo (decidido em 18/11/2026) |
-| Ver painel, produção, fornecedores e fichas de produto | sim | sim | sim (decidido) | sim | **não** (decidido) |
-| Ver preços, valores e pagamentos; baixar o arquivo do BL | sim | sim | sim (decidido) | **não** (decidido) | **não** (decidido) |
-| Cadastrar e alterar POs, itens, invoices, BLs, chegadas e pagamentos | sim | sim | **não** (decidido) | não | não (decidido) |
-| Cadastrar fornecedores | sim | sim | não | não | não |
-| Carga de planilha e exclusões | sim | não | não | não | não |
-| Usuários | sim | não | não | não | não |
+| Ação | Admin | Editor | Consulta | Leitor | Embarques | Vendas |
+| --- | --- | --- | --- | --- | --- | --- |
+| Ver os embarques a caminho | sim | sim | sim | sim | sim (decidido) | só a lista: produto e chegada (decidido) |
+| Ver o histórico (o que já chegou) | sim | sim | sim (decidido) | sim | sim, sem o recebido por ano no topo (decidido em 18/11/2026) | **não** |
+| Ver painel, produção, fornecedores e fichas de produto | sim | sim | sim (decidido) | sim | **não** (decidido) | **não** |
+| Ver preços, valores e pagamentos; baixar o arquivo do BL | sim | sim | sim (decidido) | **não** (decidido) | **não** (decidido) | **não** |
+| Cadastrar e alterar POs, itens, invoices, BLs, chegadas e pagamentos | sim | sim | **não** (decidido) | não | não (decidido) | não |
+| Cadastrar fornecedores | sim | sim | não | não | não | não |
+| Carga de planilha e exclusões | sim | não | não | não | não | não |
+| Usuários | sim | não | não | não | não | não |
 
 O servidor tira preços, totais, câmbio e pagamentos das respostas para o leitor e para o perfil Embarques; não basta esconder na tela. No painel, o leitor vê quantidades (exemplares, itens, embarques) no lugar de valores. O perfil Embarques recebe do servidor, nos dados das telas, só os itens no mar, com as invoices, os BLs, as POs e os fornecedores deles (nada da produção). Desde 18/11/2026 ele vê também o Histórico, sem valores (o servidor tira preço e total) e sem os cartões de recebido por ano no topo; a busca, os filtros por fornecedor e ano, a contagem em exemplares e o Baixar .xlsx (sem valores) continuam, e o nome do produto não abre a ficha. Os fornecedores, as fichas de produto e a cópia completa são recusados para ele; a tela mostra as abas Embarques e Histórico.
+
+O perfil Vendas tem uma tela só, "Embarques", em lista: o produto (nome e ISBN) e a chegada prevista, com a situação ("Chega em 5 dias", "Em liberação"), da chegada mais próxima para a mais distante, com busca por produto ou ISBN. O mesmo produto com a mesma chegada aparece uma vez; em embarques com chegadas diferentes, uma linha por chegada. O servidor manda para ele só isso (`/api/sales`): fornecedor, invoice, BL, PO, quantidades e valores não saem do servidor, e as outras rotas de leitura são recusadas.
 
 Equipe (17/11/2026): Marcelo, com acesso de quem lança pedidos e embarques (Administrador ou Editor, escolha do Gabriel ao criar a conta); Leonardo e Paulo, Consulta; Antonio e Vinicius, Embarques. As contas são criadas pelo admin na tela Usuários.
 
