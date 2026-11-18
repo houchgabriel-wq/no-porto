@@ -15,6 +15,8 @@ const PAGE = 200;
 
 export interface HistoryData {
   items: Item[];
+  /** Os fornecedores dos itens que chegaram. */
+  suppliers: Supplier[];
   invoices: InvoiceInfo[];
   seeValues: boolean;
 }
@@ -22,7 +24,10 @@ export interface HistoryData {
 interface Props {
   history: HistoryData;
   suppliers: Supplier[];
-  onProduct: (productId: string) => void;
+  /** Abre a ficha do produto; ausente para quem não vê fichas (o perfil Embarques). */
+  onProduct?: (productId: string) => void;
+  /** Mostra o recebido por ano no topo (o perfil Embarques não vê). */
+  showYears: boolean;
   onExport: (rows: HistoryRow[]) => void;
   exporting: boolean;
   actions: React.ReactNode;
@@ -30,7 +35,7 @@ interface Props {
 
 const yearLabel = (y: string) => (y === NO_DATE ? 'Sem data' : y);
 
-export function HistoryView({ history, suppliers, onProduct, onExport, exporting, actions }: Props) {
+export function HistoryView({ history, suppliers, onProduct, showYears, onExport, exporting, actions }: Props) {
   const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
   const [shownCount, setShownCount] = useState(PAGE);
   const { seeValues } = history;
@@ -51,6 +56,7 @@ export function HistoryView({ history, suppliers, onProduct, onExport, exporting
 
   return (
     <>
+      {showYears && (
       <section className="hist-anos" aria-label="Recebido por ano de chegada">
         {byYear.map((y) => {
           const active = filters.year === y.year;
@@ -70,6 +76,7 @@ export function HistoryView({ history, suppliers, onProduct, onExport, exporting
           );
         })}
       </section>
+      )}
 
       <div className="filtros">
         <label className="busca">
@@ -134,7 +141,7 @@ export function HistoryView({ history, suppliers, onProduct, onExport, exporting
         <div className="bloco tabela-vazia">Nenhum item com estes filtros.</div>
       ) : (
         <>
-          <div className="tabela-caixa">
+          <div className="tabela-caixa" tabIndex={onProduct ? undefined : 0} role={onProduct ? undefined : 'region'} aria-label={onProduct ? undefined : 'Itens recebidos'}>
             <table className="tabela-hist">
               <thead>
                 <tr>
@@ -158,9 +165,13 @@ export function HistoryView({ history, suppliers, onProduct, onExport, exporting
                       {arrivedAt ? formatDay(arrivedAt, true) : <span className="mudo">Sem data</span>}
                     </td>
                     <td className="t-produto">
-                      <button type="button" className="abrir-item" onClick={() => onProduct(item.productId)}>
-                        {item.description}
-                      </button>
+                      {onProduct ? (
+                        <button type="button" className="abrir-item" onClick={() => onProduct(item.productId)}>
+                          {item.description}
+                        </button>
+                      ) : (
+                        <span className="t-nome">{item.description}</span>
+                      )}
                       <span className="t-isbn">{item.isbn ?? 'Sem ISBN'}</span>
                     </td>
                     <td className="nowrap">

@@ -132,7 +132,7 @@ export const api = {
   registerArrival: (invoiceIds: string[], arrivedAt: string) => request<{ invoices: number }>('POST', '/api/arrivals', { invoiceIds, arrivedAt }),
   reset: (confirm: string) => request<{ items: number }>('POST', '/api/reset', { confirm }),
   importShipments: (items: ImportedShipmentItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/shipments', { items }),
-  history: () => request<{ items: Item[]; invoices: InvoiceInfo[]; seeValues: boolean }>('GET', '/api/history'),
+  history: () => request<{ items: Item[]; invoices: InvoiceInfo[]; suppliers: Supplier[]; seeValues: boolean }>('GET', '/api/history'),
   product: (id: string) =>
     request<{ product: { id: string; isbn: string | null; title: string }; items: Item[]; invoices: InvoiceInfo[]; orders: { id: string; code: string }[]; seeValues: boolean }>(
       'GET',

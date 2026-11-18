@@ -401,10 +401,11 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  // O perfil Embarques só tem a tela de embarques.
   const seesAll = can(user.role, 'view_all');
-  const current: View = !seesAll ? 'embarques' : view === 'usuarios' && !isAdmin ? 'painel' : view;
-  const tabs = seesAll ? TABS : TABS.filter((t) => t.view === 'embarques');
+  // O perfil Embarques tem só as telas de embarques e do histórico.
+  const allowed = (v: View) => seesAll || v === 'embarques' || (v === 'historico' && can(user.role, 'view_history'));
+  const current: View = !allowed(view) ? 'embarques' : view === 'usuarios' && !isAdmin ? 'painel' : view;
+  const tabs = TABS.filter((t) => allowed(t.view));
   // No celular, as abas rolam de lado: a aba atual fica à vista.
   useEffect(() => {
     document.querySelector('.abas .aba[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -470,7 +471,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
     if (!data) return;
     setExporting(true);
     try {
-      const names = new Map(data.suppliers.map((s) => [s.id, s.name]));
+      const names = new Map((history?.suppliers ?? data.suppliers).map((s) => [s.id, s.name]));
       const seeValues = history?.seeValues ?? false;
       const { buildExport } = await import('./spreadsheet');
       const columns: { header: string; width: number; value: (r: HistoryRow) => string | number | null; numFmt?: string }[] = [
@@ -702,7 +703,15 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
               )
             ) : current === 'historico' ? (
               history ? (
-                <HistoryView history={history} suppliers={data.suppliers} onProduct={setProduct} onExport={(rows) => void exportHistory(rows)} exporting={exporting} actions={historyActions} />
+                <HistoryView
+                  history={history}
+                  suppliers={history.suppliers}
+                  onProduct={seesAll ? setProduct : undefined}
+                  showYears={can(user.role, 'see_year_totals')}
+                  onExport={(rows) => void exportHistory(rows)}
+                  exporting={exporting}
+                  actions={historyActions}
+                />
               ) : historyError ? (
                 <div className="erro-carga">
                   <FormError message={historyError} />
