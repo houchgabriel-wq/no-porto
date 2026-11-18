@@ -4,7 +4,7 @@ import { combinePackingLines, mergePackingList, pairShipmentFiles, piecesLabel }
 
 const ALICE = '9786583970527';
 const ODISSEIA = '9786583970213';
-const line = (over: Partial<DocumentLine>): DocumentLine => ({ row: 7, description: 'Coleção Alice', isbn: ALICE, quantity: 1000, piecesPerCarton: null, unitPriceMicros: null, orderCode: null, notes: '', ...over });
+const line = (over: Partial<DocumentLine>): DocumentLine => ({ row: 7, description: 'Coleção Alice', isbn: ALICE, quantity: 1000, piecesPerCarton: null, unitPriceMicros: null, orderCode: null, notes: '', specification: '', ...over });
 
 describe('mergePackingList', () => {
   it('as linhas da invoice com as peças por caixa da packing list', () => {

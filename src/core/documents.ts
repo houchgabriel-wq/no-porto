@@ -8,6 +8,7 @@ import { isbnDigits, isbnProblem } from './isbn';
 import { normalizeOrderCode, searchKey } from './items';
 import { parseSheetUnitPrice } from './money';
 import { parseDate } from './shipments';
+import { cleanSpecification } from './specification';
 
 export interface SheetRows {
   name: string;
@@ -25,6 +26,8 @@ export interface DocumentLine {
   /** PO citada na linha (as invoices da Claire trazem). */
   orderCode: string | null;
   notes: string;
+  /** Especificação do produto (formato, papel, acabamento), como veio na PO. */
+  specification: string;
   /**
    * Caixas fora do padrão (a sobra, como 1 caixa de 50 quando o padrão é 60), vindas da packing list.
    * Só para a prévia: não é gravado.
@@ -70,7 +73,7 @@ function clean(text: string | undefined): string {
   return (text ?? '').replace(/\s+/g, ' ').trim();
 }
 
-type Role = 'description' | 'quantity' | 'price' | 'isbn' | 'order' | 'pieces' | 'comments';
+type Role = 'description' | 'quantity' | 'price' | 'isbn' | 'order' | 'pieces' | 'comments' | 'specification';
 
 /** Peso de cada coluna candidata a nome do produto: "Name" vale mais que "Description". */
 function descriptionScore(l: string): number {
@@ -93,6 +96,8 @@ const ROLE_TESTS: Record<Exclude<Role, 'description'>, (l: string) => boolean> =
   order: (l) => /\border (no|number|n)\b/.test(l) || l === 'order' || l === 'po' || /^p ?o (no|number)\b/.test(l) || l === 'pedido',
   pieces: (l) => l === 'pcs ctn' || /^per (ctn|carton)\b/.test(l) || l.includes('each ctn') || /\b(pcs|qty) per (ctn|carton)\b/.test(l) || l.includes('pecas por caixa'),
   comments: (l) => /^(comment|remark|observ)/.test(l),
+  // "Specifications" na PO da editora (a "DESCRIPTION & SPECIFICATION" da Nicola também serve).
+  specification: (l) => l.includes('specification') || l === 'specs' || l === 'spec' || l.startsWith('especifica'),
 };
 
 interface Header {
@@ -233,6 +238,7 @@ function readLines(rows: readonly string[][], header: Header, warnings: Document
       unitPriceMicros,
       orderCode: orderMatch ? normalizeOrderCode(orderMatch[0]) : null,
       notes: clean(cell(row, 'comments')).slice(0, 2000),
+      specification: cleanSpecification(cell(row, 'specification')),
     });
   }
   return lines;

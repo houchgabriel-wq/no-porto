@@ -50,7 +50,8 @@ describe('parseOrderDocument', () => {
     expect(doc.orderedAt).toBe('2026-11-09');
     expect(doc.lines).toHaveLength(3);
     expect(doc.lines[0]).toMatchObject({ row: 6, description: 'Caligráfia Mágica - Nova Cartilha 02', isbn: '9786561260589', quantity: 30000, piecesPerCarton: 40, unitPriceMicros: 420_000, notes: 'RUSH' });
-    expect(doc.lines[1]).toMatchObject({ isbn: null, quantity: 10000 });
+    expect(doc.lines[1]).toMatchObject({ isbn: null, quantity: 10000, specification: 'spec' });
+    expect(doc.lines[0]!.specification).toBe('20,5x27,5');
     expect(doc.lines[2]).toMatchObject({ isbn: null, unitPriceMicros: null });
     expect(doc.warnings).toEqual([{ row: 8, message: expect.stringContaining('ISBN "978-65-6126-058-0" não serve') }]);
   });
