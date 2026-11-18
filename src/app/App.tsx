@@ -26,6 +26,7 @@ import { SupplierDialog, SuppliersView, type SuppliersData } from './Suppliers';
 import { ShipmentDialog } from './ShipmentDialog';
 import { ShipmentsView } from './Shipments';
 import { ShipmentItemsView } from './ShipmentItems';
+import { SalesView } from './Sales';
 import { UpdateNotice } from './update';
 import { UsersScreen } from './Users';
 
@@ -189,6 +190,8 @@ export function App() {
           />
         );
       }
+      // Vendas tem uma tela só, a lista dos produtos a caminho.
+      if (!can(state.user.role, 'view_shipments')) return <SalesShell user={state.user} onLogout={() => void logout()} />;
       return <Shell user={state.user} onLogout={() => void logout()} />;
   }
 }
@@ -354,6 +357,54 @@ const TABS: { view: View; label: string; icon: 'inicio' | 'caixa' | 'navio' | 'a
   { view: 'historico', label: 'Histórico', icon: 'arquivo' },
   { view: 'fornecedores', label: 'Fornecedores', icon: 'pessoas' },
 ];
+
+/** Tela do perfil Vendas: só a aba Embarques, em lista, com produto e chegada. */
+function SalesShell({ user, onLogout }: { user: Me; onLogout: () => void }) {
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [toast, showToast] = useToast();
+  return (
+    <div className="pagina">
+      <a
+        className="pular"
+        href="#conteudo"
+        onClick={(e) => {
+          e.preventDefault();
+          document.getElementById('conteudo')?.focus();
+        }}
+      >
+        Pular para o conteúdo
+      </a>
+      <header className="topo">
+        <Brand />
+        <nav className="abas" aria-label="Visões">
+          <a className="aba" href="#embarques" aria-current="page">
+            <Icon name="navio" />
+            Embarques
+          </a>
+        </nav>
+        <div className="acoes">
+          <UserMenu user={user} onPassword={() => setChangingPassword(true)} onLogout={onLogout} />
+        </div>
+      </header>
+      <main id="conteudo" tabIndex={-1}>
+        <SalesView />
+      </main>
+      <Dialog title="Trocar senha" open={changingPassword} onClose={() => setChangingPassword(false)}>
+        <div className="dlg-corpo">
+          <PasswordForm
+            askCurrent
+            onDone={() => {
+              setChangingPassword(false);
+              showToast('Senha trocada. As outras sessões foram encerradas.');
+            }}
+          />
+        </div>
+      </Dialog>
+      {toast}
+      <UpdateNotice />
+    </div>
+  );
+}
 
 function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [view, setView] = useState<View>(viewFromHash);

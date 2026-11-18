@@ -1163,3 +1163,15 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
 .confirma-exclusao p { margin: 0; color: var(--tinta); }
 .confirma-acoes { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .btn.perigo:not(:disabled):hover { border-color: var(--critico); }
+/* Lista do perfil Vendas: produto e chegada. */
+.tabela-vendas { width: 100%; min-width: 0; }
+.tabela-vendas .t-chegada { white-space: nowrap; }
+.tabela-vendas .t-chegada b { display: block; font-variant-numeric: tabular-nums; }
+.tabela-vendas .t-chegada .pilula { margin-top: 4px; }
+@media (max-width: 600px) {
+  .tabela-vendas .t-chegada { white-space: normal; }
+}
+@media (max-width: 600px) {
+  .tabela-vendas.tabela-empilha tr { grid-template-columns: minmax(0, 1fr); }
+  .tabela-vendas .t-chegada b { display: inline; margin-right: 8px; }
+}

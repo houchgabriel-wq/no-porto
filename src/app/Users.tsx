@@ -11,7 +11,8 @@ const ROLE_HINTS: Record<Role, string> = {
   editor: 'Cadastra e altera POs, embarques e pagamentos; vê valores',
   consulta: 'Vê tudo, com preços e valores, mas não altera nada',
   leitor: 'Vê tudo, sem preços e valores, e não altera nada',
-  embarques: 'Vê só os produtos embarcados, sem preços e valores',
+  embarques: 'Vê os produtos embarcados e o histórico, sem preços e valores',
+  vendas: 'Vê só a lista dos produtos a caminho, com a previsão de chegada',
 };
 
 const ROLE_ICONS: Record<Role, IconName> = {
@@ -20,6 +21,7 @@ const ROLE_ICONS: Record<Role, IconName> = {
   consulta: 'tabela',
   leitor: 'olho',
   embarques: 'navio',
+  vendas: 'estrela',
 };
 
 function message(e: unknown): string {
