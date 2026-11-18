@@ -47,7 +47,7 @@ export function testApp(now = new Date('2026-11-17T12:00:00Z')) {
     expect(setup.status).toBe(201);
     const admin = { id: setup.data.user.id as string, cookie: setup.cookie! };
 
-    async function make(role: 'editor' | 'leitor' | 'consulta' | 'embarques', name: string) {
+    async function make(role: 'editor' | 'leitor' | 'consulta' | 'embarques' | 'vendas', name: string) {
       const email = `${role}@grupo.exemplo`;
       const created = await call('POST', '/api/users', { cookie: admin.cookie, body: { name, email, role } });
       const login = await call('POST', '/api/login', { body: { email, password: created.data.tempPassword } });
@@ -60,6 +60,7 @@ export function testApp(now = new Date('2026-11-17T12:00:00Z')) {
       leitor: await make('leitor', 'Leo Leitor'),
       consulta: await make('consulta', 'Cris Consulta'),
       embarques: await make('embarques', 'Edu Embarques'),
+      vendas: await make('vendas', 'Vera Vendas'),
     };
   }
 

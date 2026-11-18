@@ -93,3 +93,22 @@ describe('perfil Leitor (como antes)', () => {
     expect((await app.call('GET', '/api/history', { cookie: who.leitor.cookie })).status).toBe(200);
   });
 });
+
+describe('perfil Vendas', () => {
+  it('recebe só produto e chegada dos itens no mar', async () => {
+    const res = await app.call('GET', '/api/sales', { cookie: who.vendas.cookie });
+    expect(res.status).toBe(200);
+    expect(res.data.rows).toEqual([
+      { productId: expect.any(String), description: 'Coleção Alice', isbn: '9786583970527', eta: '2026-12-20', state: { kind: 'previsto', days: 33 } },
+    ]);
+  });
+
+  it('não recebe a tela de embarques completa, histórico, fornecedores, fichas nem arquivos; não altera', async () => {
+    const admin = (await app.call('GET', '/api/data', { cookie: who.admin.cookie })).data;
+    for (const path of ['/api/data', '/api/history', '/api/suppliers', `/api/products/${admin.items[0].productId}`, '/api/export', '/api/users']) {
+      expect((await app.call('GET', path, { cookie: who.vendas.cookie })).status, path).toBe(403);
+    }
+    expect((await app.raw('GET', `/api/bills/${admin.bills[0].id}/document`, { cookie: who.vendas.cookie })).status).toBe(403);
+    expect((await app.call('POST', '/api/arrivals', { cookie: who.vendas.cookie, body: { invoiceIds: [admin.invoices[0].id], arrivedAt: '2026-11-16' } })).status).toBe(403);
+  });
+});

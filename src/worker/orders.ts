@@ -7,7 +7,7 @@ import { isbnDigits, isbnProblem } from '../core/isbn';
 import { isValidUnitPrice } from '../core/money';
 import { itemForViewer, normalizeOrderCode, orderOwners, orderSupplierProblem, searchKey, titleKey, type Item, type ItemStatus, type PurchaseOrder, type Supplier } from '../core/items';
 import { can } from '../core/roles';
-import { onlyShipped } from '../core/shippedItems';
+import { onlyShipped, salesArrivals } from '../core/shippedItems';
 import { spDate, type Bill, type Invoice, type Payment } from '../core/shipments';
 import type { Session } from './auth';
 import type { Env } from './env';
@@ -314,7 +314,7 @@ export const RECENT_ARRIVAL_DAYS = 60;
  * que chegaram nos últimos 60 dias), BLs, invoices e pagamentos. O leitor não recebe preço, total nem
  * pagamentos.
  */
-async function getData(env: Env, session: Session, now: Date): Promise<Response> {
+async function loadData(env: Env, session: Session, now: Date) {
   const seeValues = can(session.user.role, 'see_values');
   const today = spDate(now);
   const cutoff = new Date(Date.parse(`${today}T00:00:00Z`) - RECENT_ARRIVAL_DAYS * 86_400_000).toISOString().slice(0, 10);
@@ -379,9 +379,21 @@ async function getData(env: Env, session: Session, now: Date): Promise<Response>
         .filter((r) => shown.has(r.invoice_id))
         .map((r) => ({ id: r.id, invoiceId: r.invoice_id, paidAt: r.paid_at, amountCents: r.amount_cents, exchangeRateE4: r.exchange_rate_e4, notes: r.notes }))
     : [];
-  const all = { today, suppliers, orders, items, bills, invoices, payments, seeValues };
+  return { today, suppliers, orders, items, bills, invoices, payments, seeValues };
+}
+
+async function getData(env: Env, session: Session, now: Date): Promise<Response> {
+  // Vendas não recebe a tela de embarques completa: só a lista de /api/sales.
+  if (!can(session.user.role, 'view_shipments')) return error(403, 'Seu perfil vê só a lista de produtos a caminho.');
+  const all = await loadData(env, session, now);
   // O perfil Embarques recebe só os embarques a caminho (o servidor corta; a tela só esconde as abas).
   return json(can(session.user.role, 'view_all') ? all : onlyShipped(all));
+}
+
+/** Lista para Vendas (SPEC.md, seção 4): produto e previsão de chegada, nada mais. */
+async function getSales(env: Env, session: Session, now: Date): Promise<Response> {
+  const all = await loadData(env, session, now);
+  return json({ today: all.today, rows: salesArrivals(all.items, all.invoices, all.bills, all.today) });
 }
 
 async function createItem(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
@@ -551,6 +563,7 @@ async function createOrder(request: Request, env: Env, session: Session, now: Da
 export async function routeOrders(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {
   const role = session.user.role;
   if (key === 'GET /api/data') return getData(env, session, now);
+  if (key === 'GET /api/sales') return getSales(env, session, now);
 
   if (key === 'POST /api/import/production') {
     if (!can(role, 'import')) return error(403, 'Só o admin faz a carga da planilha.');

@@ -192,3 +192,31 @@ export function onlyShipped<T extends { items: Item[]; invoices: Invoice[]; bill
     suppliers: data.suppliers.filter((s) => supplierIds.has(s.id)),
   };
 }
+
+export interface SalesArrival {
+  productId: string;
+  description: string;
+  isbn: string | null;
+  /** Chegada prevista (AAAA-MM-DD), ou null sem previsão. */
+  eta: string | null;
+  state: ArrivalState;
+}
+
+/**
+ * O que o perfil Vendas vê (SPEC.md, seção 4): os produtos a caminho e a previsão de chegada, nada
+ * mais. O mesmo produto em vários itens com a mesma chegada vira uma linha; em embarques com chegadas
+ * diferentes, uma linha por chegada. Da chegada mais próxima para a mais distante; sem previsão no fim.
+ */
+export function salesArrivals(items: readonly Item[], invoices: readonly Invoice[], bills: readonly Bill[], today: string): SalesArrival[] {
+  const byKey = new Map<string, SalesArrival>();
+  for (const r of shippedRows(items, invoices, bills, today)) {
+    const key = `${r.item.productId}|${r.eta ?? ''}`;
+    if (!byKey.has(key)) byKey.set(key, { productId: r.item.productId, description: r.item.description, isbn: r.item.isbn, eta: r.eta, state: r.state });
+  }
+  return [...byKey.values()].sort((a, b) => {
+    if (a.eta === b.eta) return a.description.localeCompare(b.description, 'pt-BR');
+    if (!a.eta) return 1;
+    if (!b.eta) return -1;
+    return a.eta.localeCompare(b.eta);
+  });
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Item } from './items';
 import type { Bill, Invoice } from './shipments';
-import { filterShipped, groupShipped, invoicePayments, onlyShipped, shippedRows, sortShipped, EMPTY_SHIPPED_FILTERS } from './shippedItems';
+import { filterShipped, groupShipped, invoicePayments, onlyShipped, salesArrivals, shippedRows, sortShipped, EMPTY_SHIPPED_FILTERS } from './shippedItems';
 
 const today = '2026-11-17';
 const bills: Bill[] = [
@@ -131,5 +131,28 @@ describe('onlyShipped', () => {
     expect(view.orders.map((o) => o.code)).toEqual(['PO-001']);
     expect(view.suppliers.map((s) => s.name)).toEqual(['Sara']);
     expect(view.seeValues).toBe(false);
+  });
+});
+
+describe('salesArrivals', () => {
+  it('produto e chegada: junta o mesmo produto com a mesma chegada, mais próxima primeiro, sem previsão no fim', () => {
+    const list = salesArrivals(
+      [
+        item('a', 'v1', { productId: 'p1', description: 'Alice' }),
+        item('b', 'v2', { productId: 'p1', description: 'Alice' }),
+        item('c', 'v3', { productId: 'p1', description: 'Alice' }),
+        item('d', 'v4', { productId: 'p2', description: 'Odisseia' }),
+        item('e', null, { productId: 'p3', description: 'Em produção' }),
+      ],
+      invoices,
+      bills,
+      today,
+    );
+    expect(list.map((r) => [r.description, r.eta, r.state.kind])).toEqual([
+      ['Alice', '2026-11-12', 'liberacao'],
+      ['Alice', '2026-11-26', 'previsto'],
+      ['Odisseia', null, 'sem_previsao'],
+    ]);
+    expect(Object.keys(list[0]!).sort()).toEqual(['description', 'eta', 'isbn', 'productId', 'state']);
   });
 });
