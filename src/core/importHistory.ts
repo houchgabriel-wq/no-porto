@@ -22,6 +22,9 @@ export interface ImportedHistoryItem {
   notes: string;
   /** Especificação do produto (só na cópia completa do app). */
   specification: string;
+  /** Aprovação do arquivo e programação de envio (AAAA-MM-DD; só na cópia completa do app). */
+  fileApprovedAt: string | null;
+  shipPlannedAt: string | null;
   /** Número da invoice; sem invoice, a ref.; sem as duas, "Planilha, linha N". */
   invoice: string;
   ref: string;
@@ -175,9 +178,13 @@ export function parseHistoryRows(rows: readonly string[][], today?: string): His
     }
     const at = (col: keyof typeof COLS) => row[COLS[col]] ?? '';
     const warn = (message: string) => report.warnings.push({ row: line, message });
-    // A especificação não tem posição fixa: é a coluna "Especificação", quando existe (cópia completa).
-    const specCol = header.cols.specification;
-    const cells = readItemCells((col) => (col === 'specification' ? (specCol === undefined ? '' : (row[specCol] ?? '')) : at(col)), warn);
+    // A especificação e as datas do item não têm posição fixa: são as colunas com esses títulos, quando
+    // existem (cópia completa).
+    const byTitle = (col: 'specification' | 'fileApprovedAt' | 'shipPlannedAt') => {
+      const c = header.cols[col];
+      return c === undefined ? '' : (row[c] ?? '');
+    };
+    const cells = readItemCells((col) => (col === 'specification' || col === 'fileApprovedAt' || col === 'shipPlannedAt' ? byTitle(col) : at(col)), warn);
     if ('skip' in cells) {
       report.skipped.push({ row: line, message: cells.skip });
       continue;
