@@ -1,9 +1,12 @@
 // Fornecedores (SPEC.md, seção 5): o resumo de cada um (produção, mar e entregue por ano), somado no
-// banco, e a alteração do nome e das observações. O leitor não recebe valores.
+// banco, e a alteração do nome e das observações; só admin e editor (decidido em 19/11/2026). O
+// "Recebido no ano" do painel sai por uma rota própria, para todos que veem o painel, sem valores para o
+// leitor.
 
 import { z } from 'zod';
 import { can } from '../core/roles';
-import { mergedSupplierNotes, supplierSummaries, type SupplierSumRow } from '../core/suppliers';
+import { spDate } from '../core/shipments';
+import { mergedSupplierNotes, receivedInYear, supplierSummaries, type SupplierSumRow } from '../core/suppliers';
 import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, json, readBody } from './http';
@@ -44,8 +47,8 @@ interface SumRow {
   last_arrival: string | null;
 }
 
-async function getSuppliers(env: Env, session: Session): Promise<Response> {
-  const seeValues = can(session.user.role, 'see_values');
+/** O resumo de cada fornecedor, somado no banco; sem valores para quem não os vê. */
+async function summaries(env: Env, seeValues: boolean) {
   const [s, sums] = await env.DB.batch([env.DB.prepare('SELECT id, name, notes FROM suppliers ORDER BY name COLLATE NOCASE'), env.DB.prepare(SUMS)]);
   const rows: SupplierSumRow[] = (sums!.results as SumRow[]).map((r) => ({
     supplierId: r.supplier_id,
@@ -56,7 +59,19 @@ async function getSuppliers(env: Env, session: Session): Promise<Response> {
     valueCents: r.value_cents,
     lastArrival: r.last_arrival,
   }));
-  return json({ suppliers: supplierSummaries(rows, s!.results as { id: string; name: string; notes: string }[], seeValues), seeValues });
+  return supplierSummaries(rows, s!.results as { id: string; name: string; notes: string }[], seeValues);
+}
+
+async function getSuppliers(env: Env, session: Session): Promise<Response> {
+  const seeValues = can(session.user.role, 'see_values');
+  return json({ suppliers: await summaries(env, seeValues), seeValues });
+}
+
+/** O recebido no ano corrente (todos os fornecedores juntos), para o painel. */
+async function getReceived(env: Env, session: Session, now: Date): Promise<Response> {
+  const seeValues = can(session.user.role, 'see_values');
+  const year = spDate(now).slice(0, 4);
+  return json({ year, amount: receivedInYear(await summaries(env, seeValues), year, seeValues), seeValues });
 }
 
 async function updateSupplier(request: Request, env: Env, session: Session, id: string, now: Date): Promise<Response> {
@@ -130,8 +145,12 @@ async function mergeSupplier(request: Request, env: Env, session: Session, id: s
 
 export async function routeSuppliers(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {
   if (key === 'GET /api/suppliers') {
-    if (!can(session.user.role, 'view_all')) return error(403, 'Seu perfil vê só os embarques.');
+    if (!can(session.user.role, 'view_suppliers')) return error(403, 'Seu perfil não vê os fornecedores.');
     return getSuppliers(env, session);
+  }
+  if (key === 'GET /api/received') {
+    if (!can(session.user.role, 'view_all') || !can(session.user.role, 'see_year_totals')) return error(403, 'Seu perfil não vê o painel.');
+    return getReceived(env, session, now);
   }
   const m = /^\/api\/suppliers\/([^/]+)$/.exec(path);
   if (m && request.method === 'PATCH') {

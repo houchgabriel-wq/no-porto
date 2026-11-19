@@ -21,13 +21,15 @@ beforeEach(async () => {
 });
 
 describe('perfil Consulta', () => {
-  it('vê tudo, com valores e pagamentos, e baixa o arquivo do BL', async () => {
+  it('vê painel, produção, embarques e histórico, com valores e pagamentos, e baixa o arquivo do BL', async () => {
     const d = (await app.call('GET', '/api/data', { cookie: who.consulta.cookie })).data;
     expect(d.seeValues).toBe(true);
     expect(d.items).toHaveLength(3);
     expect(d.items[0].unitPriceMicros).toBe(1_750_000);
     expect(d.payments).toHaveLength(1);
-    for (const path of ['/api/history', '/api/suppliers']) expect((await app.call('GET', path, { cookie: who.consulta.cookie })).status).toBe(200);
+    for (const path of ['/api/history', '/api/received', '/api/lookup']) expect((await app.call('GET', path, { cookie: who.consulta.cookie })).status, path).toBe(200);
+    // Fornecedores e solicitações de embarque são só de admin e editor (decidido em 19/11/2026).
+    for (const path of ['/api/suppliers', '/api/bookings']) expect((await app.call('GET', path, { cookie: who.consulta.cookie })).status, path).toBe(403);
     expect((await app.raw('GET', `/api/bills/${d.bills[0].id}/document`, { cookie: who.consulta.cookie })).status).toBe(200);
   });
 
