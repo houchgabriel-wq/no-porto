@@ -16,7 +16,7 @@ describe('can', () => {
   });
 
   it('Vendas só vê a lista de produtos a caminho: sem a tela de embarques completa, histórico e valores', () => {
-    for (const action of ['view_shipments', 'view_all', 'view_history', 'see_year_totals', 'see_values', 'edit', 'import', 'delete', 'manage_users', 'view_bookings', 'request_bookings', 'decide_bookings'] as const) {
+    for (const action of ['view_shipments', 'view_all', 'view_suppliers', 'view_history', 'see_year_totals', 'see_values', 'edit', 'import', 'delete', 'manage_users', 'view_bookings', 'request_bookings', 'decide_bookings'] as const) {
       expect(can('vendas', action)).toBe(false);
     }
     for (const role of ['admin', 'editor', 'consulta', 'leitor', 'embarques'] as const) expect(can(role, 'view_shipments')).toBe(true);
@@ -31,6 +31,11 @@ describe('can', () => {
   it('leitor e Embarques não veem valores; Consulta vê', () => {
     for (const role of ['admin', 'editor', 'consulta'] as const) expect(can(role, 'see_values')).toBe(true);
     for (const role of ['leitor', 'embarques', 'vendas', 'agente'] as const) expect(can(role, 'see_values')).toBe(false);
+  });
+
+  it('só admin e editor veem os fornecedores (decidido em 19/11/2026)', () => {
+    for (const role of ['admin', 'editor'] as const) expect(can(role, 'view_suppliers')).toBe(true);
+    for (const role of ['consulta', 'leitor', 'embarques', 'vendas', 'agente'] as const) expect(can(role, 'view_suppliers'), role).toBe(false);
   });
 
   it('só admin e editor alteram', () => {
@@ -56,14 +61,14 @@ describe('cópia completa', () => {
 describe('solicitações de embarque', () => {
   it('o Agente pede containers e não vê mais nada do app', () => {
     expect(can('agente', 'request_bookings')).toBe(true);
-    for (const action of ['view', 'view_shipments', 'view_all', 'view_history', 'see_year_totals', 'see_values', 'edit', 'import', 'delete', 'manage_users', 'view_bookings', 'decide_bookings'] as const) {
+    for (const action of ['view', 'view_shipments', 'view_all', 'view_suppliers', 'view_history', 'see_year_totals', 'see_values', 'edit', 'import', 'delete', 'manage_users', 'view_bookings', 'decide_bookings'] as const) {
       expect(can('agente', action), action).toBe(false);
     }
   });
 
-  it('admin, editor e Consulta veem todas as solicitações; ninguém da equipe pede', () => {
-    for (const role of ['admin', 'editor', 'consulta'] as const) expect(can(role, 'view_bookings')).toBe(true);
-    for (const role of ['leitor', 'embarques', 'vendas', 'agente'] as const) expect(can(role, 'view_bookings')).toBe(false);
+  it('só admin e editor veem todas as solicitações (decidido em 19/11/2026); ninguém da equipe pede', () => {
+    for (const role of ['admin', 'editor'] as const) expect(can(role, 'view_bookings')).toBe(true);
+    for (const role of ['consulta', 'leitor', 'embarques', 'vendas', 'agente'] as const) expect(can(role, 'view_bookings'), role).toBe(false);
     for (const role of TEAM) expect(can(role, 'request_bookings')).toBe(false);
   });
 
