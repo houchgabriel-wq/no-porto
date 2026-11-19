@@ -11,6 +11,7 @@ import type { CopyInput } from '../core/fullCopy';
 import type { Bill, Invoice, Payment } from '../core/shipments';
 import type { Item, PurchaseOrder, Supplier } from '../core/items';
 import type { Role } from '../core/roles';
+import type { BookingRequest, ContainerType, NewBookingLine } from '../core/bookings';
 
 export interface Me {
   id: string;
@@ -18,6 +19,8 @@ export interface Me {
   email: string;
   role: Role;
   mustChangePassword: boolean;
+  /** Aprova as solicitações de embarque (o Gabriel). */
+  approvesBookings: boolean;
 }
 
 export interface UserSummary {
@@ -29,6 +32,26 @@ export interface UserSummary {
   active: boolean;
   createdAt: string;
   lastLoginAt: string | null;
+  approvesBookings: boolean;
+}
+
+/** Solicitações de embarque (GET /api/bookings): o Agente recebe só as dele; a equipe, todas. */
+export interface BookingsData {
+  /** Hoje (AAAA-MM-DD) no fuso de São Paulo, calculado no servidor. */
+  today: string;
+  requests: BookingRequest[];
+  /** Só id e nome, para o formulário do agente. */
+  suppliers: Supplier[];
+  /** Quem vê pode aprovar e recusar (o Gabriel). */
+  canDecide: boolean;
+}
+
+export interface NewBooking {
+  supplierId: string;
+  departurePort: string;
+  departureDate: string;
+  notes: string;
+  lines: NewBookingLine[];
 }
 
 /** Tudo o que as telas usam (GET /api/data). */
@@ -162,4 +185,10 @@ export const api = {
   updateItem: (id: string, body: Partial<ItemInput>) => request<{ item: Item }>('PATCH', `/api/items/${encodeURIComponent(id)}`, body),
   deleteItem: (id: string) => request<{ ok: true }>('DELETE', `/api/items/${encodeURIComponent(id)}`),
   importProduction: (items: ImportedItem[]) => request<{ inserted: number; skipped: number; withoutOrder: string[] }>('POST', '/api/import/production', { items }),
+  bookings: () => request<BookingsData>('GET', '/api/bookings'),
+  createBooking: (body: NewBooking) => request<{ request: BookingRequest }>('POST', '/api/bookings', body),
+  cancelBooking: (id: string) => request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/cancel`),
+  approveBooking: (id: string, body: { lines: { containerType: ContainerType; approvedQuantity: number }[]; note: string }) =>
+    request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/approve`, body),
+  refuseBooking: (id: string, note: string) => request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/refuse`, { note }),
 };
