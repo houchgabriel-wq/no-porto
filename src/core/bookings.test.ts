@@ -12,6 +12,7 @@ import {
   groupBookings,
   matchesBooking,
   otherBookingsOfSupplier,
+  parseContainerPrice,
   pendingCount,
   portSuggestions,
   sortBookings,
@@ -70,7 +71,32 @@ describe('nova solicitação', () => {
     expect(bookingProblem({ ...valid, lines: [{ ...line, quantity: 1.5 }] }, TODAY)).toBe("Informe quantos containers de 40' HC.");
     expect(bookingProblem({ ...valid, lines: [{ ...line, quantity: 100 }] }, TODAY)).toBe('No máximo 99 containers de cada tipo.');
     expect(bookingProblem({ ...valid, lines: [{ ...line, priceCents: 0 }] }, TODAY)).toBe("Informe o valor de cada container de 40' HC.");
+    expect(bookingProblem({ ...valid, lines: [{ ...line, priceCents: 285 }] }, TODAY)).toBe("O valor de cada container de 40' HC está abaixo de US$ 100,00. Confira.");
+    expect(bookingProblem({ ...valid, lines: [{ ...line, priceCents: 10_000 }] }, TODAY)).toBeNull();
     expect(bookingProblem({ ...valid, lines: [{ containerType: '20', quantity: 1, priceCents: 10_000_001 }] }, TODAY)).toBe("O valor de cada container de 20' passa de US$ 100.000,00. Confira.");
+  });
+});
+
+describe('valor do container digitado', () => {
+  it('ponto ou vírgula seguidos de três dígitos separam os milhares', () => {
+    expect(parseContainerPrice('2.850')).toBe(285_000);
+    expect(parseContainerPrice('2,850')).toBe(285_000);
+    expect(parseContainerPrice('12.300')).toBe(1_230_000);
+    expect(parseContainerPrice('1.234.567')).toBe(123_456_700);
+    expect(parseContainerPrice('US$ 2.850')).toBe(285_000);
+  });
+
+  it('com centavos, sem separador ou com decimal, como o resto do app', () => {
+    expect(parseContainerPrice('2.850,00')).toBe(285_000);
+    expect(parseContainerPrice('2,850.00')).toBe(285_000);
+    expect(parseContainerPrice('2850')).toBe(285_000);
+    expect(parseContainerPrice('2850,5')).toBe(285_050);
+    // "2,85" continua sendo US$ 2,85, e a validação recusa por estar abaixo de US$ 100,00.
+    expect(parseContainerPrice('2,85')).toBe(285);
+  });
+
+  it('o que não é valor', () => {
+    for (const t of ['', 'abc', '1.234,567', '-100']) expect(parseContainerPrice(t), t).toBeNull();
   });
 });
 
