@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findContainer, findIsbn, parseInvoiceDocument, parseOrderDocument, parseQuantity, parseShipmentFile } from './documents';
+import { findContainer, findIsbn, lotsFromComment, parseInvoiceDocument, parseOrderDocument, parseQuantity, parseShipmentFile } from './documents';
 
 const pad = (row: string[], n = 11) => [...row, ...Array(Math.max(0, n - row.length)).fill('')];
 
@@ -53,7 +53,55 @@ describe('parseOrderDocument', () => {
     expect(doc.lines[1]).toMatchObject({ isbn: null, quantity: 10000, specification: 'spec' });
     expect(doc.lines[0]!.specification).toBe('20,5x27,5');
     expect(doc.lines[2]).toMatchObject({ isbn: null, unitPriceMicros: null });
-    expect(doc.warnings).toEqual([{ row: 8, message: expect.stringContaining('ISBN "978-65-6126-058-0" não serve') }]);
+    expect(doc.warnings).toEqual([
+      { row: 7, message: 'Data de envio "asap" não reconhecida; o item entra sem programação de envio.' },
+      { row: 8, message: expect.stringContaining('ISBN "978-65-6126-058-0" não serve') },
+    ]);
+    // "Estimated Shipping Date": o item inteiro no mês da data.
+    expect(doc.lines.map((l) => l.shipPlan)).toEqual([[{ month: '2026-12', quantity: 30000 }], [], []]);
+  });
+
+  it('data de envio da PO-070 da Nicola: a data da coluna e os lotes do comentário', () => {
+    // A coluna de envio vem como data do Excel, que a leitura passa para dia/mês/ano.
+    const head = PO.slice(0, 5);
+    const row = (n: number, name: string, quantity: string, comment: string, ship: string) => [String(n), name, 'spec', 'YES', '', '12', quantity, '1.28', '', comment, ship];
+    const rows = [
+      ...head,
+      row(1, 'Biblioteca Estoica', '5000', 'New order: RUSH – ship by 16-Dec-2026 (out of stock).', '16/12/2026'),
+      row(2, 'Sobre a Brevidade da Vida', '30000', 'Ship in 2 lots: 15,000 pcs by 16-Dec-2026 / 15,000 pcs by 01-Mar-2027 – same unit price for total quantity.', '16/12/2026'),
+      row(3, 'Memórias Póstumas de Brás Cubas', '5000', 'Please ship FIRST the lot already in production (PO-056 – 5,000 pcs) by 01-Dec-2026.\nNew order: RUSH – ship by 16-Dec-2026 (out of stock).', '16/12/2026'),
+      row(4, 'A Arte da Guerra', '10000', 'New order: ship by 06-Jan-2027.', '06/01/2027'),
+      row(5, 'Livro com lotes que não somam', '9000', 'Ship in 2 lots: 5,000 pcs by 16-Dec-2026 / 5,000 pcs by 01-Mar-2027', '16/12/2026'),
+      row(6, 'Livro com lotes e sem a data na coluna', '3000', 'Ship in 3 lots: 1,000 pcs by Dec 2026 / 1,000 pcs by 15-Jan-2027 / 1,000 pcs by 01/03/2027', ''),
+      pad(['TOTAL', 'TOTAL']),
+    ];
+    const doc = parseOrderDocument([{ name: 'NICOLA', rows }], 'PO-070_nicola.xlsx');
+    if ('error' in doc) throw new Error(doc.error);
+    expect(doc.lines.map((l) => [l.description, l.shipPlan])).toEqual([
+      ['Biblioteca Estoica', [{ month: '2026-12', quantity: 5000 }]],
+      [
+        'Sobre a Brevidade da Vida',
+        [
+          { month: '2026-12', quantity: 15000 },
+          { month: '2027-03', quantity: 15000 },
+        ],
+      ],
+      // O lote da PO-056 é de outra PO: vale a data da coluna, com o item inteiro.
+      ['Memórias Póstumas de Brás Cubas', [{ month: '2026-12', quantity: 5000 }]],
+      ['A Arte da Guerra', [{ month: '2027-01', quantity: 10000 }]],
+      ['Livro com lotes que não somam', [{ month: '2026-12', quantity: 9000 }]],
+      [
+        'Livro com lotes e sem a data na coluna',
+        [
+          { month: '2026-12', quantity: 1000 },
+          { month: '2027-01', quantity: 1000 },
+          { month: '2027-03', quantity: 1000 },
+        ],
+      ],
+    ]);
+    expect(doc.warnings).toEqual([{ row: 10, message: 'Os lotes do comentário somam 10.000 exemplares, e a linha tem 9.000; vale a data de envio da coluna.' }]);
+    // O comentário continua nas observações do item.
+    expect(doc.lines[1]!.notes).toMatch(/^Ship in 2 lots/);
   });
 
   it('prefere o número da PO escrito no documento', () => {
@@ -64,6 +112,23 @@ describe('parseOrderDocument', () => {
 
   it('avisa quando não acha a tabela', () => {
     expect(parseOrderDocument([{ name: 'x', rows: [['oi']] }], 'x.xlsx')).toEqual({ error: expect.stringContaining('Não achei os itens') });
+  });
+});
+
+describe('lotes no comentário da PO', () => {
+  it('só valem quando o comentário fala em lotes e eles somam a quantidade da linha', () => {
+    expect(lotsFromComment('Ship in 2 lots: 7,000 pcs by 16-Dec-2026 / 7,000 pcs by 01-Mar-2027', 14000)).toEqual({
+      plan: [
+        { month: '2026-12', quantity: 7000 },
+        { month: '2027-03', quantity: 7000 },
+      ],
+    });
+    // Dois lotes no mesmo mês viram um embarque só.
+    expect(lotsFromComment('Ship in 2 lots: 1,000 pcs by 01-Dec-2026 / 1,000 pcs by 20-Dec-2026', 2000)).toEqual({ plan: [{ month: '2026-12', quantity: 2000 }] });
+    expect(lotsFromComment('New order: RUSH – ship by 16-Dec-2026 (out of stock).', 3000)).toBeNull();
+    expect(lotsFromComment('Please ship FIRST the lot already in production (PO-056 – 5,000 pcs) by 01-Dec-2026.', 5000)).toBeNull();
+    expect(lotsFromComment('Ship in 2 lots, dates to be confirmed', 2000)).toEqual({ error: 'o comentário fala em lotes, mas não deu para ler a quantidade e a data de cada um' });
+    expect(lotsFromComment('Ship in 4 lots: 1 pcs by Jan 2027 / 1 pcs by Feb 2027 / 1 pcs by Mar 2027 / 1 pcs by Apr 2027', 4)).toEqual({ error: 'no máximo 3 embarques na programação de envio' });
   });
 });
 
