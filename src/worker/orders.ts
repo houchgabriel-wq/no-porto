@@ -11,7 +11,7 @@ import { onlyShipped, salesArrivals } from '../core/shippedItems';
 import { cleanSpecification, latestSpecification, SPECIFICATION_MAX } from '../core/specification';
 import { MAX_PARCELS, readStoredPlan, shipPlanProblem, shipPlanText, sortPlan, type ShipPlan } from '../core/shipPlan';
 import { changedInAppText, checkSheetPatch, SHEET_FIELD_LABELS, SHEET_FIELDS, sheetValues, type SheetField, type SheetValues } from '../core/updateSheet';
-import { sameProduct } from '../core/allocation';
+import { planAssignments, sameProduct } from '../core/allocation';
 import { parseDate, spDate, type Bill, type Invoice, type Payment } from '../core/shipments';
 import type { Session } from './auth';
 import type { Env } from './env';
@@ -188,6 +188,7 @@ const orderBody = z.object({
         unitPriceMicros: unitPriceMicros.default(null),
         notes: notes.default(''),
         specification: specification.default(''),
+        shipPlan: shipPlanSchema.default([]),
         row: z.number().int().min(1),
       }),
     )
@@ -713,6 +714,8 @@ async function createOrder(request: Request, env: Env, session: Session, now: Da
   checkMutation(request);
   const body = await readBody(request, orderBody);
   const code = body.code!;
+  const badPlan = body.items.map((i) => ({ row: i.row, problem: shipPlanProblem(i.shipPlan, i.quantity) })).find((p) => p.problem);
+  if (badPlan) return error(400, `Linha ${badPlan.row}: ${badPlan.problem}`);
   const existing = await env.DB.prepare(
     `SELECT COUNT(*) AS n FROM order_items i JOIN purchase_orders o ON o.id = i.purchase_order_id WHERE o.code = ? AND i.deleted_at IS NULL`,
   )
@@ -740,7 +743,7 @@ async function createOrder(request: Request, env: Env, session: Session, now: Da
 
 const specificationsBody = z.object({
   items: z
-    .array(z.object({ description, isbn: isbn.default(null), specification }))
+    .array(z.object({ description, isbn: isbn.default(null), quantity: quantity.optional(), specification: specification.default(''), shipPlan: shipPlanSchema.default([]) }))
     .min(1, 'A PO não tem itens.')
     .max(IMPORT_BATCH, `Envie no máximo ${IMPORT_BATCH} itens por vez.`),
 });
@@ -763,8 +766,10 @@ async function getSpecification(env: Env, id: string): Promise<Response> {
 }
 
 /**
- * Guarda as especificações de uma PO já cadastrada (as que entraram antes deste campo existir): cada
- * linha do arquivo vai para os itens do mesmo produto naquela PO, em produção, no mar ou já entregues.
+ * PO já cadastrada, com o arquivo de novo (as que entraram antes destes campos): cada linha do arquivo
+ * guarda a especificação nos itens do mesmo produto naquela PO, em produção, no mar ou já entregues, e a
+ * programação de envio num item em produção do mesmo produto que ainda não tem (planAssignments). A
+ * programação gravada entra no histórico do item.
  */
 async function saveOrderSpecifications(request: Request, env: Env, session: Session, code: string, now: Date): Promise<Response> {
   checkMutation(request);
@@ -772,13 +777,15 @@ async function saveOrderSpecifications(request: Request, env: Env, session: Sess
   const normalized = normalizeOrderCode(code);
   if (!normalized) return error(400, 'Código de PO inválido.');
   const { results } = await env.DB.prepare(
-    `SELECT i.id, p.isbn, i.description FROM order_items i JOIN products p ON p.id = i.product_id JOIN purchase_orders o ON o.id = i.purchase_order_id
+    `SELECT i.id, p.isbn, i.description, i.status, i.quantity, i.ship_plan FROM order_items i
+       JOIN products p ON p.id = i.product_id JOIN purchase_orders o ON o.id = i.purchase_order_id
       WHERE o.code = ? AND i.deleted_at IS NULL`,
   )
     .bind(normalized)
-    .all<{ id: string; isbn: string | null; description: string }>();
+    .all<{ id: string; isbn: string | null; description: string; status: ItemStatus; quantity: number; ship_plan: string }>();
   if (results.length === 0) return error(404, `A ${normalized} não tem itens cadastrados.`);
   const at = now.toISOString();
+  const userId = session.user.id;
   const statements: D1PreparedStatement[] = [];
   const updated = new Set<string>();
   for (const line of body.items) {
@@ -786,11 +793,21 @@ async function saveOrderSpecifications(request: Request, env: Env, session: Sess
     for (const item of results) {
       if (updated.has(item.id) || !sameProduct(line, item)) continue;
       updated.add(item.id);
-      statements.push(env.DB.prepare('UPDATE order_items SET specification = ?, updated_at = ?, updated_by = ? WHERE id = ?').bind(line.specification, at, session.user.id, item.id));
+      statements.push(env.DB.prepare('UPDATE order_items SET specification = ?, updated_at = ?, updated_by = ? WHERE id = ?').bind(line.specification, at, userId, item.id));
     }
   }
+  const plans = planAssignments(
+    body.items.map((l) => ({ ...l, quantity: l.quantity ?? 0 })),
+    results.map((r) => ({ ...r, shipPlan: readStoredPlan(r.ship_plan) })),
+  );
+  for (const { itemId, plan } of plans.assign) {
+    statements.push(
+      env.DB.prepare('UPDATE order_items SET ship_plan = ?, updated_at = ?, updated_by = ? WHERE id = ?').bind(JSON.stringify(sortPlan(plan)), at, userId, itemId),
+      eventStatement(env, itemId, userId, 'changed', { changes: [{ field: TRACKED.shipPlan, from: '', to: shipPlanText(plan) }], source: 'pedido', order: normalized }, at),
+    );
+  }
   if (statements.length) await env.DB.batch(statements);
-  return json({ updated: updated.size, items: results.length });
+  return json({ updated: updated.size, items: results.length, planned: plans.assign.length, kept: plans.kept, notFit: plans.notFit });
 }
 
 export async function routeOrders(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {

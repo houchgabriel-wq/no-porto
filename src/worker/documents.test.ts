@@ -54,6 +54,68 @@ describe('novo pedido', () => {
   });
 });
 
+describe('data de envio da PO', () => {
+  const dez = (quantity: number) => [{ month: '2026-12', quantity }];
+  type Planned = Row & { shipPlan: { month: string; quantity: number }[] };
+  const planned = async () => ((await data()).items as Planned[]).map((i) => [i.description, i.status, i.shipPlan]);
+
+  it('o Novo pedido grava a programação de envio de cada linha', async () => {
+    await order('PO-070', 'Nicola', [
+      line({ shipPlan: dez(1000) }),
+      line({ row: 8, description: 'Sobre a Brevidade da Vida', isbn: null, quantity: 30000, shipPlan: [{ month: '2027-03', quantity: 15000 }, { month: '2026-12', quantity: 15000 }] }),
+      line({ row: 9, description: 'Livro sem data', isbn: null }),
+    ]);
+    expect(await planned()).toEqual([
+      ['Coleção Alice', 'producao', dez(1000)],
+      ['Sobre a Brevidade da Vida', 'producao', [{ month: '2026-12', quantity: 15000 }, { month: '2027-03', quantity: 15000 }]],
+      ['Livro sem data', 'producao', []],
+    ]);
+  });
+
+  it('recusa programação que soma mais que a linha', async () => {
+    const res = await app.call('POST', '/api/orders', { cookie: who.editor.cookie, body: { code: 'PO-070', supplier: 'Nicola', items: [line({ row: 12, shipPlan: dez(2000) })] } });
+    expect(res.status).toBe(400);
+    expect(res.data.error).toBe('Linha 12: A programação de envio soma 2.000 exemplares, mais que os 1.000 do item.');
+  });
+
+  it('PO já cadastrada: o arquivo de novo preenche a programação dos itens que ainda não têm, com histórico', async () => {
+    // A PO-070 entrou sem as datas; depois, alguém programou um item na ficha e parte de outro embarcou.
+    await order('PO-070', 'Nicola', [
+      line({}),
+      line({ row: 8, description: 'Livro da ficha', isbn: null, quantity: 500 }),
+      line({ row: 9, description: 'Livro que embarcou em parte', isbn: null, quantity: 3000 }),
+    ]);
+    const before = (await data()).items as Planned[];
+    const byName = (name: string) => before.find((i) => i.description === name)!;
+    await app.call('PATCH', `/api/items/${byName('Livro da ficha').id}`, { cookie: who.editor.cookie, body: { shipPlan: [{ month: '2027-02', quantity: 500 }] } });
+    await app.call('POST', '/api/ship', { cookie: who.editor.cookie, body: { lines: [{ itemId: byName('Livro que embarcou em parte').id, quantity: 1000 }], newInvoice: { number: 'N1', ref: '', bill: null, eta: null } } });
+
+    const res = await app.call('POST', '/api/orders/PO-070/specifications', {
+      cookie: who.editor.cookie,
+      body: {
+        items: [
+          { description: 'Coleção Alice', isbn: ALICE, quantity: 1000, specification: '', shipPlan: dez(1000) },
+          { description: 'Livro da ficha', isbn: null, quantity: 500, specification: '', shipPlan: dez(500) },
+          { description: 'Livro que embarcou em parte', isbn: null, quantity: 3000, specification: '', shipPlan: dez(3000) },
+        ],
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(res.data).toEqual({ updated: 0, items: 4, planned: 1, kept: 1, notFit: 1 });
+    expect(await planned()).toEqual([
+      ['Coleção Alice', 'producao', dez(1000)],
+      ['Livro da ficha', 'producao', [{ month: '2027-02', quantity: 500 }]],
+      ['Livro que embarcou em parte', 'producao', []],
+      ['Livro que embarcou em parte', 'embarcado', []],
+    ]);
+    const alice = byName('Coleção Alice').id;
+    const { results } = await app.env.DB.prepare("SELECT detail FROM events WHERE entity_id = ? AND type = 'changed'").bind(alice).all<{ detail: string }>();
+    expect(results.map((r) => JSON.parse(r.detail))).toEqual([{ changes: [{ field: 'Programação de envio', from: '', to: 'dez/2026: 1.000' }], source: 'pedido', order: 'PO-070' }]);
+    // A Consulta não grava.
+    expect((await app.call('POST', '/api/orders/PO-070/specifications', { cookie: who.consulta.cookie, body: { items: [{ description: 'x', isbn: null, shipPlan: dez(1) }] } })).status).toBe(403);
+  });
+});
+
 describe('novo embarque pela invoice', () => {
   const ship = (body: object, cookie = who.editor.cookie) => app.call('POST', '/api/shipments', { cookie, body });
   const invoice = (supplierId: string, number: string, lines: object[], over: object = {}) => ({ supplierId, number, ref: '', container: '', lines, ...over });
@@ -363,7 +425,7 @@ describe('especificação do produto', () => {
       cookie: who.editor.cookie,
       body: { items: [{ description: 'Coleção Alice', isbn: ALICE, specification: 'Box C1S 400gsm' }, { description: 'Outro livro', isbn: null, specification: 'x' }] },
     });
-    expect(res.data).toEqual({ updated: 1, items: 2 });
+    expect(res.data).toEqual({ updated: 1, items: 2, planned: 0, kept: 0, notFit: 0 });
     const all = await items();
     expect((await spec(all.find((i) => i.isbn === ALICE)!.id)).data.specification).toBe('Box C1S 400gsm');
     expect((await spec(all.find((i) => i.isbn === ODISSEIA)!.id)).data.specification).toBe('');
