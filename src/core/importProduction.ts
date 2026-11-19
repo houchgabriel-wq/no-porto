@@ -8,6 +8,7 @@ import { itemTotalCents, looksLikeReais, parseCents, parseSheetUnitPrice } from 
 import { parseDate } from './shipments';
 import { parseShipPlanText, type ShipPlan } from './shipPlan';
 import { cleanSpecification } from './specification';
+import { isItemCodeHeader } from './updateSheet';
 
 /** Itens por envio ao servidor; a planilha vai em partes deste tamanho. */
 export const IMPORT_BATCH = 500;
@@ -206,6 +207,22 @@ export function readItemCells(cell: (col: keyof typeof ITEM_HEADERS) => string, 
   };
 }
 
+/**
+ * A lista baixada pelo "Baixar .xlsx" da Produção não é a status_importações: a carga só acrescenta e
+ * repetiria os itens que já estão cadastrados. A lista tem o código do item no fim (as baixadas antes
+ * dele, a coluna "PO" com título, que a status_importações não tem).
+ */
+function appListProblem(keys: readonly string[]): string | null {
+  const repeat = 'A carga só acrescenta itens e repetiria os que já estão cadastrados.';
+  if (keys.some(isItemCodeHeader)) {
+    return `Esta é a lista baixada do No Porto. ${repeat} Para gravar o que você mudou nela (aprovação do arquivo, programação de envio e observações), use "Atualizar pela planilha", na Produção.`;
+  }
+  if (keys.includes('po')) {
+    return `Esta parece ser a lista baixada do No Porto. ${repeat} Para gravar o que mudou nela, baixe a lista de novo pelo "Baixar .xlsx" da Produção (agora ela traz o código de cada item) e use "Atualizar pela planilha".`;
+  }
+  return null;
+}
+
 /** A coluna da PO não tem título: é a coluna sem título com mais códigos "PO-0xx". */
 function findOrderColumn(rows: readonly string[][], header: SheetHeader<string>): number | null {
   let orderCol: number | null = null;
@@ -226,6 +243,8 @@ function findOrderColumn(rows: readonly string[][], header: SheetHeader<string>)
 export function parseProductionRows(rows: readonly string[][]): ImportReport | { error: string } {
   const header = findHeader(rows, {});
   if (!header) return { error: 'Não achei o cabeçalho da aba Produção (a linha com "Produto" e "Quantidade").' };
+  const appList = appListProblem(header.keys);
+  if (appList) return { error: appList };
   const { cols } = header;
   if (cols.description === undefined || cols.quantity === undefined) {
     return { error: 'A aba precisa das colunas "Produto" e "Quantidade".' };

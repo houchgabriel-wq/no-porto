@@ -150,6 +150,20 @@ describe('carga da aba Produção', () => {
   it('avisa quando não acha o cabeçalho', () => {
     expect(parseProductionRows([['a', 'b'], ['1', '2']])).toEqual({ error: expect.stringContaining('cabeçalho') });
   });
+
+  it('não lê a lista baixada do próprio app, que repetiria os itens: manda para o "Atualizar pela planilha"', () => {
+    const line = ['PO-053', 'Claire', 'Livro Café com Aristóteles', '9786560950856', '6000', '40', '', '', 'Capa dura'];
+    const list = ['PO', 'Fornecedor', 'Produto', 'ISBN', 'Quantidade', 'pcs/ctn', 'Aprovação do arquivo', 'Programação de envio', 'Observações'];
+    expect(parseProductionRows([[...list, 'Código do item (não altere)'], [...line, 'a1.000000000000000000']])).toEqual({
+      error:
+        'Esta é a lista baixada do No Porto. A carga só acrescenta itens e repetiria os que já estão cadastrados. Para gravar o que você mudou nela (aprovação do arquivo, programação de envio e observações), use "Atualizar pela planilha", na Produção.',
+    });
+    // A lista baixada antes do código: a coluna "PO" com título, que a status_importações não tem.
+    expect(parseProductionRows([list, line])).toEqual({
+      error:
+        'Esta parece ser a lista baixada do No Porto. A carga só acrescenta itens e repetiria os que já estão cadastrados. Para gravar o que mudou nela, baixe a lista de novo pelo "Baixar .xlsx" da Produção (agora ela traz o código de cada item) e use "Atualizar pela planilha".',
+    });
+  });
 });
 
 describe('uma PO, um fornecedor, na carga', () => {
