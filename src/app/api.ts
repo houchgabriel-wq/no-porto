@@ -163,8 +163,9 @@ export const api = {
   deleteBill: (id: string) => request<{ back: number; merged: number; removed: number; invoices: number }>('DELETE', `/api/bills/${encodeURIComponent(id)}`),
   itemSpecification: (id: string) =>
     request<{ specification: string; latest: { specification: string; createdAt: string; orderCode: string | null } | null }>('GET', `/api/items/${encodeURIComponent(id)}/specification`),
-  saveOrderSpecifications: (code: string, items: { description: string; isbn: string | null; specification: string }[]) =>
-    request<{ updated: number; items: number }>('POST', `/api/orders/${encodeURIComponent(code)}/specifications`, { items }),
+  /** PO já cadastrada: guarda a especificação e a programação de envio do arquivo nos itens dela. */
+  saveOrderDetails: (code: string, items: { description: string; isbn: string | null; quantity: number; specification: string; shipPlan: ShipPlan }[]) =>
+    request<{ updated: number; items: number; planned: number; kept: number; notFit: number }>('POST', `/api/orders/${encodeURIComponent(code)}/specifications`, { items }),
   registerArrival: (invoiceIds: string[], arrivedAt: string) => request<{ invoices: number }>('POST', '/api/arrivals', { invoiceIds, arrivedAt }),
   reset: (confirm: string) => request<{ items: number }>('POST', '/api/reset', { confirm }),
   importShipments: (items: ImportedShipmentItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/shipments', { items }),
