@@ -10,6 +10,7 @@ import { can } from '../core/roles';
 import { onlyShipped, salesArrivals } from '../core/shippedItems';
 import { cleanSpecification, latestSpecification, SPECIFICATION_MAX } from '../core/specification';
 import { MAX_PARCELS, readStoredPlan, shipPlanProblem, shipPlanText, sortPlan, type ShipPlan } from '../core/shipPlan';
+import { changedInAppText, checkSheetPatch, SHEET_FIELD_LABELS, SHEET_FIELDS, sheetValues, type SheetField, type SheetValues } from '../core/updateSheet';
 import { sameProduct } from '../core/allocation';
 import { parseDate, spDate, type Bill, type Invoice, type Payment } from '../core/shipments';
 import type { Session } from './auth';
@@ -142,6 +143,28 @@ const importBody = z.object({
   items: z
     .array(z.object({ ...itemFields, row: z.number().int().min(1) }))
     .min(1, 'A planilha não tem itens.')
+    .max(IMPORT_BATCH, `Envie no máximo ${IMPORT_BATCH} itens por vez.`),
+});
+
+/** Marca de um campo no código do item (updateSheet.ts). */
+const sheetMark = z.string().regex(/^[0-9a-z]{6}$/, 'Código do item inválido.');
+
+/** Atualizar pela planilha: só os campos que mudaram, cada um com a marca do download. */
+const sheetUpdateBody = z.object({
+  items: z
+    .array(
+      z
+        .object({
+          id: z.string().min(1).max(64),
+          row: z.number().int().min(1),
+          fileApprovedAt: fileApprovedAt.optional(),
+          shipPlan: shipPlanSchema.optional(),
+          notes: notes.optional(),
+          marks: z.object({ fileApprovedAt: sheetMark.optional(), shipPlan: sheetMark.optional(), notes: sheetMark.optional() }),
+        })
+        .refine((i) => SHEET_FIELDS.some((f) => i[f] !== undefined), 'Nada para alterar.'),
+    )
+    .min(1, 'Nenhum item para atualizar.')
     .max(IMPORT_BATCH, `Envie no máximo ${IMPORT_BATCH} itens por vez.`),
 });
 
@@ -587,6 +610,66 @@ async function deleteItem(request: Request, env: Env, session: Session, id: stri
   return json({ ok: true });
 }
 
+/** O valor de um campo como entra no histórico do item (o mesmo formato da ficha). */
+function historyValue(field: SheetField, v: SheetValues): string | null {
+  if (field === 'shipPlan') return shipPlanText(v.shipPlan);
+  return field === 'fileApprovedAt' ? v.fileApprovedAt : v.notes;
+}
+
+/**
+ * Atualizar pela planilha (19/11/2026): grava a aprovação do arquivo, a programação de envio e as
+ * observações que mudaram na lista baixada, só de itens em produção. Um campo só muda se, no app, ele
+ * está como no download (a marca do código do item bate); senão o item é pulado, para não desfazer a
+ * mudança de outra pessoa. Cada item gravado ganha a mudança no histórico.
+ */
+async function updateItemsFromSheet(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
+  checkMutation(request);
+  const body = await readBody(request, sheetUpdateBody);
+  const ids = [...new Set(body.items.map((i) => i.id))];
+  if (ids.length !== body.items.length) return error(400, 'O mesmo item aparece duas vezes.');
+  // Os itens numa consulta só (o D1 aceita no máximo 100 valores por consulta, por isso a lista vai em JSON).
+  const { results } = await env.DB.prepare(`${ITEM_SELECT} WHERE i.id IN (SELECT value FROM json_each(?)) AND i.deleted_at IS NULL`)
+    .bind(JSON.stringify(ids))
+    .all<ItemRow>();
+  const byId = new Map(results.map((r) => [r.id, toItem(r)]));
+  const at = now.toISOString();
+  const statements: D1PreparedStatement[] = [];
+  const skipped: { row: number; message: string }[] = [];
+  for (const input of body.items) {
+    const item = byId.get(input.id);
+    if (!item) {
+      skipped.push({ row: input.row, message: 'O item não está mais no app (pode ter sido excluído).' });
+      continue;
+    }
+    const name = `"${item.description}"`;
+    if (item.status !== 'producao') {
+      skipped.push({ row: input.row, message: `${name} não está mais em produção.` });
+      continue;
+    }
+    const before = sheetValues(item);
+    const check = checkSheetPatch({ ...before, quantity: item.quantity }, { fileApprovedAt: input.fileApprovedAt, shipPlan: input.shipPlan, notes: input.notes }, input.marks);
+    if ('conflict' in check) {
+      skipped.push({ row: input.row, message: `${name}: ${changedInAppText(check.conflict)} enquanto a planilha era conferida. Baixe a lista de novo e confira.` });
+      continue;
+    }
+    if ('problem' in check) {
+      skipped.push({ row: input.row, message: `${name}: ${check.problem.charAt(0).toLowerCase()}${check.problem.slice(1)}` });
+      continue;
+    }
+    if (check.changed.length === 0) continue;
+    const changes = check.changed.map((f) => ({ field: SHEET_FIELD_LABELS[f], from: historyValue(f, before), to: historyValue(f, check.next) }));
+    statements.push(
+      env.DB.prepare(
+        `UPDATE order_items SET file_approved_at = ?, ship_plan = ?, notes = ?, updated_at = ?, updated_by = ?
+          WHERE id = ? AND status = 'producao' AND deleted_at IS NULL`,
+      ).bind(check.next.fileApprovedAt, JSON.stringify(check.next.shipPlan), check.next.notes, at, session.user.id, item.id),
+      eventStatement(env, item.id, session.user.id, 'changed', { changes, source: 'planilha', row: input.row }, at),
+    );
+  }
+  if (statements.length) await env.DB.batch(statements);
+  return json({ updated: statements.length / 2, skipped });
+}
+
 async function importProduction(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
   checkMutation(request);
   const body = await readBody(request, importBody);
@@ -741,6 +824,10 @@ export async function routeOrders(request: Request, env: Env, session: Session, 
   if (key === 'POST /api/items') {
     if (!can(role, 'edit')) return error(403, 'Seu perfil só pode acompanhar.');
     return createItem(request, env, session, now);
+  }
+  if (key === 'PATCH /api/items') {
+    if (!can(role, 'edit')) return error(403, 'Seu perfil só pode acompanhar.');
+    return updateItemsFromSheet(request, env, session, now);
   }
   const match = /^\/api\/items\/([^/]+)$/.exec(path);
   if (match) {
