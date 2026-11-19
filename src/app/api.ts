@@ -6,7 +6,7 @@ import type { ImportedItem } from '../core/importProduction';
 import type { ImportedShipmentItem } from '../core/importShipments';
 import type { ImportedHistoryItem } from '../core/importHistory';
 import type { InvoiceInfo } from '../core/history';
-import type { SupplierSummary } from '../core/suppliers';
+import type { Amount, SupplierSummary } from '../core/suppliers';
 import type { CopyInput } from '../core/fullCopy';
 import type { Bill, Invoice, Payment } from '../core/shipments';
 import type { Item, PurchaseOrder, Supplier } from '../core/items';
@@ -188,6 +188,8 @@ export const api = {
     ),
   importHistory: (items: ImportedHistoryItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/history', { items }),
   suppliers: () => request<{ suppliers: SupplierSummary[]; seeValues: boolean }>('GET', '/api/suppliers'),
+  /** O recebido no ano corrente, para o painel (admin, editor, Consulta e leitor). */
+  received: () => request<{ year: string; amount: Amount; seeValues: boolean }>('GET', '/api/received'),
   fullCopy: () => request<CopyInput>('GET', '/api/export'),
   updateSupplier: (id: string, body: Partial<{ name: string; notes: string }>) =>
     request<{ supplier: { id: string; name: string; notes: string } }>('PATCH', `/api/suppliers/${encodeURIComponent(id)}`, body),

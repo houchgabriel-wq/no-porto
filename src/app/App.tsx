@@ -3,7 +3,7 @@ import { itemExportRows, productionExportColumns } from '../core/exportItems';
 import type { HistoryRow } from '../core/history';
 import { backupDue, backupFileName } from '../core/backup';
 import { copySheets, DELIVERED_HEADER, PRODUCTION_HEADER, SHIPMENTS_HEADER } from '../core/fullCopy';
-import { receivedInYear, type SupplierSummary } from '../core/suppliers';
+import type { Amount, SupplierSummary } from '../core/suppliers';
 import { EMPTY_FILTERS, filterItems, sortItems, type ItemFilters, type ItemSort } from '../core/items';
 import { can, ROLE_LABELS } from '../core/roles';
 import { api, ApiError, setUnauthorizedHandler, type Me } from './api';
@@ -532,9 +532,12 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   }, []);
 
   const seesAll = can(user.role, 'view_all');
-  // O perfil Embarques tem só as telas de embarques e do histórico; as solicitações são de quem vê valores.
-  const allowed = (v: View) => (v === 'solicitacoes' ? seesBookings : seesAll || v === 'embarques' || (v === 'historico' && can(user.role, 'view_history')));
-  const current: View = !allowed(view) ? 'embarques' : view === 'usuarios' && !isAdmin ? 'painel' : view;
+  // Fornecedores e Solicitações são só de admin e editor (decidido em 19/11/2026); o perfil Embarques tem
+  // só as telas de embarques e do histórico.
+  const seesSuppliers = can(user.role, 'view_suppliers');
+  const allowed = (v: View) =>
+    v === 'solicitacoes' ? seesBookings : v === 'fornecedores' ? seesSuppliers : seesAll || v === 'embarques' || (v === 'historico' && can(user.role, 'view_history'));
+  const current: View = !allowed(view) ? (seesAll ? 'painel' : 'embarques') : view === 'usuarios' && !isAdmin ? 'painel' : view;
   const tabs = TABS.filter((t) => allowed(t.view));
   // No celular, as abas rolam de lado: a aba atual fica à vista.
   useEffect(() => {
@@ -554,18 +557,30 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
     if (current === 'historico') void loadHistory();
   }, [current, loadHistory]);
 
-  // Resumo por fornecedor (somado no banco): na tela Fornecedores, no "Recebido no ano" do painel e na
-  // situação do fornecedor, na ficha da solicitação de embarque.
+  // Resumo por fornecedor (somado no banco), para admin e editor: na tela Fornecedores e na situação do
+  // fornecedor, na ficha da solicitação de embarque.
   const loadSuppliers = useCallback(async () => {
     try {
       setSuppliersData(await api.suppliers());
     } catch {
-      // O painel funciona sem o resumo; a tela Fornecedores mostra o carregamento de novo na próxima vez.
+      // A tela Fornecedores mostra o carregamento de novo na próxima vez.
     }
   }, []);
   useEffect(() => {
-    if (current === 'fornecedores' || current === 'painel' || current === 'solicitacoes') void loadSuppliers();
-  }, [current, loadSuppliers, data?.items.length]);
+    if (seesSuppliers && (current === 'fornecedores' || current === 'solicitacoes')) void loadSuppliers();
+  }, [seesSuppliers, current, loadSuppliers, data?.items.length]);
+  // O "Recebido no ano" do painel, para todos que veem o painel (somado no banco).
+  const [received, setReceived] = useState<{ year: string; amount: Amount } | null>(null);
+  const seesReceived = seesAll && can(user.role, 'see_year_totals');
+  useEffect(() => {
+    if (!seesReceived || current !== 'painel') return;
+    api
+      .received()
+      .then((r) => setReceived({ year: r.year, amount: r.amount }))
+      .catch(() => {
+        // O painel funciona sem o recebido no ano.
+      });
+  }, [seesReceived, current, data?.items.length]);
   const thisYear = data?.today.slice(0, 4) ?? String(new Date().getFullYear());
 
   async function exportSuppliers() {
@@ -894,7 +909,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                 onOrder={(id) => goToProduction({ orderId: id })}
                 onShipment={setShipment}
                 onProduct={setProduct}
-                received={suppliersData ? { year: thisYear, amount: receivedInYear(suppliersData.suppliers, thisYear, suppliersData.seeValues) } : null}
+                received={received}
               />
               </>
             ) : current === 'embarques' ? (
