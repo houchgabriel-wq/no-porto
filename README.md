@@ -29,17 +29,18 @@ Antes de enviar mudanças: `npm run typecheck`, `npm test` e `npm run build`. O 
 
 ## Publicar no Cloudflare (passos do Gabriel, uma vez só)
 
-1. No painel do Cloudflare, em **Workers e Pages → Criar aplicativo → Importar um repositório**, escolha este repositório. O nome do projeto precisa ser `no-porto`, igual ao `name` do `wrangler.jsonc`.
-2. Em **Configurações de build**, use `npm run build` como comando de build e `npm run deploy` como comando de deploy. A branch de produção é `main`.
-3. Depois do primeiro deploy (que cria o banco `no-porto`), vá em **Worker → Configurações → Variáveis e segredos** e cadastre o segredo `SETUP_TOKEN` com um código que só você conheça. Cadastre ali, não nas variáveis de **Build**, que só existem durante o build.
-4. Abra `https://no-porto.<sua-conta>.workers.dev`, informe o código e crie a sua conta de admin.
+1. No painel do Cloudflare, em **Armazenamento e bancos de dados → D1 → Criar banco de dados**, crie o banco `no-porto`, igual ao `database_name` do `wrangler.jsonc`. Ele precisa existir antes do primeiro deploy, porque a publicação aplica as migrações do banco antes de subir o código.
+2. Em **Workers e Pages → Criar aplicativo → Importar um repositório**, escolha este repositório. O nome do projeto precisa ser `no-porto`, igual ao `name` do `wrangler.jsonc`.
+3. Em **Configurações de build**, use `npm run build` como comando de build e `npm run deploy` como comando de deploy. A branch de produção é `main`.
+4. Depois do primeiro deploy, vá em **Worker → Configurações → Variáveis e segredos** e cadastre o segredo `SETUP_TOKEN` com um código que só você conheça. Cadastre ali, não nas variáveis de **Build**, que só existem durante o build.
+5. Abra `https://no-porto.<sua-conta>.workers.dev`, informe o código e crie a sua conta de admin.
 
 A partir daí, cada push em `main` publica sozinho. O `SETUP_TOKEN` só serve enquanto não existe nenhum usuário; depois pode ficar lá sem risco.
 
 ### Se uma mudança não aparecer no site
 
-1. Em **Worker → Deployments**, veja se a publicação do último push em `main` rodou e se deu erro.
-2. Em **Configurações → Build**, confira se a branch de produção é `main` e se o comando de deploy é `npm run deploy`. Só esse comando aplica as migrações novas do banco; sem elas, as telas novas dão erro ao carregar.
+1. Em **Worker → Deployments**, veja se a publicação do último push em `main` rodou e se deu erro. Se o erro foi na migração do banco, o código novo não subiu: o site continua na versão anterior, inteiro.
+2. Em **Configurações → Build**, confira se a branch de produção é `main` e se o comando de deploy é `npm run deploy`. Só esse comando aplica as migrações novas do banco (antes de subir o código); sem elas, as telas novas dão erro ao carregar.
 3. Trocar a branch de produção no painel não publica de novo sozinho: a publicação seguinte acontece no próximo push em `main` (ou em **Deployments → Tentar de novo**).
 
 O endereço próprio é **noporto.editoraonline.com.br**. Como o DNS do domínio está na HostGator, e Worker só aceita domínio próprio com o DNS na Cloudflare, ele passa por uma porta de entrada no Cloudflare Pages (pasta `portal/`), como no No Prelo. O passo a passo (criar o projeto Pages, ligar o domínio e o CNAME na HostGator) está em [`portal/README.md`](portal/README.md).

@@ -45,7 +45,7 @@ npm run deploy            publica (quem roda é o Cloudflare, a cada push em mai
 - **Segredos fora do repositório.** Nada de senha, token ou `.dev.vars` em commit. Segredos ficam no painel do Cloudflare.
 - **Senhas:** só hash com sal, nunca em texto, nunca em log.
 - **Regra de negócio mora em `src/core`**, sem depender de banco nem de navegador, e tem teste. Situação dos itens, atraso, saldo da PO, situação de pagamento, somas do painel e permissões são regras de negócio.
-- **Migrações só para frente.** Nunca editar uma migração já publicada; criar a próxima.
+- **Migrações só para frente.** Nunca editar uma migração já publicada; criar a próxima. A publicação aplica as migrações antes de subir o código, então cada migração precisa funcionar também com o código que ainda está no ar: acrescentar, sim; apagar ou renomear o que ele usa, só depois que o código parar de usar.
 - **Antes de dizer que terminou:** `npm run typecheck`, `npm test` e `npm run build` passando, e a tela conferida no navegador nos temas claro e escuro e em largura de celular.
 - **Commits pequenos**, um assunto por commit. Depois que a publicação automática estiver ligada, tudo o que entra em `main` vai ao ar: só envie para `main` o que passou nas conferências acima, e use branch com pull request para mudanças maiores.
 
