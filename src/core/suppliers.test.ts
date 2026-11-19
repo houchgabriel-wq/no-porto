@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { receivedInYear, supplierSummaries, type SupplierSumRow } from './suppliers';
+import { mergedSupplierNotes, receivedInYear, SUPPLIER_NOTES_MAX, supplierSummaries, type SupplierSumRow } from './suppliers';
 
 const suppliers = [
   { id: 's1', name: 'Sara', notes: '' },
@@ -50,5 +50,20 @@ describe('resumo por fornecedor', () => {
     const all = supplierSummaries(rows, suppliers, true);
     expect(receivedInYear(all, '2026', true)).toEqual({ items: 5, quantity: 50_000, valueCents: 2_000_000 });
     expect(receivedInYear(all, '2024', false)).toEqual({ items: 0, quantity: 0 });
+  });
+});
+
+describe('juntar fornecedores', () => {
+  it('soma as observações e guarda o nome antigo', () => {
+    expect(mergedSupplierNotes({ notes: 'Contato: Ricky' }, { name: 'Lilian', notes: 'Paga em 30 dias' })).toBe('Contato: Ricky\n\nPaga em 30 dias\n\nTambém aparecia como Lilian.');
+  });
+  it('sem observações, fica só o nome antigo; observação repetida aparece uma vez', () => {
+    expect(mergedSupplierNotes({ notes: '' }, { name: 'Lilian', notes: '  ' })).toBe('Também aparecia como Lilian.');
+    expect(mergedSupplierNotes({ notes: 'FOB' }, { name: 'Lilian', notes: 'FOB' })).toBe('FOB\n\nTambém aparecia como Lilian.');
+  });
+  it('não passa do limite das observações', () => {
+    const notes = mergedSupplierNotes({ notes: 'a'.repeat(1500) }, { name: 'Lilian', notes: 'b'.repeat(1500) });
+    expect(notes).toHaveLength(SUPPLIER_NOTES_MAX);
+    expect(notes.endsWith('…')).toBe(true);
   });
 });

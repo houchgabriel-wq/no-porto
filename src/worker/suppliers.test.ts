@@ -82,3 +82,43 @@ describe('cópia completa', () => {
     expect(res.data.items[0]).toMatchObject({ unitPriceMicros: 575_000, purchaseOrderId: expect.any(String) });
   });
 });
+
+describe('juntar fornecedores', () => {
+  it('o admin junta a Lilian na Ricky: produção, embarques e entregues passam, e a Lilian some', async () => {
+    await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: item({ supplier: 'Ricky', description: 'Do Ricky', orderCode: 'PO-070' }) });
+    await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: item({ supplier: 'Lilian', description: 'Da Lilian', orderCode: 'PO-071', quantity: 500 }) });
+    const shipped = (await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: item({ supplier: 'Lilian', description: 'No mar', orderCode: 'PO-071', quantity: 2000 }) })).data.item;
+    await app.call('POST', '/api/ship', { cookie: who.editor.cookie, body: { lines: [{ itemId: shipped.id, quantity: 2000 }], newInvoice: { number: 'L-1', ref: '', bill: 'BL-9', eta: null } } });
+    await app.call('POST', '/api/import/history', { cookie: who.admin.cookie, body: { items: [history({ supplier: 'Lilian' })] } });
+
+    const before = (await summary()).suppliers as { supplierId: string; name: string }[];
+    const ricky = before.find((s) => s.name === 'Ricky')!.supplierId;
+    const lilian = before.find((s) => s.name === 'Lilian')!.supplierId;
+    await app.call('PATCH', `/api/suppliers/${lilian}`, { cookie: who.admin.cookie, body: { notes: 'Paga em 30 dias' } });
+
+    expect((await app.call('POST', `/api/suppliers/${lilian}/merge`, { cookie: who.editor.cookie, body: { into: ricky } })).status).toBe(403);
+    expect((await app.call('POST', `/api/suppliers/${lilian}/merge`, { cookie: who.admin.cookie, body: { into: lilian } })).status).toBe(400);
+    expect((await app.call('POST', `/api/suppliers/${lilian}/merge`, { cookie: who.admin.cookie, body: { into: 'nao-existe' } })).status).toBe(404);
+
+    const res = await app.call('POST', `/api/suppliers/${lilian}/merge`, { cookie: who.admin.cookie, body: { into: ricky } });
+    expect(res.status).toBe(200);
+    expect(res.data.moved).toEqual({ items: 3, invoices: 2 });
+
+    const { suppliers } = await summary();
+    expect(suppliers).toHaveLength(1);
+    expect(suppliers[0]).toMatchObject({
+      supplierId: ricky,
+      name: 'Ricky',
+      notes: 'Paga em 30 dias\n\nTambém aparecia como Lilian.',
+      production: { items: 2, quantity: 1500 },
+      atSea: { items: 1, quantity: 2000 },
+      delivered: { items: 1, quantity: 3 },
+    });
+    // Nos embarques e no histórico, tudo aparece com a Ricky.
+    const data = (await app.call('GET', '/api/data', { cookie: who.admin.cookie })).data;
+    expect(new Set(data.items.map((i: { supplierId: string }) => i.supplierId))).toEqual(new Set([ricky]));
+    expect(data.suppliers.map((s: { name: string }) => s.name)).toEqual(['Ricky']);
+    // Juntar de novo o que já saiu não acha o fornecedor.
+    expect((await app.call('POST', `/api/suppliers/${lilian}/merge`, { cookie: who.admin.cookie, body: { into: ricky } })).status).toBe(404);
+  });
+});

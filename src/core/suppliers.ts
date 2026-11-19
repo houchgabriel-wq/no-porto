@@ -99,3 +99,18 @@ export function receivedInYear(summaries: readonly SupplierSummary[], year: stri
   }
   return total;
 }
+
+/** Tamanho máximo das observações de um fornecedor (o mesmo limite da ficha). */
+export const SUPPLIER_NOTES_MAX = 2000;
+
+/**
+ * Juntar dois fornecedores que são a mesma empresa (pedido pelo Gabriel em 19/11/2026: Ricky e
+ * Lilian): as observações do que fica e as do que sai, mais uma linha dizendo o nome antigo, para
+ * quem procurar por ele saber onde foi parar. Cabe no limite das observações.
+ */
+export function mergedSupplierNotes(keep: { notes: string }, gone: { name: string; notes: string }): string {
+  const parts = [keep.notes.trim(), gone.notes.trim()].filter((p, i, all) => p !== '' && all.indexOf(p) === i);
+  parts.push(`Também aparecia como ${gone.name}.`);
+  const text = parts.join('\n\n');
+  return text.length <= SUPPLIER_NOTES_MAX ? text : `${text.slice(0, SUPPLIER_NOTES_MAX - 1)}…`;
+}

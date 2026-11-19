@@ -3,7 +3,7 @@
 
 import { z } from 'zod';
 import { can } from '../core/roles';
-import { supplierSummaries, type SupplierSumRow } from '../core/suppliers';
+import { mergedSupplierNotes, supplierSummaries, type SupplierSumRow } from '../core/suppliers';
 import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, json, readBody } from './http';
@@ -86,6 +86,48 @@ async function updateSupplier(request: Request, env: Env, session: Session, id: 
   return json({ supplier: { id, ...next } });
 }
 
+const mergeBody = z.object({ into: z.string().min(1, 'Escolha o fornecedor que fica.') });
+
+/**
+ * Junta dois fornecedores que são a mesma empresa: tudo o que é do que sai (itens em produção,
+ * embarcados e entregues, invoices, BLs e solicitações de embarque) passa para o que fica, as
+ * observações se somam e o que sai deixa de existir. Só o admin, como as exclusões.
+ */
+async function mergeSupplier(request: Request, env: Env, session: Session, id: string, now: Date): Promise<Response> {
+  checkMutation(request);
+  const { into } = await readBody(request, mergeBody);
+  if (into === id) return error(400, 'Escolha outro fornecedor para juntar.');
+  const [gone, keep] = await Promise.all(
+    [id, into].map((x) => env.DB.prepare('SELECT id, name, notes FROM suppliers WHERE id = ?').bind(x).first<{ id: string; name: string; notes: string }>()),
+  );
+  if (!gone || !keep) return error(404, 'Fornecedor não encontrado.');
+  const counts = await env.DB.prepare(
+    `SELECT (SELECT COUNT(*) FROM order_items WHERE supplier_id = ?1 AND deleted_at IS NULL) AS items,
+            (SELECT COUNT(*) FROM invoices WHERE supplier_id = ?1) AS invoices`,
+  )
+    .bind(id)
+    .first<{ items: number; invoices: number }>();
+  const notes = mergedSupplierNotes(keep, gone);
+  const at = now.toISOString();
+  const move = (table: string) => env.DB.prepare(`UPDATE ${table} SET supplier_id = ? WHERE supplier_id = ?`).bind(into, id);
+  await env.DB.batch([
+    move('order_items'),
+    move('invoices'),
+    move('bills_of_lading'),
+    move('booking_requests'),
+    env.DB.prepare('UPDATE suppliers SET notes = ? WHERE id = ?').bind(notes, into),
+    env.DB.prepare("INSERT INTO events (id, entity, entity_id, user_id, type, detail, created_at) VALUES (?, 'supplier', ?, ?, 'merged', ?, ?)").bind(
+      crypto.randomUUID(),
+      into,
+      session.user.id,
+      JSON.stringify({ from: { id, name: gone.name, notes: gone.notes }, items: counts?.items ?? 0, invoices: counts?.invoices ?? 0 }),
+      at,
+    ),
+    env.DB.prepare('DELETE FROM suppliers WHERE id = ?').bind(id),
+  ]);
+  return json({ supplier: { id: into, name: keep.name, notes }, moved: { items: counts?.items ?? 0, invoices: counts?.invoices ?? 0 } });
+}
+
 export async function routeSuppliers(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {
   if (key === 'GET /api/suppliers') {
     if (!can(session.user.role, 'view_all')) return error(403, 'Seu perfil vê só os embarques.');
@@ -95,6 +137,11 @@ export async function routeSuppliers(request: Request, env: Env, session: Sessio
   if (m && request.method === 'PATCH') {
     if (!can(session.user.role, 'edit')) return error(403, 'Seu perfil só pode acompanhar.');
     return updateSupplier(request, env, session, decodeURIComponent(m[1]!), now);
+  }
+  const merge = /^\/api\/suppliers\/([^/]+)\/merge$/.exec(path);
+  if (merge && request.method === 'POST') {
+    if (!can(session.user.role, 'delete')) return error(403, 'Só o administrador junta fornecedores.');
+    return mergeSupplier(request, env, session, decodeURIComponent(merge[1]!), now);
   }
   return null;
 }
