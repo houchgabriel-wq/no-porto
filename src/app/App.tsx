@@ -984,6 +984,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
       {data && <ProductDialog productId={product} suppliers={data.suppliers} onClose={() => setProduct(null)} />}
       <SupplierDialog
         supplier={supplier}
+        all={suppliersData?.suppliers ?? []}
         me={user}
         seeValues={suppliersData?.seeValues ?? false}
         onClose={() => setSupplier(null)}

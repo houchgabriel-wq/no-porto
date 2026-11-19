@@ -1,6 +1,7 @@
 // Tela Fornecedores (SPEC.md, seção 5): o que cada fornecedor tem em produção e no mar, o que
 // entregou no ano e no total, e a última chegada. A ficha mostra o entregue por ano e permite
-// corrigir o nome e anotar observações. O leitor vê exemplares no lugar dos valores.
+// corrigir o nome e anotar observações; o admin junta dois fornecedores que são a mesma empresa. O
+// leitor vê exemplares no lugar dos valores.
 
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { formatQuantity, formatUsdWhole } from '../core/money';
@@ -85,8 +86,16 @@ export function SuppliersView({ data, year, onOpen, actions }: Props) {
   );
 }
 
+/** O que a confirmação de juntar diz que vai passar de um fornecedor para o outro. */
+function movedText(gone: SupplierSummary, keepName: string): string {
+  const n = gone.production.items + gone.atSea.items + gone.delivered.items;
+  if (n === 0) return `${gone.name} não tem itens; só o nome deixa de aparecer.`;
+  return `${n === 1 ? 'O item' : `Os ${itemsCount(n)}`} de ${gone.name} ${n === 1 ? 'passa' : 'passam'} para ${keepName}.`;
+}
+
 export function SupplierDialog({
   supplier,
+  all,
   me,
   seeValues,
   onClose,
@@ -94,6 +103,8 @@ export function SupplierDialog({
   onProduction,
 }: {
   supplier: SupplierSummary | null;
+  /** Todos os fornecedores, para escolher com qual juntar. */
+  all: readonly SupplierSummary[];
   me: Me;
   seeValues: boolean;
   onClose: () => void;
@@ -106,12 +117,19 @@ export function SupplierDialog({
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const canMerge = can(me.role, 'delete') && supplier?.supplierId !== null;
+  const [merging, setMerging] = useState(false);
+  const [into, setInto] = useState('');
+  const [confirmMerge, setConfirmMerge] = useState(false);
 
   useEffect(() => {
     setName(supplier?.name ?? '');
     setNotes(supplier?.notes ?? '');
     setError(null);
     setBusy(false);
+    setMerging(false);
+    setInto('');
+    setConfirmMerge(false);
   }, [supplier]);
 
   if (!supplier) return <Dialog title="Fornecedor" open={false} onClose={onClose} />;
@@ -126,6 +144,23 @@ export function SupplierDialog({
       onClose();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Não foi possível salvar.');
+      setBusy(false);
+    }
+  }
+
+  const others = all.filter((s) => s.supplierId && s.supplierId !== supplier.supplierId);
+  const target = others.find((s) => s.supplierId === into);
+
+  async function merge() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.mergeSupplier(supplier!.supplierId!, into);
+      onSaved(`${supplier!.name} agora faz parte de ${res.supplier.name}.`);
+      onClose();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Não foi possível juntar os fornecedores.');
+      setConfirmMerge(false);
       setBusy(false);
     }
   }
@@ -198,6 +233,77 @@ export function SupplierDialog({
               <textarea id={`${ids}-o`} className="campo" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Contato, prazos, condições de pagamento…" />
             </div>
           </fieldset>
+          {canMerge && others.length > 0 && (
+            <div className="dlg-corpo juntar-caixa">
+              {!merging ? (
+                <button type="button" className="btn-texto alinha-inicio" onClick={() => setMerging(true)} disabled={busy}>
+                  <Icon name="pessoas" /> Juntar com outro fornecedor
+                </button>
+              ) : (
+                <section className="juntar" aria-labelledby={`${ids}-jt`}>
+                  <h3 id={`${ids}-jt`}>Juntar com outro fornecedor</h3>
+                  <p className="mudo">
+                    Para quando são a mesma empresa. Tudo o que é de {supplier.name} (produção, embarques, histórico e solicitações de embarque) passa para o
+                    fornecedor escolhido, as observações se somam e {supplier.name} deixa de aparecer.
+                  </p>
+                  <div className="juntar-linha">
+                    <div className="grupo">
+                      <label className="rotulo" htmlFor={`${ids}-j`}>
+                        Passar tudo para
+                      </label>
+                      <select
+                        id={`${ids}-j`}
+                        className="campo"
+                        value={into}
+                        disabled={busy || confirmMerge}
+                        onChange={(e) => setInto(e.target.value)}
+                      >
+                        <option value="">Escolha o fornecedor</option>
+                        {others.map((s) => (
+                          <option key={s.supplierId} value={s.supplierId!}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button type="button" className="btn" disabled={!target || busy || confirmMerge} onClick={() => setConfirmMerge(true)}>
+                      Juntar…
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-texto"
+                      disabled={busy}
+                      onClick={() => {
+                        setMerging(false);
+                        setInto('');
+                        setConfirmMerge(false);
+                      }}
+                    >
+                      Desistir
+                    </button>
+                  </div>
+                  {confirmMerge && target && (
+                    <div className="confirma-exclusao confirma-juntar" role="alertdialog" aria-label={`Juntar ${supplier.name} em ${target.name}`}>
+                      <p>
+                        <b>
+                          Juntar {supplier.name} em {target.name}?
+                        </b>{' '}
+                        {movedText(supplier, target.name)} Não dá para desfazer pelo app.
+                      </p>
+                      <div className="confirma-acoes">
+                        <button type="button" className="btn" onClick={() => setConfirmMerge(false)} disabled={busy} autoFocus>
+                          Cancelar
+                        </button>
+                        <button type="button" className="btn primario" onClick={() => void merge()} disabled={busy}>
+                          {busy ? 'Juntando…' : `Juntar em ${target.name}`}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
+            </div>
+          )}
           <div className="dlg-corpo sem-topo">
             <FormError message={error} />
           </div>

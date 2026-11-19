@@ -181,6 +181,8 @@ export const api = {
   fullCopy: () => request<CopyInput>('GET', '/api/export'),
   updateSupplier: (id: string, body: Partial<{ name: string; notes: string }>) =>
     request<{ supplier: { id: string; name: string; notes: string } }>('PATCH', `/api/suppliers/${encodeURIComponent(id)}`, body),
+  mergeSupplier: (id: string, into: string) =>
+    request<{ supplier: { id: string; name: string; notes: string }; moved: { items: number; invoices: number } }>('POST', `/api/suppliers/${encodeURIComponent(id)}/merge`, { into }),
   createItem: (body: ItemInput) => request<{ item: Item }>('POST', '/api/items', body),
   updateItem: (id: string, body: Partial<ItemInput>) => request<{ item: Item }>('PATCH', `/api/items/${encodeURIComponent(id)}`, body),
   deleteItem: (id: string) => request<{ ok: true }>('DELETE', `/api/items/${encodeURIComponent(id)}`),

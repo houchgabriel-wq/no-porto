@@ -1348,3 +1348,11 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
   .abas .aba { position: relative; }
   .abas .aba .aba-conta { position: absolute; top: 3px; right: 3px; min-width: 18px; height: 18px; padding: 0 5px; font-size: 11px; }
 }
+/* Juntar fornecedores (ficha do fornecedor, só admin) */
+.juntar { border: 1px solid var(--fio); border-radius: 14px; padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+.juntar h3 { font-family: var(--f-display); font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.juntar p { margin: 0; font-size: 13.5px; }
+.juntar-linha { display: flex; align-items: end; gap: 8px 12px; flex-wrap: wrap; }
+.juntar-linha .grupo { flex: 1 1 220px; min-width: 0; }
+.confirma-exclusao.confirma-juntar { border-color: color-mix(in srgb, var(--alerta) 45%, transparent); background: var(--alerta-suave); }
+.dlg-corpo.juntar-caixa { padding-top: 0; }
