@@ -51,3 +51,9 @@ No menu do admin (e de quem tem os perfis Editor ou Consulta), **Baixar cópia c
 ## Atualizar a produção pela planilha
 
 Na tela **Produção**, o **Baixar .xlsx** gera a lista dos itens com a coluna **Código do item** no fim. Mude na planilha a aprovação do arquivo, a programação de envio (como "dez/2026: 20.000; fev/2027: 20.000") ou as observações e envie o arquivo em **Atualizar pela planilha** (admin e editor). Antes de gravar, o app mostra só os itens que mudaram, com o antes e o depois, e as linhas que não entram, com o motivo. Não mexa na coluna do código e, ao ordenar, ordene a planilha inteira. Quantidade, preço, PO e o resto só mudam na ficha do item. A **Carga da planilha** é só para a `status_importações` e recusa essa lista, para não duplicar os itens.
+
+## Ligação com o No Prelo
+
+Todo dia às 6h40 (Brasília), o No Porto busca no No Prelo a "Data de aprovação" da gráfica e preenche a **Aprovação do arquivo** dos itens com o mesmo ISBN e a mesma PO (a "ordem de impressão" no No Prelo). Enquanto vem do No Prelo, a data só muda lá. O admin pode buscar fora do horário, pelo menu, em **Buscar aprovações no No Prelo**.
+
+Os dois Workers falam por uma ligação interna da Cloudflare (service binding), sem senha nem token: não há nada para cadastrar no painel. Na primeira publicação, o No Prelo precisa ir ao ar antes do No Porto, porque é ele que tem a porta (`NoPortoApi`).
