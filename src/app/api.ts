@@ -12,6 +12,7 @@ import type { Bill, Invoice, Payment } from '../core/shipments';
 import type { Item, PurchaseOrder, Supplier } from '../core/items';
 import type { Role } from '../core/roles';
 import type { BookingRequest, ContainerType, NewBookingLine } from '../core/bookings';
+import type { ShipPlan } from '../core/shipPlan';
 
 export interface Me {
   id: string;
@@ -82,9 +83,10 @@ export interface ItemInput {
   notes: string;
   /** Especificação do produto nesta compra; ausente para não mexer na que existe. */
   specification?: string;
-  /** Aprovação do arquivo e programação de envio (AAAA-MM-DD ou null). */
+  /** Aprovação do arquivo (AAAA-MM-DD ou null). */
   fileApprovedAt?: string | null;
-  shipPlannedAt?: string | null;
+  /** Programação de envio: até três embarques (mês e quantidade). */
+  shipPlan?: ShipPlan;
 }
 
 export class ApiError extends Error {

@@ -3,13 +3,15 @@
 
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { isbnProblem } from '../core/isbn';
-import { NO_ORDER, NO_SUPPLIER, normalizeOrderCode, orderOwners, shipPlanPassed, STATUS_LABELS, type Item } from '../core/items';
+import { NO_ORDER, NO_SUPPLIER, normalizeOrderCode, orderOwners, STATUS_LABELS, type Item } from '../core/items';
+import { addMonths, formatMonth, MAX_PARCELS, monthOptions, parcelPassed, plannedTotal, shipPlanProblem, type ShipPlan } from '../core/shipPlan';
 import { formatQuantity, formatUsd, itemTotalCents, parseUnitPrice, unitPriceInput } from '../core/money';
 import { arrivalOf, arrivalState, arrivalText, parseDate } from '../core/shipments';
 import { can } from '../core/roles';
 import { isReprintSpecification } from '../core/specification';
 import { api, ApiError, type ItemInput, type Me, type ProductionData } from './api';
 import { Dialog, FormError } from './components';
+import { Icon } from './icons';
 import type { Production } from './production';
 
 export type ItemDialogState = { mode: 'new' } | { mode: 'edit'; item: Item } | null;
@@ -37,11 +39,22 @@ interface Draft {
   specification: string;
   /** Datas no formato do campo de data (AAAA-MM-DD), ou vazias. */
   fileApprovedAt: string;
-  shipPlannedAt: string;
+}
+
+/** Um embarque da programação de envio, como está no formulário. */
+interface PlanRow {
+  key: number;
+  month: string;
+  quantity: string;
+}
+
+let planKey = 1;
+function rowsFrom(item: Item | null): PlanRow[] {
+  return (item?.shipPlan ?? []).map((p) => ({ key: planKey++, month: p.month, quantity: String(p.quantity) }));
 }
 
 function draftFrom(item: Item | null, data: ProductionData): Draft {
-  if (!item) return { description: '', isbn: '', supplier: '', orderCode: '', quantity: '', piecesPerCarton: '', unitPrice: '', notes: '', specification: '', fileApprovedAt: '', shipPlannedAt: '' };
+  if (!item) return { description: '', isbn: '', supplier: '', orderCode: '', quantity: '', piecesPerCarton: '', unitPrice: '', notes: '', specification: '', fileApprovedAt: '' };
   return {
     description: item.description,
     isbn: item.isbn ?? '',
@@ -54,7 +67,6 @@ function draftFrom(item: Item | null, data: ProductionData): Draft {
     // Carregada ao abrir a ficha (as listas não trazem esse texto).
     specification: '',
     fileApprovedAt: item.fileApprovedAt ?? '',
-    shipPlannedAt: item.shipPlannedAt ?? '',
   };
 }
 
@@ -64,7 +76,7 @@ function count(text: string): number | null {
 }
 
 /** Confere o formulário. Devolve os campos prontos ou a mensagem do primeiro problema. */
-function validate(d: Draft, seeValues: boolean): { input: ItemInput } | { error: string; field: keyof Draft } {
+function validate(d: Draft, seeValues: boolean, rows: readonly PlanRow[]): { input: ItemInput } | { error: string; field: string } {
   if (!d.description.trim()) return { error: 'Informe o produto.', field: 'description' };
   const isbn = isbnProblem(d.isbn);
   if (isbn) return { error: isbn, field: 'isbn' };
@@ -79,7 +91,14 @@ function validate(d: Draft, seeValues: boolean): { input: ItemInput } | { error:
     if (price === null) return { error: 'Preço unitário inválido. Use até três casas decimais, como 0,575.', field: 'unitPrice' };
   }
   if (d.fileApprovedAt && parseDate(d.fileApprovedAt) !== d.fileApprovedAt) return { error: 'Data de aprovação do arquivo inválida.', field: 'fileApprovedAt' };
-  if (d.shipPlannedAt && parseDate(d.shipPlannedAt) !== d.shipPlannedAt) return { error: 'Data da programação de envio inválida.', field: 'shipPlannedAt' };
+  const shipPlan: ShipPlan = [];
+  for (const [i, r] of rows.entries()) {
+    const n = count(r.quantity);
+    if (n === null) return { error: `Informe a quantidade do embarque ${i + 1}, um número inteiro maior que zero.`, field: `plan-${i}-quantity` };
+    shipPlan.push({ month: r.month, quantity: n });
+  }
+  const planProblem = shipPlanProblem(shipPlan, quantity);
+  if (planProblem) return { error: planProblem, field: rows.length ? `plan-${rows.length - 1}-quantity` : 'quantity' };
   return {
     input: {
       description: d.description,
@@ -92,9 +111,98 @@ function validate(d: Draft, seeValues: boolean): { input: ItemInput } | { error:
       notes: d.notes,
       specification: d.specification,
       fileApprovedAt: d.fileApprovedAt || null,
-      shipPlannedAt: d.shipPlannedAt || null,
+      shipPlan,
     },
   };
+}
+
+/**
+ * Programação de envio na ficha: até três embarques, cada um com o mês e a quantidade. Mostra quanto do
+ * item já está programado e avisa do embarque que já devia ter saído.
+ */
+function PlanEditor({
+  rows,
+  onRows,
+  itemQuantity,
+  inProduction,
+  today,
+  ids,
+  errorField,
+  canEdit,
+}: {
+  rows: PlanRow[];
+  onRows: (rows: PlanRow[]) => void;
+  itemQuantity: number | null;
+  inProduction: boolean;
+  today: string;
+  ids: string;
+  errorField?: string;
+  canEdit: boolean;
+}) {
+  const thisMonth = today.slice(0, 7);
+  const options = monthOptions(thisMonth, 12, 30, rows.map((r) => r.month));
+  const amounts = rows.map((r) => count(r.quantity) ?? 0);
+  const planned = plannedTotal(rows.map((r, i) => ({ month: r.month, quantity: amounts[i]! })));
+  const update = (key: number, change: Partial<PlanRow>) => onRows(rows.map((r) => (r.key === key ? { ...r, ...change } : r)));
+  function add() {
+    const last = rows.at(-1);
+    const rest = itemQuantity === null ? 0 : itemQuantity - planned;
+    onRows([...rows, { key: planKey++, month: last ? addMonths(last.month, 2) : addMonths(thisMonth, 1), quantity: rest > 0 ? String(rest) : '' }]);
+  }
+  const late = inProduction ? rows.find((r) => parcelPassed(r.month, today)) : undefined;
+  return (
+    <fieldset className="grupo largo envio-plano">
+      <legend className="rotulo">Programação de envio</legend>
+      {rows.length === 0 && <span className="dica">{canEdit ? 'Sem programação. Um título grande pode sair em até três embarques.' : 'Sem programação.'}</span>}
+      {rows.map((r, i) => (
+        <div key={r.key} className="envio-linha" role="group" aria-label={`Embarque ${i + 1}`}>
+          <span className="envio-n" aria-hidden="true">
+            {i + 1}º
+          </span>
+          <select
+            className="campo"
+            id={`${ids}-plan-${i}-month`}
+            aria-label={`Mês do embarque ${i + 1}`}
+            value={r.month}
+            onChange={(e) => update(r.key, { month: e.target.value })}
+            aria-invalid={errorField === `plan-${i}-month` || undefined}
+          >
+            {options.map((m) => (
+              <option key={m} value={m}>
+                {formatMonth(m)}
+              </option>
+            ))}
+          </select>
+          <input
+            className="campo num"
+            id={`${ids}-plan-${i}-quantity`}
+            aria-label={`Quantidade do embarque ${i + 1}`}
+            inputMode="numeric"
+            placeholder="Exemplares"
+            value={r.quantity}
+            onChange={(e) => update(r.key, { quantity: e.target.value })}
+            aria-invalid={errorField === `plan-${i}-quantity` || undefined}
+          />
+          <button type="button" className="btn envio-tirar" onClick={() => onRows(rows.filter((o) => o.key !== r.key))} aria-label={`Tirar o embarque ${i + 1}`}>
+            <Icon name="lixeira" />
+          </button>
+        </div>
+      ))}
+      {canEdit && rows.length < MAX_PARCELS && (
+        <button type="button" className="btn alinha-inicio" onClick={add}>
+          <Icon name="mais" />
+          {rows.length ? 'Outro embarque' : 'Programar envio'}
+        </button>
+      )}
+      {rows.length > 0 && itemQuantity !== null && (
+        <span className={`dica${planned > itemQuantity ? ' critico-texto' : ''}`} aria-live="polite">
+          Programado: {formatQuantity(planned)} de {formatQuantity(itemQuantity)} exemplares
+          {planned < itemQuantity ? ` (faltam ${formatQuantity(itemQuantity - planned)} sem programação)` : planned > itemQuantity ? ' (passa da quantidade do item)' : ''}.
+        </span>
+      )}
+      {late && <span className="dica alerta-texto">O embarque de {formatMonth(late.month)} já devia ter saído e o item continua em produção.</span>}
+    </fieldset>
+  );
 }
 
 /** Mostra a última especificação do produto quando a deste item está vazia ou é só "reprint". */
@@ -108,7 +216,8 @@ export function ItemDialog({ state, me, data, production, onClose, onToast, onPr
   const canDelete = can(me.role, 'delete') && item !== null;
   const seeValues = data.seeValues;
   const [draft, setDraft] = useState<Draft>(() => draftFrom(item, data));
-  const [error, setError] = useState<{ message: string; field?: keyof Draft } | null>(null);
+  const [error, setError] = useState<{ message: string; field?: string } | null>(null);
+  const [planRows, setPlanRows] = useState<PlanRow[]>(() => rowsFrom(item));
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // Especificação do item e a última do produto, carregadas ao abrir a ficha.
@@ -123,6 +232,7 @@ export function ItemDialog({ state, me, data, production, onClose, onToast, onPr
 
   useEffect(() => {
     setDraft(draftFrom(item, data));
+    setPlanRows(rowsFrom(item));
     setError(null);
     setBusy(false);
     setConfirmDelete(false);
@@ -163,7 +273,7 @@ export function ItemDialog({ state, me, data, production, onClose, onToast, onPr
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    const checked = validate(draft, seeValues);
+    const checked = validate(draft, seeValues, planRows);
     if ('error' in checked) {
       setError({ message: checked.error, field: checked.field });
       document.getElementById(`${ids}-${checked.field}`)?.focus();
@@ -336,24 +446,16 @@ export function ItemDialog({ state, me, data, production, onClose, onToast, onPr
             </label>
             <input className="campo" type="date" {...field('fileApprovedAt')} value={draft.fileApprovedAt} onChange={(e) => set('fileApprovedAt')(e.target.value)} />
           </div>
-          <div className="grupo">
-            <label className="rotulo" htmlFor={`${ids}-shipPlannedAt`}>
-              Programação de envio
-            </label>
-            <input
-              className="campo"
-              type="date"
-              {...field('shipPlannedAt')}
-              value={draft.shipPlannedAt}
-              onChange={(e) => set('shipPlannedAt')(e.target.value)}
-              aria-describedby={item && shipPlanPassed({ status: item.status, shipPlannedAt: draft.shipPlannedAt || null }, data.today) ? `${ids}-envio-dica` : undefined}
-            />
-            {item && shipPlanPassed({ status: item.status, shipPlannedAt: draft.shipPlannedAt || null }, data.today) && (
-              <span className="dica alerta-texto" id={`${ids}-envio-dica`}>
-                A data já passou e o item continua em produção.
-              </span>
-            )}
-          </div>
+          <PlanEditor
+            rows={planRows}
+            onRows={setPlanRows}
+            itemQuantity={quantity}
+            inProduction={!item || item.status === 'producao'}
+            today={data.today}
+            ids={ids}
+            errorField={error?.field}
+            canEdit={canEdit}
+          />
           <div className="grupo largo">
             <label className="rotulo" htmlFor={`${ids}-notes`}>
               Observações
