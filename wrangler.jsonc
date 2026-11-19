@@ -14,7 +14,12 @@
   // Sem database_id: o wrangler cria o banco "no-porto" no primeiro deploy.
   "d1_databases": [
     { "binding": "DB", "database_name": "no-porto", "migrations_dir": "migrations" }
-  ]
+  ],
+  // Ligação com o No Prelo (19/11/2026): a porta interna "NoPortoApi" do Worker "no-prelo", na mesma
+  // conta. Só ela entra: ISBN, PO, gráfica e data de aprovação dos livros. Sem senha nem token.
+  "services": [{ "binding": "NOPRELO", "service": "no-prelo", "entrypoint": "NoPortoApi" }],
+  // Busca as aprovações do No Prelo uma vez por dia, às 6h40 em Brasília (9h40 UTC).
+  "triggers": { "crons": ["40 9 * * *"] }
   // Segredo (painel do Cloudflare → Worker → Configurações → Variáveis e segredos):
   // SETUP_TOKEN, o código pedido na tela de primeiro acesso.
 }
