@@ -39,7 +39,7 @@ export function testApp(now = new Date('2026-11-17T12:00:00Z')) {
     return handleApi(new Request(`${ORIGIN}${path}`, { method, headers }), env, opts.at ?? now);
   }
 
-  /** Cria o admin, um editor e um leitor, já com senha definitiva. */
+  /** Cria o admin (que aprova as solicitações de embarque) e uma conta de cada perfil, já com senha definitiva. */
   async function accounts() {
     const setup = await call('POST', '/api/setup', {
       body: { token: 'codigo-secreto', name: 'Gabriel', email: 'gabriel@grupo.exemplo', password: 'senha-do-gabriel' },
@@ -47,7 +47,7 @@ export function testApp(now = new Date('2026-11-17T12:00:00Z')) {
     expect(setup.status).toBe(201);
     const admin = { id: setup.data.user.id as string, cookie: setup.cookie! };
 
-    async function make(role: 'editor' | 'leitor' | 'consulta' | 'embarques' | 'vendas', name: string) {
+    async function make(role: 'editor' | 'leitor' | 'consulta' | 'embarques' | 'vendas' | 'agente', name: string) {
       const email = `${role}@grupo.exemplo`;
       const created = await call('POST', '/api/users', { cookie: admin.cookie, body: { name, email, role } });
       const login = await call('POST', '/api/login', { body: { email, password: created.data.tempPassword } });
@@ -61,6 +61,7 @@ export function testApp(now = new Date('2026-11-17T12:00:00Z')) {
       consulta: await make('consulta', 'Cris Consulta'),
       embarques: await make('embarques', 'Edu Embarques'),
       vendas: await make('vendas', 'Vera Vendas'),
+      agente: await make('agente', 'Ana Agente'),
     };
   }
 
