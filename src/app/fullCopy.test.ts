@@ -52,11 +52,13 @@ const input = {
       unitPriceMicros: 575_000,
       piecesPerCarton: 40,
       specification: '15,1x23cm\ncapa dura, hot stamping',
+      fileApprovedAt: '2026-10-02',
+      shipPlannedAt: '2026-12-05',
     },
     { ...base, id: '2', description: 'Sem preço', unitPriceMicros: null },
-    { ...base, id: '3', description: 'Cartilha Mágica 01', status: 'embarcado' as const, invoiceId: 'v1', quantity: 9440, unitPriceMicros: 330_000, specification: '20,5x27,5 wire-o' },
+    { ...base, id: '3', description: 'Cartilha Mágica 01', status: 'embarcado' as const, invoiceId: 'v1', quantity: 9440, unitPriceMicros: 330_000, specification: '20,5x27,5 wire-o', fileApprovedAt: '2026-08-15', shipPlannedAt: '2026-09-20' },
     { ...base, id: '4', description: 'Livro do Kaushik', supplierId: 's2', status: 'embarcado' as const, invoiceId: 'v2', quantity: 2000, unitPriceMicros: 400_000 },
-    { ...base, id: '5', description: 'Escolinha Divertida', status: 'entregue' as const, invoiceId: 'v3', quantity: 10000, unitPriceMicros: 750_000, specification: 'Board book 6 títulos' },
+    { ...base, id: '5', description: 'Escolinha Divertida', status: 'entregue' as const, invoiceId: 'v3', quantity: 10000, unitPriceMicros: 750_000, specification: 'Board book 6 títulos', fileApprovedAt: '2023-03-01' },
   ],
 };
 
@@ -72,7 +74,7 @@ describe('cópia completa', () => {
 
   it('separa produção, embarques e entregues', () => {
     expect([sheets.production.length, sheets.shipments.length, sheets.delivered.length]).toEqual([2, 2, 1]);
-    expect(sheets.shipments[0]).toEqual(['2026-09-25 (1)', 'Cartilha Mágica 01', null, null, 9440, 0.33, 3115.2, 'Sara', { date: '2026-11-20' }, 'Pago', '2026-46A', 'ROECHN26093881', null, '20,5x27,5 wire-o']);
+    expect(sheets.shipments[0]).toEqual(['2026-09-25 (1)', 'Cartilha Mágica 01', null, null, 9440, 0.33, 3115.2, 'Sara', { date: '2026-11-20' }, 'Pago', '2026-46A', 'ROECHN26093881', null, '20,5x27,5 wire-o', { date: '2026-08-15' }, { date: '2026-09-20' }]);
     expect(sheets.shipments[1]![9]).toBe('A pagar');
   });
 
@@ -108,5 +110,21 @@ describe('cópia completa', () => {
     expect(prod.items.map((i) => i.specification)).toEqual(['15,1x23cm\ncapa dura, hot stamping', '']);
     expect(ship.items.map((i) => i.specification)).toEqual(['20,5x27,5 wire-o', '']);
     expect(hist.items.map((i) => i.specification)).toEqual(['Board book 6 títulos']);
+  });
+
+  it('as datas de aprovação do arquivo e de programação de envio vão no fim e voltam pela carga nas três abas', async () => {
+    const prod = parseProductionRows(await roundTrip('Produção', PRODUCTION_HEADER, sheets.production));
+    const ship = parseShipmentRows(await roundTrip('Embarques', SHIPMENTS_HEADER, sheets.shipments));
+    const hist = parseHistoryRows(await roundTrip('Entregues', DELIVERED_HEADER, sheets.delivered), '2026-11-18');
+    if ('error' in prod || 'error' in ship || 'error' in hist) throw new Error('carga falhou');
+    expect(prod.items.map((i) => [i.fileApprovedAt, i.shipPlannedAt])).toEqual([
+      ['2026-10-02', '2026-12-05'],
+      [null, null],
+    ]);
+    expect(ship.items.map((i) => [i.fileApprovedAt, i.shipPlannedAt])).toEqual([
+      ['2026-08-15', '2026-09-20'],
+      [null, null],
+    ]);
+    expect(hist.items.map((i) => [i.fileApprovedAt, i.shipPlannedAt])).toEqual([['2023-03-01', null]]);
   });
 });

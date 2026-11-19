@@ -13,8 +13,14 @@ export interface ItemExportRow {
   /** Em dólar, com as casas do preço; ausente para quem não vê valores. */
   unitPrice?: number | null;
   total?: number | null;
+  /** Aprovação do arquivo e programação de envio, como dd/mm/aaaa (vazio quando não há). */
+  fileApproved: string;
+  shipPlanned: string;
   notes: string;
 }
+
+/** AAAA-MM-DD → dd/mm/aaaa. */
+const br = (iso: string | null | undefined) => (iso ? iso.split('-').reverse().join('/') : '');
 
 export function itemExportRows(items: readonly Item[], orders: readonly PurchaseOrder[], suppliers: readonly Supplier[], seeValues: boolean): ItemExportRow[] {
   const codes = new Map(orders.map((o) => [o.id, o.code]));
@@ -27,6 +33,8 @@ export function itemExportRows(items: readonly Item[], orders: readonly Purchase
       isbn: i.isbn ?? '',
       quantity: i.quantity,
       piecesPerCarton: i.piecesPerCarton,
+      fileApproved: br(i.fileApprovedAt),
+      shipPlanned: br(i.shipPlannedAt),
       notes: i.notes,
     };
     if (seeValues) {

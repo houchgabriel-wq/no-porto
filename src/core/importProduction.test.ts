@@ -39,9 +39,30 @@ describe('carga da aba Produção', () => {
       piecesPerCarton: 40,
       unitPriceMicros: 880_000,
       notes: '',
-      // A status_importações não tem a coluna Especificação.
+      // A status_importações não tem a coluna Especificação nem as datas do item.
       specification: '',
+      fileApprovedAt: null,
+      shipPlannedAt: null,
     });
+  });
+
+  it('lê as datas de aprovação do arquivo e de programação de envio, quando a planilha tem as colunas (cópia completa)', () => {
+    const header = [...HEADER, 'Observações', 'Especificação', 'Aprovação do arquivo', 'Programação de envio'];
+    const r = parseProductionRows([
+      header,
+      ['-', 'Livro A', '', '', '1000', '0.5', '500', 'Sara', 'Em produção', 'Não Pago', 'PO-070', '', '', '', '02/10/2026', '05/12/2026'],
+      ['-', 'Livro B', '', '', '1000', '0.5', '500', 'Sara', 'Em produção', 'Não Pago', 'PO-070', '', '', '', '2026-10-03', ''],
+      ['-', 'Livro C', '', '', '1000', '0.5', '500', 'Sara', 'Em produção', 'Não Pago', 'PO-070', '', '', '', '', 'dezembro'],
+    ]);
+    if ('error' in r) throw new Error(r.error);
+    expect(r.items.map((i) => [i.description, i.fileApprovedAt, i.shipPlannedAt])).toEqual([
+      ['Livro A', '2026-10-02', '2026-12-05'],
+      ['Livro B', '2026-10-03', null],
+      ['Livro C', null, null],
+    ]);
+    // O que não é data fica nas observações, com aviso.
+    expect(r.items[2]!.notes).toBe('Programação de envio na planilha: dezembro');
+    expect(r.warnings.map((w) => w.message)).toContain('"Livro C": programação de envio "dezembro" não é uma data; fica nas observações.');
   });
 
   it('item sem PO entra sem PO; texto que não é PO vai para as observações', () => {
