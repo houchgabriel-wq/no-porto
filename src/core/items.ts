@@ -2,6 +2,7 @@
 // (SPEC.md, seções 3, 4 e 6).
 
 import { itemTotalCents } from './money';
+import { parcelPassed, type ShipPlan } from './shipPlan';
 
 export const ITEM_STATUSES = ['producao', 'embarcado', 'entregue'] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
@@ -48,8 +49,8 @@ export interface Item {
   specification?: string;
   /** Dia (AAAA-MM-DD) em que o arquivo do livro foi aprovado; null enquanto não foi (19/11/2026). */
   fileApprovedAt?: string | null;
-  /** Dia (AAAA-MM-DD) programado para o envio pelo fornecedor; null enquanto não há programação. */
-  shipPlannedAt?: string | null;
+  /** Programação de envio: até três embarques (mês e quantidade), do mais próximo para o mais distante. */
+  shipPlan?: ShipPlan;
   createdAt: string;
   updatedAt: string;
 }
@@ -209,9 +210,10 @@ export function filterItems(
   });
 }
 
-/** A programação de envio já passou e o item continua em produção (a tela destaca). `today`: AAAA-MM-DD. */
-export function shipPlanPassed(item: Pick<Item, 'status' | 'shipPlannedAt'>, today: string): boolean {
-  return item.status === 'producao' && !!item.shipPlannedAt && item.shipPlannedAt < today;
+/** O primeiro embarque programado já devia ter saído e o item continua em produção (a tela destaca). */
+export function shipPlanPassed(item: Pick<Item, 'status' | 'shipPlan'>, today: string): boolean {
+  const first = item.shipPlan?.[0];
+  return item.status === 'producao' && !!first && parcelPassed(first.month, today);
 }
 
 /** Código de PO como a editora usa: "PO-063". Aceita "po 63", "PO-63", "po063". */
@@ -246,7 +248,7 @@ export function sortItems(items: readonly Item[], sort: ItemSort, orders: readon
       case 'fileApproved':
         return item.fileApprovedAt ?? null;
       case 'shipPlanned':
-        return item.shipPlannedAt ?? null;
+        return item.shipPlan?.[0]?.month ?? null;
       case 'quantity':
         return item.quantity;
       case 'price':

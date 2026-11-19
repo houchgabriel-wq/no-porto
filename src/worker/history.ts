@@ -9,10 +9,11 @@ import { itemForViewer } from '../core/items';
 import { isValidUnitPrice } from '../core/money';
 import { can } from '../core/roles';
 import { cleanSpecification, latestSpecification, SPECIFICATION_MAX } from '../core/specification';
+import { shipPlanProblem } from '../core/shipPlan';
 import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, json, readBody } from './http';
-import { eventStatement, insertItem, itemDay, ITEM_SELECT, loadRefs, toItem, type ItemRow } from './orders';
+import { eventStatement, insertItem, itemDay, ITEM_SELECT, loadRefs, shipPlanSchema, toItem, type ItemRow } from './orders';
 
 const text = (max: number) => z.string().max(max).transform((s) => s.replace(/\s+/g, ' ').trim());
 const day = z
@@ -41,7 +42,7 @@ const importBody = z.object({
         notes: z.string().max(2000),
         specification: z.string().max(SPECIFICATION_MAX + 2000).transform(cleanSpecification).default(''),
         fileApprovedAt: itemDay('Aprovação do arquivo').default(null),
-        shipPlannedAt: itemDay('Programação de envio').default(null),
+        shipPlan: shipPlanSchema.default([]),
         invoice: text(80).pipe(z.string().min(1, 'Informe a invoice.')),
         ref: text(60),
         bill: text(40)
@@ -123,6 +124,8 @@ async function getProduct(env: Env, session: Session, id: string): Promise<Respo
 async function importHistory(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
   checkMutation(request);
   const body = await readBody(request, importBody);
+  const badPlan = body.items.map((i) => ({ row: i.row, problem: shipPlanProblem(i.shipPlan, i.quantity) })).find((p) => p.problem);
+  if (badPlan) return error(400, `Linha ${badPlan.row}: ${badPlan.problem}`);
   const at = now.toISOString();
   const userId = session.user.id;
   const refs = await loadRefs(env, at);

@@ -16,7 +16,8 @@ import type { Item, ItemStatus } from '../core/items';
 import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, HttpError, json, readBody } from './http';
-import { eventStatement, findItem, insertItem, itemDay, ITEM_SELECT, loadRefs, toItem, type ItemRow } from './orders';
+import { eventStatement, findItem, insertItem, itemDay, ITEM_SELECT, loadRefs, shipPlanSchema, toItem, type ItemRow } from './orders';
+import { mergePlans, readStoredPlan, shipPlanProblem, takeFromPlan, type ShipPlan } from '../core/shipPlan';
 
 // ---------- Esquemas de entrada ----------
 
@@ -121,7 +122,7 @@ const importBody = z.object({
         notes: z.string().max(2000),
         specification: z.string().max(SPECIFICATION_MAX + 2000).transform(cleanSpecification).default(''),
         fileApprovedAt: itemDay('Aprovação do arquivo').default(null),
-        shipPlannedAt: itemDay('Programação de envio').default(null),
+        shipPlan: shipPlanSchema.default([]),
         invoice: invoiceNumber,
         ref: text(60, 'Ref.'),
         bill: billNumber,
@@ -226,13 +227,15 @@ function shipItemStatements(
     ];
   }
   const id = crypto.randomUUID();
+  // Da programação de envio, a parte embarcada leva o que estava programado para antes; o saldo fica com o resto.
+  const plan = takeFromPlan(item.shipPlan ?? [], quantity);
   return [
-    env.DB.prepare('UPDATE order_items SET quantity = ?, updated_at = ?, updated_by = ? WHERE id = ?').bind(item.quantity - quantity, at, userId, item.id),
+    env.DB.prepare('UPDATE order_items SET quantity = ?, ship_plan = ?, updated_at = ?, updated_by = ? WHERE id = ?').bind(item.quantity - quantity, JSON.stringify(plan.left), at, userId, item.id),
     insertItem(
       env,
       id,
-      // A parte embarcada leva as datas do item (aprovação do arquivo e programação de envio).
-      { description: item.description, quantity, piecesPerCarton: pieces, unitPriceMicros: price, notes: item.notes, fileApprovedAt: item.fileApprovedAt ?? null, shipPlannedAt: item.shipPlannedAt ?? null },
+      // A parte embarcada leva também a data de aprovação do arquivo.
+      { description: item.description, quantity, piecesPerCarton: pieces, unitPriceMicros: price, notes: item.notes, fileApprovedAt: item.fileApprovedAt ?? null, shipPlan: plan.taken },
       { productId: item.productId, supplierId: item.supplierId, orderId: item.purchaseOrderId, invoiceId: invoice.id, status },
       userId,
       at,
@@ -562,14 +565,20 @@ async function undoInvoices(env: Env, invoiceIds: string[], userId: string, at: 
   const withOrigin = items.map((i) => ({ id: i.id, quantity: i.quantity, origin: itemOrigin(events.get(i.id) ?? []) }));
   const targets = [...new Set(withOrigin.flatMap((i) => (i.origin.kind === 'split' ? [i.origin.from] : [])))];
   const alive = new Set<string>();
+  // Programação de envio de cada saldo, para somar de volta a da parte embarcada.
+  const plans = new Map<string, ShipPlan>();
   if (targets.length) {
     const { results } = await env.DB.prepare(
-      "SELECT id FROM order_items WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL AND status = 'producao'",
+      "SELECT id, ship_plan FROM order_items WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL AND status = 'producao'",
     )
       .bind(JSON.stringify(targets))
-      .all<{ id: string }>();
-    for (const r of results) alive.add(r.id);
+      .all<{ id: string; ship_plan: string }>();
+    for (const r of results) {
+      alive.add(r.id);
+      plans.set(r.id, readStoredPlan(r.ship_plan));
+    }
   }
+  const planOf = new Map(items.map((i) => [i.id, i.shipPlan ?? []]));
   const plan = planShipmentUndo(withOrigin, (id) => alive.has(id));
   const statements: D1PreparedStatement[] = [];
   for (const b of plan.back) {
@@ -584,7 +593,11 @@ async function undoInvoices(env: Env, invoiceIds: string[], userId: string, at: 
     statements.push(eventStatement(env, b.id, userId, 'unshipped', { reason: 'embarque excluído' }, at));
   }
   for (const m of plan.merge) {
-    statements.push(env.DB.prepare('UPDATE order_items SET quantity = quantity + ?, updated_at = ?, updated_by = ? WHERE id = ?').bind(m.quantity, at, userId, m.into));
+    const merged = mergePlans(plans.get(m.into) ?? [], planOf.get(m.id) ?? []);
+    plans.set(m.into, merged);
+    statements.push(
+      env.DB.prepare('UPDATE order_items SET quantity = quantity + ?, ship_plan = ?, updated_at = ?, updated_by = ? WHERE id = ?').bind(m.quantity, JSON.stringify(merged), at, userId, m.into),
+    );
     statements.push(env.DB.prepare('UPDATE order_items SET deleted_at = ?, invoice_id = NULL, updated_at = ?, updated_by = ? WHERE id = ?').bind(at, at, userId, m.id));
     statements.push(eventStatement(env, m.into, userId, 'merged', { quantity: m.quantity, from: m.id, reason: 'embarque excluído' }, at));
     statements.push(eventStatement(env, m.id, userId, 'deleted', { mergedInto: m.into, reason: 'embarque excluído' }, at));
@@ -649,6 +662,8 @@ async function deleteBill(request: Request, env: Env, session: Session, id: stri
 async function importShipments(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
   checkMutation(request);
   const body = await readBody(request, importBody);
+  const badPlan = body.items.map((i) => ({ row: i.row, problem: shipPlanProblem(i.shipPlan, i.quantity) })).find((p) => p.problem);
+  if (badPlan) return error(400, `Linha ${badPlan.row}: ${badPlan.problem}`);
   const at = now.toISOString();
   const userId = session.user.id;
   const refs = await loadRefs(env, at);
