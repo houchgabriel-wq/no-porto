@@ -3,7 +3,7 @@
 
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { NO_SUPPLIER, type Item } from '../core/items';
-import { formatQuantity, formatUsd, parseCents, parseExchangeRate } from '../core/money';
+import { formatQuantity, formatUsd, parseExchangeRate, parseMoneyCents } from '../core/money';
 import { can } from '../core/roles';
 import {
   arrivalState,
@@ -372,7 +372,7 @@ function PaymentForm({ due, onSave }: { due: number; onSave: (body: { paidAt: st
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const cents = parseCents(amount);
+    const cents = parseMoneyCents(amount);
     if (!cents) return setError('Informe o valor pago em dólar, como 1.234,56.');
     const r = rate.trim() ? parseExchangeRate(rate) : null;
     if (rate.trim() && r === null) return setError('Câmbio inválido. Use até quatro casas, como 5,4321.');
