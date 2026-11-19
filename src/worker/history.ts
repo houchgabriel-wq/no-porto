@@ -5,11 +5,12 @@ import { z } from 'zod';
 import { IMPORT_BATCH, newImportItems } from '../core/importProduction';
 import { invoiceKey, shipmentKey } from '../core/importShipments';
 import { isbnDigits, isbnProblem } from '../core/isbn';
-import { itemForViewer } from '../core/items';
+import { itemForViewer, type ItemStatus } from '../core/items';
 import { isValidUnitPrice } from '../core/money';
+import { productSummaries } from '../core/productLookup';
 import { can } from '../core/roles';
 import { cleanSpecification, latestSpecification, SPECIFICATION_MAX } from '../core/specification';
-import { shipPlanProblem } from '../core/shipPlan';
+import { readStoredPlan, shipPlanProblem } from '../core/shipPlan';
 import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, json, readBody } from './http';
@@ -121,6 +122,49 @@ async function getProduct(env: Env, session: Session, id: string): Promise<Respo
   });
 }
 
+/**
+ * Terminal de consulta do painel (19/11/2026): o resumo de cada produto (em produção, embarcado e a
+ * última chegada), numa consulta só, para a busca correr no navegador enquanto a pessoa digita. Só
+ * quantidades; a chegada é a da invoice ou do BL, como em arrivalOf.
+ */
+async function getLookup(env: Env): Promise<Response> {
+  const { results } = await env.DB.prepare(
+    `SELECT i.product_id, p.isbn, i.description, i.status, i.quantity, o.code AS order_code, i.ship_plan,
+            CASE WHEN v.bill_of_lading_id IS NULL THEN v.eta ELSE b.eta END AS eta,
+            COALESCE(v.arrived_at, b.arrived_at) AS arrived_at
+       FROM order_items i JOIN products p ON p.id = i.product_id
+       LEFT JOIN purchase_orders o ON o.id = i.purchase_order_id
+       LEFT JOIN invoices v ON v.id = i.invoice_id
+       LEFT JOIN bills_of_lading b ON b.id = v.bill_of_lading_id
+      WHERE i.deleted_at IS NULL
+      ORDER BY i.created_at, i.rowid`,
+  ).all<{
+    product_id: string;
+    isbn: string | null;
+    description: string;
+    status: ItemStatus;
+    quantity: number;
+    order_code: string | null;
+    ship_plan: string;
+    eta: string | null;
+    arrived_at: string | null;
+  }>();
+  const products = productSummaries(
+    results.map((r) => ({
+      productId: r.product_id,
+      isbn: r.isbn,
+      description: r.description,
+      status: r.status,
+      quantity: r.quantity,
+      orderCode: r.order_code,
+      shipPlan: readStoredPlan(r.ship_plan),
+      eta: r.eta,
+      arrivedAt: r.arrived_at,
+    })),
+  );
+  return json({ products });
+}
+
 async function importHistory(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
   checkMutation(request);
   const body = await readBody(request, importBody);
@@ -203,6 +247,11 @@ export async function routeHistory(request: Request, env: Env, session: Session,
   if (key === 'GET /api/history') {
     if (!can(session.user.role, 'view_history')) return error(403, 'Seu perfil não vê o histórico.');
     return getHistory(env, session);
+  }
+  // O terminal de consulta é do painel: o Agente, o perfil Embarques e Vendas não recebem.
+  if (key === 'GET /api/lookup') {
+    if (!can(session.user.role, 'view_all')) return error(403, 'Seu perfil não vê o painel.');
+    return getLookup(env);
   }
   if (/^\/api\/products\//.test(path) && !can(session.user.role, 'view_all')) return error(403, 'Seu perfil não vê a ficha do produto.');
   if (key === 'POST /api/import/history') {
