@@ -123,7 +123,7 @@ describe('o agente pede', () => {
 
   it('não recebe nada do resto do app', async () => {
     const admin = (await app.call('GET', '/api/data', { cookie: who.admin.cookie })).data;
-    for (const path of ['/api/data', '/api/sales', '/api/history', '/api/suppliers', `/api/products/${admin.items[0].productId}`, `/api/items/${admin.items[0].id}/specification`, '/api/export', '/api/users']) {
+    for (const path of ['/api/data', '/api/sales', '/api/history', '/api/suppliers', `/api/products/${admin.items[0].productId}`, `/api/items/${admin.items[0].id}/specification`, '/api/export', '/api/users', '/api/lookup']) {
       expect((await app.call('GET', path, { cookie: who.agente.cookie })).status, path).toBe(403);
     }
     const tries: [string, string, object][] = [
