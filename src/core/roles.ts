@@ -25,7 +25,7 @@ export type Action =
   | 'import' // carga de planilha
   | 'delete' // exclusões
   | 'manage_users'
-  | 'full_copy' // baixar a cópia completa (admin; Consulta pedido pelo Gabriel em 19/11/2026)
+  | 'full_copy' // baixar a cópia completa (admin; Editor e Consulta pedidos pelo Gabriel em 19/11/2026)
   | 'view_bookings' // ver todas as solicitações de embarque, com os valores dos containers
   | 'request_bookings' // pedir containers e cancelar as próprias solicitações (só o Agente, que só vê as dele)
   | 'decide_bookings'; // aprovar e recusar: além do perfil, só quem tem a marca de aprovador (o Gabriel)
@@ -43,7 +43,7 @@ const PERMISSIONS: Record<Action, readonly Role[]> = {
   import: ['admin'],
   delete: ['admin'],
   manage_users: ['admin'],
-  full_copy: ['admin', 'consulta'],
+  full_copy: ['admin', 'editor', 'consulta'],
   view_bookings: ['admin', 'editor', 'consulta'],
   request_bookings: ['agente'],
   decide_bookings: ['admin'],

@@ -1,6 +1,6 @@
 // Cópia completa (SPEC.md, seção 5): todos os dados para a planilha no formato da status_importações,
-// montada no navegador. Para o admin e o perfil Consulta (pedido do Gabriel em 19/11/2026), que já veem
-// tudo, com preços e pagamentos; os outros perfis não recebem.
+// montada no navegador. Para o admin e os perfis Editor e Consulta (pedidos do Gabriel em 19/11/2026),
+// que já veem tudo, com preços e pagamentos; os outros perfis não recebem.
 
 import { can } from '../core/roles';
 import type { Session } from './auth';

@@ -47,9 +47,9 @@ describe('can', () => {
 });
 
 describe('cópia completa', () => {
-  it('o admin e a Consulta baixam; os outros perfis não', () => {
-    for (const role of ['admin', 'consulta'] as const) expect(can(role, 'full_copy')).toBe(true);
-    for (const role of ['editor', 'leitor', 'embarques', 'vendas', 'agente'] as const) expect(can(role, 'full_copy'), role).toBe(false);
+  it('admin, Editor e Consulta baixam; os outros perfis não', () => {
+    for (const role of ['admin', 'editor', 'consulta'] as const) expect(can(role, 'full_copy')).toBe(true);
+    for (const role of ['leitor', 'embarques', 'vendas', 'agente'] as const) expect(can(role, 'full_copy'), role).toBe(false);
   });
 });
 
