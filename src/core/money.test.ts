@@ -9,6 +9,7 @@ import {
   looksLikeReais,
   parseCents,
   parseExchangeRate,
+  parseMoneyCents,
   parseSheetUnitPrice,
   parseUnitPrice,
   reaisCents,
@@ -65,6 +66,44 @@ describe('preço unitário', () => {
     expect(looksLikeReais('R$2,06')).toBe(true);
     expect(looksLikeReais(' r$ 10,00')).toBe(true);
     expect(looksLikeReais('2.06')).toBe(false);
+  });
+});
+
+describe('valor em dólar digitado', () => {
+  it('ponto ou vírgula seguidos de três dígitos separam os milhares', () => {
+    expect(parseMoneyCents('12.300')).toBe(1_230_000);
+    expect(parseMoneyCents('12,300')).toBe(1_230_000);
+    expect(parseMoneyCents('2.850')).toBe(285_000);
+    expect(parseMoneyCents('1.000')).toBe(100_000);
+    expect(parseMoneyCents('1.234.567')).toBe(123_456_700);
+    expect(parseMoneyCents('1,234,567')).toBe(123_456_700);
+    expect(parseMoneyCents('US$ 12.300')).toBe(1_230_000);
+    expect(parseMoneyCents(' 12.300 ')).toBe(1_230_000);
+  });
+
+  it('com centavos, decimal ou sem separador, como a leitura comum', () => {
+    expect(parseMoneyCents('12.300,50')).toBe(1_230_050);
+    expect(parseMoneyCents('12,300.50')).toBe(1_230_050);
+    expect(parseMoneyCents('12.300,00')).toBe(1_230_000);
+    expect(parseMoneyCents('2,85')).toBe(285);
+    expect(parseMoneyCents('12.30')).toBe(1_230);
+    expect(parseMoneyCents('0,5')).toBe(50);
+    expect(parseMoneyCents('US$ 1.234,56')).toBe(123_456);
+    expect(parseMoneyCents('12300')).toBe(1_230_000);
+  });
+
+  it('um primeiro grupo zero não é de milhar', () => {
+    expect(parseMoneyCents('0,500')).toBe(50);
+    expect(parseMoneyCents('0.500')).toBe(50);
+    expect(parseMoneyCents('0,050')).toBe(5);
+  });
+
+  it('o que não é valor', () => {
+    for (const t of ['', 'abc', '-12.300', '1.234,567', '0,123', 'R$ 12.300', '12.300 reais']) expect(parseMoneyCents(t), t).toBeNull();
+  });
+
+  it('a leitura comum, a das planilhas, continua a mesma', () => {
+    expect(parseCents('12.300')).toBe(1_230);
   });
 });
 

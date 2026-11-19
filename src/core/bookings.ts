@@ -3,7 +3,7 @@
 // aprovar menos containers que o pedido) ou recusa com o motivo. Só depois da aprovação o agente reserva.
 
 import { searchKey } from './items';
-import { parseCents } from './money';
+import { parseMoneyCents } from './money';
 import { can, type Role } from './roles';
 import { daysBetween, parseDate } from './shipments';
 
@@ -97,17 +97,10 @@ export function bookingProblem(input: { departurePort: string; departureDate: st
 
 /**
  * Valor de um container digitado no formulário → centavos de dólar; null se não for um valor.
- * Um separador seguido de exatamente três dígitos é o de milhar: "2.850" e "2,850" são US$ 2.850,00
- * (dinheiro não tem três casas decimais, e a leitura comum daria US$ 2,85). O resto segue parseCents:
- * "2.850,00", "2,850.00", "2850", "2850,5".
+ * Segue a regra do valor em dólar digitado (parseMoneyCents): "2.850" e "2,850" são US$ 2.850,00.
  */
 export function parseContainerPrice(text: string): number | null {
-  const t = text.trim().replace(/^US\$|^\$|^USD/i, '').replace(/\s/g, '');
-  if (/^\d{1,3}(\.\d{3})+$/.test(t) || /^\d{1,3}(,\d{3})+$/.test(t)) {
-    const cents = Number(t.replace(/[.,]/g, '')) * 100;
-    return Number.isSafeInteger(cents) ? cents : null;
-  }
-  return parseCents(t);
+  return parseMoneyCents(text);
 }
 
 /** O que impede a aprovação com estas quantidades, ou null. Pode aprovar menos que o pedido, nunca mais. */
