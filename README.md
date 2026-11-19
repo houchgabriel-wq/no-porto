@@ -47,3 +47,7 @@ O endereço próprio é **noporto.editoraonline.com.br**. Como o DNS do domínio
 ## Cópia de segurança
 
 No menu do admin (e de quem tem os perfis Editor ou Consulta), **Baixar cópia completa** gera uma planilha com as abas Produção, Embarques e Entregues, nas mesmas colunas da `status_importações`. Guarde uma cópia de tempos em tempos fora da Cloudflare (no Drive, por exemplo). Se um dia for preciso, ela volta pela **Carga completa da planilha**, no mesmo menu, que pode apagar o que está no app antes de carregar (pede para digitar APAGAR).
+
+## Atualizar a produção pela planilha
+
+Na tela **Produção**, o **Baixar .xlsx** gera a lista dos itens com a coluna **Código do item** no fim. Mude na planilha a aprovação do arquivo, a programação de envio (como "dez/2026: 20.000; fev/2027: 20.000") ou as observações e envie o arquivo em **Atualizar pela planilha** (admin e editor). Antes de gravar, o app mostra só os itens que mudaram, com o antes e o depois, e as linhas que não entram, com o motivo. Não mexa na coluna do código e, ao ordenar, ordene a planilha inteira. Quantidade, preço, PO e o resto só mudam na ficha do item. A **Carga da planilha** é só para a `status_importações` e recusa essa lista, para não duplicar os itens.
