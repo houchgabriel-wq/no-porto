@@ -7,7 +7,6 @@ import {
   filterItems,
   NO_ORDER,
   NO_SUPPLIER,
-  shipPlanPassed,
   sortItems,
   totals,
   totalsByOrder,
@@ -20,12 +19,35 @@ import {
 } from '../core/items';
 import { formatQuantity, formatUnitPrice, formatUsd, formatUsdWhole } from '../core/money';
 import { formatDay } from '../core/shipments';
+import { formatMonth, MAX_PARCELS, parcelPassed, type ShipParcel } from '../core/shipPlan';
 import type { ProductionData } from './api';
 import { supplierHue, hueStyle } from './components';
 import { Icon } from './icons';
 
 /** Largura em que a tabela vira lista de cartões. */
 const NARROW = '(max-width: 720px)';
+const PLAN_KEY = 'no-porto:envio-expandido';
+
+/** A coluna da programação de envio aberta em Embarque 1, 2 e 3; o navegador lembra a escolha. */
+function usePlanExpanded(): [boolean, (on: boolean) => void] {
+  const [on, setOn] = useState(() => {
+    try {
+      return localStorage.getItem(PLAN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const set = (next: boolean) => {
+    setOn(next);
+    try {
+      if (next) localStorage.setItem(PLAN_KEY, '1');
+      else localStorage.removeItem(PLAN_KEY);
+    } catch {
+      // Só não lembra a escolha.
+    }
+  };
+  return [on, set];
+}
 
 function useNarrow(): boolean {
   const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW).matches);
@@ -77,6 +99,7 @@ interface Props {
 
 export function ProductionView({ data, filters, onFilters, sort, onSort, grouped, onGrouped, onOpen, actions, selection }: Props) {
   const narrow = useNarrow();
+  const [planExpanded, setPlanExpanded] = usePlanExpanded();
   const { seeValues } = data;
   const all = useMemo(() => totals(data.items, seeValues), [data.items, seeValues]);
   const bySupplier = useMemo(() => totalsBySupplier(data.items, data.suppliers, seeValues), [data.items, data.suppliers, seeValues]);
@@ -103,7 +126,7 @@ export function ProductionView({ data, filters, onFilters, sort, onSort, grouped
         selection.onChange(next);
       }
     : undefined;
-  const ctx: Ctx = { seeValues, today: data.today, codes, names, onOpen, selected: selection?.ids, toggle };
+  const ctx: Ctx = { seeValues, today: data.today, planExpanded, setPlanExpanded, codes, names, onOpen, selected: selection?.ids, toggle };
   const chosen = selection ? data.items.filter((i) => selection.ids.has(i.id)) : [];
   const chosenSuppliers = new Set(chosen.map((i) => i.supplierId));
 
@@ -230,6 +253,9 @@ interface Ctx {
   seeValues: boolean;
   /** Hoje (AAAA-MM-DD), para destacar a programação de envio que já passou. */
   today: string;
+  /** A programação de envio aparece em três colunas (Embarque 1, 2 e 3). */
+  planExpanded: boolean;
+  setPlanExpanded: (on: boolean) => void;
   codes: Map<string, string>;
   names: Map<string, string>;
   onOpen: (item: Item) => void;
@@ -281,14 +307,18 @@ function ItemTable({ items, groups, ctx, sort, onSort }: { items: Item[]; groups
                 <span className="so-leitor">Marcar</span>
               </th>
             )}
-            {columns.map((c) => (
-              <th key={c.key} className={c.num ? 'num' : c.date ? 'th-data' : undefined} aria-sort={sort.key === c.key ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
-                <button type="button" onClick={() => toggle(c.key)}>
-                  {c.label}
-                  {sort.key === c.key && <Icon name={sort.dir === 1 ? 'cima' : 'baixo'} />}
-                </button>
-              </th>
-            ))}
+            {columns.map((c) =>
+              c.key === 'shipPlanned' ? (
+                <PlanHeaders key={c.key} ctx={ctx} sorted={sort.key === c.key ? sort.dir : 0} onSort={() => toggle(c.key)} />
+              ) : (
+                <th key={c.key} className={c.num ? 'num' : c.date ? 'th-data' : undefined} aria-sort={sort.key === c.key ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
+                  <button type="button" onClick={() => toggle(c.key)}>
+                    {c.label}
+                    {sort.key === c.key && <Icon name={sort.dir === 1 ? 'cima' : 'baixo'} />}
+                  </button>
+                </th>
+              ),
+            )}
             <th className="num">Peças/caixa</th>
           </tr>
         </thead>
@@ -296,7 +326,7 @@ function ItemTable({ items, groups, ctx, sort, onSort }: { items: Item[]; groups
           byGroup(items, groups).map(({ group, items: rows }) => (
             <tbody key={group.orderId ?? 'sem'}>
               <tr className="grupo-linha">
-                <th scope="rowgroup" colSpan={columns.length + 1 + (ctx.toggle ? 1 : 0)}>
+                <th scope="rowgroup" colSpan={columns.length + 1 + (ctx.toggle ? 1 : 0) + (ctx.planExpanded ? MAX_PARCELS - 1 : 0)}>
                   <span className="grupo-po">{group.code}</span>
                   <span className="grupo-info">
                     {group.suppliers.join(', ')} · {totalsLine(group)}
@@ -342,9 +372,7 @@ function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
         {supplier}
       </td>
       <td className="nowrap">{item.fileApprovedAt ? formatDay(item.fileApprovedAt, true) : <span className="mudo">—</span>}</td>
-      <td className="nowrap">
-        <ShipPlan item={item} today={ctx.today} />
-      </td>
+      <PlanCells item={item} ctx={ctx} />
       <td className="num">{formatQuantity(item.quantity)}</td>
       {ctx.seeValues && (
         <>
@@ -357,16 +385,95 @@ function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
   );
 }
 
-/** Programação de envio; a que já passou, com o item ainda em produção, em destaque. */
-function ShipPlan({ item, today }: { item: Item; today: string }) {
-  if (!item.shipPlannedAt) return <span className="mudo">—</span>;
-  if (!shipPlanPassed(item, today)) return <>{formatDay(item.shipPlannedAt, true)}</>;
+/**
+ * Título da programação de envio: uma coluna (o próximo embarque) ou, aberta, três (Embarque 1, 2 e 3).
+ * A ordenação vale para o primeiro embarque.
+ */
+function PlanHeaders({ ctx, sorted, onSort }: { ctx: Ctx; sorted: 0 | 1 | -1; onSort: () => void }) {
+  const aria = sorted === 1 ? 'ascending' : sorted === -1 ? 'descending' : undefined;
+  const sortIcon = sorted !== 0 && <Icon name={sorted === 1 ? 'cima' : 'baixo'} />;
+  if (!ctx.planExpanded) {
+    return (
+      <th className="th-data th-envio" aria-sort={aria}>
+        <span className="th-envio-linha">
+          <button type="button" onClick={onSort}>
+            Programação de envio
+            {sortIcon}
+          </button>
+          <button type="button" className="th-expandir" onClick={() => ctx.setPlanExpanded(true)} aria-expanded={false} aria-label="Mostrar os embarques 1, 2 e 3" title="Mostrar os embarques 1, 2 e 3">
+            <Icon name="dir" />
+          </button>
+        </span>
+      </th>
+    );
+  }
+  return (
+    <>
+      <th className="th-data th-envio" aria-sort={aria}>
+        <span className="th-envio-linha">
+          <button type="button" onClick={onSort}>
+            Embarque 1{sortIcon}
+          </button>
+          <button type="button" className="th-expandir" onClick={() => ctx.setPlanExpanded(false)} aria-expanded aria-label="Recolher os embarques numa coluna" title="Recolher os embarques numa coluna">
+            <Icon name="esq" />
+          </button>
+        </span>
+      </th>
+      {Array.from({ length: MAX_PARCELS - 1 }, (_, i) => (
+        <th key={i} className="th-data">
+          Embarque {i + 2}
+        </th>
+      ))}
+    </>
+  );
+}
+
+/** Um embarque programado: "dez/2026 · 20.000"; o que já devia ter saído, com o item em produção, em âmbar. */
+function Parcel({ parcel, item, today, showQuantity = true }: { parcel: ShipParcel; item: Item; today: string; showQuantity?: boolean }) {
+  const text = showQuantity ? `${formatMonth(parcel.month)} · ${formatQuantity(parcel.quantity)}` : formatMonth(parcel.month);
+  if (item.status !== 'producao' || !parcelPassed(parcel.month, today)) return <>{text}</>;
   return (
     <span className="alerta-texto envio-passou">
       <Icon name="alerta" />
-      {formatDay(item.shipPlannedAt, true)}
+      {text}
       <span className="so-leitor"> (já passou)</span>
     </span>
+  );
+}
+
+/** Células da programação: o próximo embarque (com "+2" quando há mais) ou os três, um por coluna. */
+function PlanCells({ item, ctx }: { item: Item; ctx: Ctx }) {
+  const plan = item.shipPlan ?? [];
+  if (ctx.planExpanded) {
+    return (
+      <>
+        {Array.from({ length: MAX_PARCELS }, (_, i) => (
+          <td key={i} className="nowrap">
+            {plan[i] ? <Parcel parcel={plan[i]!} item={item} today={ctx.today} /> : <span className="mudo">—</span>}
+          </td>
+        ))}
+      </>
+    );
+  }
+  const first = plan[0];
+  if (!first) {
+    return (
+      <td className="nowrap">
+        <span className="mudo">—</span>
+      </td>
+    );
+  }
+  // Um embarque só, com o item inteiro: basta o mês.
+  const whole = plan.length === 1 && first.quantity === item.quantity;
+  return (
+    <td className="nowrap">
+      <Parcel parcel={first} item={item} today={ctx.today} showQuantity={!whole} />
+      {plan.length > 1 && (
+        <button type="button" className="envio-mais" onClick={() => ctx.setPlanExpanded(true)} aria-label={`Ver os ${plan.length} embarques de ${item.description}`}>
+          +{plan.length - 1}
+        </button>
+      )}
+    </td>
   );
 }
 
@@ -413,12 +520,18 @@ function ItemCard({ item, ctx }: { item: Item; ctx: Ctx }) {
           <span className="forn-ponto h" style={hueStyle(item.supplierId ? supplierHue(item.supplierId) : 0)} aria-hidden="true" />
           {supplier} · {item.purchaseOrderId ? ctx.codes.get(item.purchaseOrderId) : NO_ORDER}
         </span>
-        {(item.fileApprovedAt || item.shipPlannedAt) && (
+        {(item.fileApprovedAt || (item.shipPlan ?? []).length > 0) && (
           <span className="item-cartao-datas">
             {item.fileApprovedAt && <span>Aprovação do arquivo: {formatDay(item.fileApprovedAt, true)}</span>}
-            {item.shipPlannedAt && (
+            {(item.shipPlan ?? []).length > 0 && (
               <span>
-                Programação de envio: <ShipPlan item={item} today={ctx.today} />
+                Programação de envio:{' '}
+                {item.shipPlan!.map((p, i) => (
+                  <span key={p.month} className="envio-parcela">
+                    {i > 0 && ', '}
+                    <Parcel parcel={p} item={item} today={ctx.today} showQuantity={!(item.shipPlan!.length === 1 && p.quantity === item.quantity)} />
+                  </span>
+                ))}
               </span>
             )}
           </span>

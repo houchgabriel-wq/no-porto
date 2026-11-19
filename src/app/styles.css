@@ -870,6 +870,26 @@ th.th-data { white-space: normal; min-width: 96px; line-height: 1.25; }
 th.th-data button { text-align: left; }
 .envio-passou { display: inline-flex; align-items: center; gap: 4px; }
 .envio-passou .ic { width: 14px; height: 14px; }
+/* Programação de envio: o título tem o botão que abre a coluna em Embarque 1, 2 e 3. */
+.th-envio-linha { display: inline-flex; align-items: center; gap: 4px; }
+th .th-expandir { border: 1px solid var(--fio); border-radius: 8px; width: 28px; height: 28px; padding: 0; justify-content: center; color: var(--tinta-2); flex: none; }
+th .th-expandir:hover { color: var(--acento); border-color: var(--acento); }
+th .th-expandir .ic { width: 15px; height: 15px; }
+.envio-parcela { white-space: nowrap; }
+.envio-mais { margin-left: 6px; border: 0; border-radius: 999px; background: var(--acento-suave); color: var(--acento); font-weight: 700; font-size: 12px; padding: 2px 8px; cursor: pointer; min-height: 24px; }
+.envio-mais:hover { filter: brightness(0.96); }
+/* Na ficha: um embarque por linha (número, mês, quantidade e tirar). */
+.envio-plano { border: 0; padding: 0; margin: 0; min-width: 0; }
+.envio-plano legend { margin-bottom: 6px; }
+.envio-linha { display: grid; grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 40px; gap: 8px; align-items: center; }
+.envio-n { font-weight: 700; color: var(--tinta-2); text-align: center; }
+.envio-tirar { width: 40px; padding: 0; color: var(--tinta-3); }
+.envio-tirar:hover { color: var(--critico); }
+@media (pointer: coarse) {
+  .envio-linha { grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 44px; }
+  .envio-tirar { width: 44px; min-height: 44px; }
+  .envio-mais { min-height: 32px; padding: 4px 10px; }
+}
 .item-cartao-datas { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 13px; color: var(--tinta-2); }
 .tabela-itens td { vertical-align: top; }
 .t-produto { min-width: 280px; }
