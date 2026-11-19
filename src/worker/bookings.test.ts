@@ -141,12 +141,11 @@ describe('o agente pede', () => {
 });
 
 describe('a equipe acompanha', () => {
-  it('admin, editor e Consulta veem todas as solicitações; só o aprovador pode decidir', async () => {
+  it('admin e editor veem todas as solicitações; só o aprovador pode decidir', async () => {
     await pedir();
     for (const [w, canDecide] of [
       [who.admin, true],
       [who.editor, false],
-      [who.consulta, false],
     ] as const) {
       const res = await app.call('GET', '/api/bookings', { cookie: w.cookie });
       expect(res.status).toBe(200);
@@ -155,8 +154,9 @@ describe('a equipe acompanha', () => {
     }
   });
 
-  it('leitor, Embarques e Vendas não veem as solicitações', async () => {
-    for (const w of [who.leitor, who.embarques, who.vendas]) expect((await app.call('GET', '/api/bookings', { cookie: w.cookie })).status).toBe(403);
+  it('Consulta, leitor, Embarques e Vendas não veem as solicitações (a Consulta deixou de ver em 19/11/2026)', async () => {
+    await pedir();
+    for (const w of [who.consulta, who.leitor, who.embarques, who.vendas]) expect((await app.call('GET', '/api/bookings', { cookie: w.cookie })).status).toBe(403);
   });
 
   it('ninguém da equipe cadastra solicitação no lugar do agente', async () => {

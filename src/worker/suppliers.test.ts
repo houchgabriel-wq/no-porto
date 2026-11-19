@@ -50,11 +50,27 @@ describe('fornecedores', () => {
     expect(suppliers[0].byYear.map((y: { year: string }) => y.year)).toEqual(['2026', '2025']);
   });
 
-  it('o leitor vê sem valores', async () => {
+  it('só admin e editor veem os fornecedores (decidido em 19/11/2026)', async () => {
     await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: item({}) });
-    const s = await summary(who.leitor.cookie);
-    expect(s.seeValues).toBe(false);
-    expect(JSON.stringify(s)).not.toContain('valueCents');
+    expect((await app.call('GET', '/api/suppliers', { cookie: who.editor.cookie })).status).toBe(200);
+    for (const w of [who.consulta, who.leitor, who.embarques, who.vendas, who.agente]) {
+      const res = await app.call('GET', '/api/suppliers', { cookie: w.cookie });
+      expect(res.status).toBe(403);
+      expect(res.data.error).toBe('Seu perfil não vê os fornecedores.');
+    }
+  });
+
+  it('o recebido no ano do painel sai para quem vê o painel; o leitor, sem valores', async () => {
+    await app.call('POST', '/api/import/history', {
+      cookie: who.admin.cookie,
+      body: { items: [history({}), history({ row: 3, description: 'Outro', invoice: '26-0001', ref: '26-0001', arrivedAt: '2026-01-10', quantity: 30 })] },
+    });
+    // O relógio dos testes está em 17/11/2026: vale o que chegou em 2026.
+    const consulta = await app.call('GET', '/api/received', { cookie: who.consulta.cookie });
+    expect(consulta.data).toEqual({ year: '2026', amount: { items: 1, quantity: 30, valueCents: 999 }, seeValues: true });
+    const leitor = await app.call('GET', '/api/received', { cookie: who.leitor.cookie });
+    expect(leitor.data).toEqual({ year: '2026', amount: { items: 1, quantity: 30 }, seeValues: false });
+    for (const w of [who.embarques, who.vendas, who.agente]) expect((await app.call('GET', '/api/received', { cookie: w.cookie })).status).toBe(403);
   });
 
   it('editor renomeia e anota; nome repetido é recusado; o leitor não altera', async () => {
