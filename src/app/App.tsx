@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { itemExportRows } from '../core/exportItems';
+import { itemExportRows, productionExportColumns } from '../core/exportItems';
 import type { HistoryRow } from '../core/history';
 import { backupDue, backupFileName } from '../core/backup';
 import { copySheets, DELIVERED_HEADER, PRODUCTION_HEADER, SHIPMENTS_HEADER } from '../core/fullCopy';
@@ -639,23 +639,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
       const shown = sortItems(filterItems(productionData!.items, filters, data.orders, data.suppliers), sort, data.orders, data.suppliers);
       const rows = itemExportRows(shown, data.orders, data.suppliers, data.seeValues);
       const { buildExport } = await import('./spreadsheet');
-      type Row = (typeof rows)[number];
-      const columns: { header: string; width: number; value: (r: Row) => string | number | null; numFmt?: string }[] = [
-        { header: 'PO', width: 10, value: (r) => r.po },
-        { header: 'Fornecedor', width: 14, value: (r) => r.supplier },
-        { header: 'Produto', width: 60, value: (r) => r.description },
-        { header: 'ISBN', width: 16, value: (r) => r.isbn },
-        { header: 'Quantidade', width: 12, value: (r) => r.quantity, numFmt: '#,##0' },
-        { header: 'pcs/ctn', width: 9, value: (r) => r.piecesPerCarton },
-      ];
-      if (data.seeValues) {
-        columns.push({ header: '$ unitário', width: 12, value: (r) => r.unitPrice ?? null, numFmt: '0.00#' });
-        columns.push({ header: '$ total', width: 14, value: (r) => r.total ?? null, numFmt: '#,##0.00' });
-      }
-      columns.push({ header: 'Aprovação do arquivo', width: 14, value: (r) => r.fileApproved });
-      columns.push({ header: 'Programação de envio', width: 14, value: (r) => r.shipPlanned });
-      columns.push({ header: 'Observações', width: 40, value: (r) => r.notes });
-      downloadXlsx(await buildExport('Produção', columns, rows), `producao-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      downloadXlsx(await buildExport('Produção', productionExportColumns(data.seeValues), rows), `producao-${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch {
       showToast('Não foi possível gerar a planilha.');
     } finally {

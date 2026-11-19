@@ -124,12 +124,13 @@ export async function readSheetRows(file: ArrayBuffer, sheetName: string): Promi
 
 /**
  * Lê todas as abas de um arquivo como texto (para a PO e a invoice dos fornecedores, que podem ter a
- * packing list e a invoice em abas diferentes). Lê no máximo 2.000 linhas e 40 colunas por aba.
+ * packing list e a invoice em abas diferentes). Lê no máximo `maxRows` linhas (por padrão, 2.000) e 40
+ * colunas por aba.
  */
-export async function readWorkbook(file: ArrayBuffer): Promise<{ name: string; rows: string[][] }[]> {
-  if (isLegacyXls(file)) return legacyXlsSheets(file, 2_000);
+export async function readWorkbook(file: ArrayBuffer, maxRows = 2_000): Promise<{ name: string; rows: string[][] }[]> {
+  if (isLegacyXls(file)) return legacyXlsSheets(file, maxRows);
   const wb = await loadWorkbook(file);
-  return wb.worksheets.map((sheet) => ({ name: sheet.name, rows: sheetRows(sheet, 2_000) }));
+  return wb.worksheets.map((sheet) => ({ name: sheet.name, rows: sheetRows(sheet, maxRows) }));
 }
 
 export interface ExportColumn<T> {
@@ -138,6 +139,8 @@ export interface ExportColumn<T> {
   value: (row: T) => string | number | null;
   /** Formato de número do Excel, como '#,##0.00'. */
   numFmt?: string;
+  /** Texto em cinza: a coluna é do sistema, não da pessoa (o código do item). */
+  muted?: boolean;
 }
 
 /**
@@ -185,5 +188,11 @@ export async function buildExport<T>(sheetName: string, columns: readonly Export
     if (c.numFmt) sheet.getColumn(i + 1).numFmt = c.numFmt;
   });
   for (const row of rows) sheet.addRow(Object.fromEntries(columns.map((c, i) => [String(i), c.value(row) ?? ''])));
+  columns.forEach((c, i) => {
+    if (!c.muted) return;
+    sheet.getColumn(i + 1).eachCell((cell, n) => {
+      if (n > 1) cell.font = { color: { argb: 'FF8A8F98' } };
+    });
+  });
   return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
 }

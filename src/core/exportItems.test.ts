@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { itemExportRows } from './exportItems';
+import { itemExportRows, productionExportColumns } from './exportItems';
 import { itemForViewer, type Item } from './items';
+import { ITEM_CODE_HEADER, itemCode } from './updateSheet';
 
 const item: Item = {
   id: 'i',
@@ -22,7 +23,20 @@ const item: Item = {
 describe('planilha dos itens', () => {
   it('traz preço e total em dólar para quem vê valores', () => {
     const [row] = itemExportRows([itemForViewer(item, true)], [], [{ id: 's', name: 'Claire' }], true);
-    expect(row).toEqual({ po: 'Sem PO', supplier: 'Claire', description: 'Livro Café com Aristóteles', isbn: '9786560950856', quantity: 6000, piecesPerCarton: 40, unitPrice: 0.575, total: 3450, fileApproved: '', shipPlanned: '', notes: '' });
+    expect(row).toEqual({
+      po: 'Sem PO',
+      supplier: 'Claire',
+      description: 'Livro Café com Aristóteles',
+      isbn: '9786560950856',
+      quantity: 6000,
+      piecesPerCarton: 40,
+      unitPrice: 0.575,
+      total: 3450,
+      fileApproved: '',
+      shipPlanned: '',
+      notes: '',
+      code: itemCode(item),
+    });
   });
 
   it('traz a aprovação do arquivo (dia/mês/ano) e os embarques programados', () => {
@@ -39,5 +53,16 @@ describe('planilha dos itens', () => {
     expect(row).not.toHaveProperty('unitPrice');
     expect(row).not.toHaveProperty('total');
     expect(row!.supplier).toBe('');
+  });
+});
+
+describe('colunas do Baixar .xlsx da Produção', () => {
+  it('preço e total só para quem vê valores; o código do item vai no fim, em cinza', () => {
+    const headers = (v: boolean) => productionExportColumns(v).map((c) => c.header);
+    expect(headers(true)).toEqual(['PO', 'Fornecedor', 'Produto', 'ISBN', 'Quantidade', 'pcs/ctn', '$ unitário', '$ total', 'Aprovação do arquivo', 'Programação de envio', 'Observações', ITEM_CODE_HEADER]);
+    expect(headers(false)).toEqual(['PO', 'Fornecedor', 'Produto', 'ISBN', 'Quantidade', 'pcs/ctn', 'Aprovação do arquivo', 'Programação de envio', 'Observações', ITEM_CODE_HEADER]);
+    const [row] = itemExportRows([item], [], [], false);
+    const last = productionExportColumns(false).at(-1)!;
+    expect([last.value(row!), last.muted]).toEqual([itemCode(item), true]);
   });
 });
