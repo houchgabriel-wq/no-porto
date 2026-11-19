@@ -5,6 +5,7 @@ import { clean, findHeader, readItemCells, type RowNote } from './importProducti
 import { itemTotalCents } from './money';
 import { NO_SUPPLIER, searchKey } from './items';
 import { parseDate } from './shipments';
+import type { ShipPlan } from './shipPlan';
 
 export interface ImportedShipmentItem {
   row: number;
@@ -17,9 +18,9 @@ export interface ImportedShipmentItem {
   notes: string;
   /** Especificação do produto (só na cópia completa do app). */
   specification: string;
-  /** Aprovação do arquivo e programação de envio (AAAA-MM-DD; só na cópia completa do app). */
+  /** Aprovação do arquivo (AAAA-MM-DD) e programação de envio (só na cópia completa do app). */
   fileApprovedAt: string | null;
-  shipPlannedAt: string | null;
+  shipPlan: ShipPlan;
   invoice: string;
   ref: string;
   bill: string | null;

@@ -4,6 +4,7 @@
 
 import { invoiceTotal, paymentSummary, type Bill, type Invoice, type Payment } from './shipments';
 import type { Item, PurchaseOrder, Supplier } from './items';
+import { shipPlanText } from './shipPlan';
 
 /** Célula da cópia: texto, número, data (AAAA-MM-DD, vira data no Excel) ou vazio. */
 export type CopyCell = string | number | { date: string } | null;
@@ -61,7 +62,7 @@ export function copySheets(input: CopyInput, seeValues = true): CopySheets {
     i.supplierId ? (supplierName.get(i.supplierId) ?? '') : '',
   ];
   // As colunas a mais do app, no fim de cada linha.
-  const extra = (i: Item): CopyCell[] => [i.specification || null, i.fileApprovedAt ? { date: i.fileApprovedAt } : null, i.shipPlannedAt ? { date: i.shipPlannedAt } : null];
+  const extra = (i: Item): CopyCell[] => [i.specification || null, i.fileApprovedAt ? { date: i.fileApprovedAt } : null, shipPlanText(i.shipPlan ?? []) || null];
 
   const production = input.items
     .filter((i) => i.status === 'producao')

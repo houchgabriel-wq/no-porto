@@ -25,9 +25,13 @@ describe('planilha dos itens', () => {
     expect(row).toEqual({ po: 'Sem PO', supplier: 'Claire', description: 'Livro Café com Aristóteles', isbn: '9786560950856', quantity: 6000, piecesPerCarton: 40, unitPrice: 0.575, total: 3450, fileApproved: '', shipPlanned: '', notes: '' });
   });
 
-  it('traz a aprovação do arquivo e a programação de envio como dia/mês/ano', () => {
-    const [row] = itemExportRows([{ ...item, fileApprovedAt: '2026-10-02', shipPlannedAt: '2026-12-05' }], [], [], false);
-    expect([row!.fileApproved, row!.shipPlanned]).toEqual(['02/10/2026', '05/12/2026']);
+  it('traz a aprovação do arquivo (dia/mês/ano) e os embarques programados', () => {
+    const shipPlan = [
+      { month: '2026-12', quantity: 3_000 },
+      { month: '2027-02', quantity: 3_000 },
+    ];
+    const [row] = itemExportRows([{ ...item, fileApprovedAt: '2026-10-02', shipPlan }], [], [], false);
+    expect([row!.fileApproved, row!.shipPlanned]).toEqual(['02/10/2026', 'dez/2026: 3.000; fev/2027: 3.000']);
   });
 
   it('não traz preço nem total para o leitor', () => {

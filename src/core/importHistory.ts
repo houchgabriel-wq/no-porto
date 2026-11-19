@@ -10,6 +10,7 @@ import { invoiceKey } from './importShipments';
 import { itemTotalCents } from './money';
 import { searchKey } from './items';
 import { daysBetween, parseDate } from './shipments';
+import type { ShipPlan } from './shipPlan';
 
 export interface ImportedHistoryItem {
   row: number;
@@ -22,9 +23,9 @@ export interface ImportedHistoryItem {
   notes: string;
   /** Especificação do produto (só na cópia completa do app). */
   specification: string;
-  /** Aprovação do arquivo e programação de envio (AAAA-MM-DD; só na cópia completa do app). */
+  /** Aprovação do arquivo (AAAA-MM-DD) e programação de envio (só na cópia completa do app). */
   fileApprovedAt: string | null;
-  shipPlannedAt: string | null;
+  shipPlan: ShipPlan;
   /** Número da invoice; sem invoice, a ref.; sem as duas, "Planilha, linha N". */
   invoice: string;
   ref: string;
@@ -180,11 +181,11 @@ export function parseHistoryRows(rows: readonly string[][], today?: string): His
     const warn = (message: string) => report.warnings.push({ row: line, message });
     // A especificação e as datas do item não têm posição fixa: são as colunas com esses títulos, quando
     // existem (cópia completa).
-    const byTitle = (col: 'specification' | 'fileApprovedAt' | 'shipPlannedAt') => {
+    const byTitle = (col: 'specification' | 'fileApprovedAt' | 'shipPlan') => {
       const c = header.cols[col];
       return c === undefined ? '' : (row[c] ?? '');
     };
-    const cells = readItemCells((col) => (col === 'specification' || col === 'fileApprovedAt' || col === 'shipPlannedAt' ? byTitle(col) : at(col)), warn);
+    const cells = readItemCells((col) => (col === 'specification' || col === 'fileApprovedAt' || col === 'shipPlan' ? byTitle(col) : at(col)), warn);
     if ('skip' in cells) {
       report.skipped.push({ row: line, message: cells.skip });
       continue;
