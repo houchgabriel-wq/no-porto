@@ -42,4 +42,4 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
 
 ## Depois
 
-Sem prazo: ligação com o No Prelo pelo ISBN, custo final em reais por exemplar, conferência das solicitações com os embarques (avisar de embarque sem aprovação ou com mais containers que o aprovado).
+Sem prazo: o resto da ligação com o No Prelo pelo ISBN (a aprovação do arquivo já vem de lá, desde 19/11/2026), custo final em reais por exemplar, conferência das solicitações com os embarques (avisar de embarque sem aprovação ou com mais containers que o aprovado).
