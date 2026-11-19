@@ -12,7 +12,7 @@ import { cleanSpecification, latestSpecification, SPECIFICATION_MAX } from '../c
 import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, json, readBody } from './http';
-import { eventStatement, insertItem, ITEM_SELECT, loadRefs, toItem, type ItemRow } from './orders';
+import { eventStatement, insertItem, itemDay, ITEM_SELECT, loadRefs, toItem, type ItemRow } from './orders';
 
 const text = (max: number) => z.string().max(max).transform((s) => s.replace(/\s+/g, ' ').trim());
 const day = z
@@ -40,6 +40,8 @@ const importBody = z.object({
         unitPriceMicros: z.number().int().min(0).max(1_000_000_000).refine(isValidUnitPrice, 'O preço unitário tem no máximo três casas decimais.').nullable(),
         notes: z.string().max(2000),
         specification: z.string().max(SPECIFICATION_MAX + 2000).transform(cleanSpecification).default(''),
+        fileApprovedAt: itemDay('Aprovação do arquivo').default(null),
+        shipPlannedAt: itemDay('Programação de envio').default(null),
         invoice: text(80).pipe(z.string().min(1, 'Informe a invoice.')),
         ref: text(60),
         bill: text(40)

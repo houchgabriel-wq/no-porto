@@ -10,7 +10,7 @@ import { can } from '../core/roles';
 import { onlyShipped, salesArrivals } from '../core/shippedItems';
 import { cleanSpecification, latestSpecification, SPECIFICATION_MAX } from '../core/specification';
 import { sameProduct } from '../core/allocation';
-import { spDate, type Bill, type Invoice, type Payment } from '../core/shipments';
+import { parseDate, spDate, type Bill, type Invoice, type Payment } from '../core/shipments';
 import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, HttpError, json, readBody } from './http';
@@ -78,6 +78,24 @@ const specification = z
   .max(SPECIFICATION_MAX + 2000, 'A especificação pode ter no máximo 4.000 caracteres.')
   .transform(cleanSpecification);
 
+/** Data de um campo do item: AAAA-MM-DD ou vazia (null). */
+export const itemDay = (label: string) =>
+  z
+    .string({ error: `${label}: data inválida.` })
+    .max(20, `${label}: data inválida.`)
+    .nullable()
+    .transform((s, ctx) => {
+      const t = (s ?? '').trim();
+      if (!t) return null;
+      if (parseDate(t) !== t) {
+        ctx.addIssue({ code: 'custom', message: `${label}: data inválida.` });
+        return z.NEVER;
+      }
+      return t;
+    });
+const fileApprovedAt = itemDay('Aprovação do arquivo');
+const shipPlannedAt = itemDay('Programação de envio');
+
 const itemFields = {
   description,
   isbn: isbn.default(null),
@@ -88,6 +106,8 @@ const itemFields = {
   unitPriceMicros: unitPriceMicros.default(null),
   notes: notes.default(''),
   specification: specification.default(''),
+  fileApprovedAt: fileApprovedAt.default(null),
+  shipPlannedAt: shipPlannedAt.default(null),
 };
 
 const createItemBody = z.object(itemFields);
@@ -102,6 +122,8 @@ const updateItemBody = z
     unitPriceMicros,
     notes,
     specification,
+    fileApprovedAt,
+    shipPlannedAt,
   })
   .partial()
   .refine((b) => Object.keys(b).length > 0, 'Nada para alterar.');
@@ -157,12 +179,14 @@ export interface ItemRow {
   pieces_per_carton: number | null;
   unit_price_micros: number | null;
   notes: string;
+  file_approved_at: string | null;
+  ship_planned_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export const ITEM_SELECT = `SELECT i.id, i.product_id, p.isbn, i.description, i.supplier_id, i.purchase_order_id, i.invoice_id, i.status, i.quantity,
-       i.pieces_per_carton, i.unit_price_micros, i.notes, i.created_at, i.updated_at
+       i.pieces_per_carton, i.unit_price_micros, i.notes, i.file_approved_at, i.ship_planned_at, i.created_at, i.updated_at
   FROM order_items i JOIN products p ON p.id = i.product_id`;
 
 export function toItem(row: ItemRow): Item {
@@ -179,6 +203,8 @@ export function toItem(row: ItemRow): Item {
     piecesPerCarton: row.pieces_per_carton,
     unitPriceMicros: row.unit_price_micros,
     notes: row.notes,
+    fileApprovedAt: row.file_approved_at,
+    shipPlannedAt: row.ship_planned_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -290,7 +316,11 @@ export async function loadRefs(env: Env, at: string) {
   };
 }
 
-export type ItemFieldsInput = Pick<ItemInput, 'description' | 'quantity' | 'piecesPerCarton' | 'unitPriceMicros' | 'notes'> & { specification?: string };
+export type ItemFieldsInput = Pick<ItemInput, 'description' | 'quantity' | 'piecesPerCarton' | 'unitPriceMicros' | 'notes'> & {
+  specification?: string;
+  fileApprovedAt?: string | null;
+  shipPlannedAt?: string | null;
+};
 
 export function insertItem(
   env: Env,
@@ -302,8 +332,8 @@ export function insertItem(
 ) {
   return env.DB.prepare(
     `INSERT INTO order_items (id, product_id, description, supplier_id, purchase_order_id, invoice_id, status, quantity, pieces_per_carton,
-                              unit_price_micros, notes, specification, created_at, created_by, updated_at, updated_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                              unit_price_micros, notes, specification, file_approved_at, ship_planned_at, created_at, created_by, updated_at, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     id,
     refs.productId,
@@ -317,6 +347,8 @@ export function insertItem(
     input.unitPriceMicros,
     input.notes,
     input.specification ?? '',
+    input.fileApprovedAt ?? null,
+    input.shipPlannedAt ?? null,
     at,
     userId,
     at,
@@ -443,6 +475,8 @@ const TRACKED: Record<string, string> = {
   unitPriceMicros: 'Preço unitário',
   notes: 'Observações',
   specification: 'Especificação',
+  fileApprovedAt: 'Aprovação do arquivo',
+  shipPlannedAt: 'Programação de envio',
 };
 
 async function updateItem(request: Request, env: Env, session: Session, id: string, now: Date): Promise<Response> {
@@ -468,6 +502,8 @@ async function updateItem(request: Request, env: Env, session: Session, id: stri
     unitPriceMicros: before.unitPriceMicros ?? null,
     notes: before.notes,
     specification: (spec!.results[0] as { specification: string } | undefined)?.specification ?? '',
+    fileApprovedAt: before.fileApprovedAt ?? null,
+    shipPlannedAt: before.shipPlannedAt ?? null,
   };
   const next = { ...old, ...body };
   const changes = Object.keys(TRACKED)
@@ -497,9 +533,24 @@ async function updateItem(request: Request, env: Env, session: Session, id: stri
     ...refs.statements,
     env.DB.prepare(
       `UPDATE order_items SET product_id = ?, description = ?, supplier_id = ?, purchase_order_id = ?, quantity = ?, pieces_per_carton = ?,
-              unit_price_micros = ?, notes = ?, specification = ?, updated_at = ?, updated_by = ?
+              unit_price_micros = ?, notes = ?, specification = ?, file_approved_at = ?, ship_planned_at = ?, updated_at = ?, updated_by = ?
         WHERE id = ?`,
-    ).bind(productId, next.description, supplierId, orderId, next.quantity, next.piecesPerCarton, next.unitPriceMicros, next.notes, next.specification, at, session.user.id, id),
+    ).bind(
+      productId,
+      next.description,
+      supplierId,
+      orderId,
+      next.quantity,
+      next.piecesPerCarton,
+      next.unitPriceMicros,
+      next.notes,
+      next.specification,
+      next.fileApprovedAt,
+      next.shipPlannedAt,
+      at,
+      session.user.id,
+      id,
+    ),
     eventStatement(env, id, session.user.id, 'changed', { changes }, at),
   ]);
   return json({ item: itemForViewer((await findItem(env, id))!, true) });

@@ -40,6 +40,19 @@ describe('embarcar', () => {
     expect(byDesc('Livro B', 'embarcado')).toMatchObject([{ quantity: 2000, unitPriceMicros: 500_000, purchaseOrderId: byDesc('Livro B', 'producao')[0].purchaseOrderId }]);
   });
 
+  it('embarcando em parte, a parte embarcada leva a aprovação do arquivo e a programação de envio', async () => {
+    const a = await create({ description: 'Livro A', quantity: 5000, fileApprovedAt: '2026-10-02', shipPlannedAt: '2026-11-10' });
+    await app.call('POST', '/api/ship', { cookie: who.editor.cookie, body: { lines: [{ itemId: a.id, quantity: 2000 }], newInvoice: NEW_INVOICE } });
+    const d = await data();
+    const parts = d.items.filter((i: { description: string }) => i.description === 'Livro A').map((i: { status: string; quantity: number; fileApprovedAt: string | null; shipPlannedAt: string | null }) => [i.status, i.quantity, i.fileApprovedAt, i.shipPlannedAt]);
+    expect(parts).toEqual(
+      expect.arrayContaining([
+        ['producao', 3000, '2026-10-02', '2026-11-10'],
+        ['embarcado', 2000, '2026-10-02', '2026-11-10'],
+      ]),
+    );
+  });
+
   it('embarca numa invoice que já existe, do mesmo fornecedor', async () => {
     const a = await create({ description: 'Livro A' });
     const first = await app.call('POST', '/api/ship', { cookie: who.editor.cookie, body: { lines: [{ itemId: a.id, quantity: 1000 }], newInvoice: NEW_INVOICE } });
