@@ -198,6 +198,8 @@ Em `src/core`, com teste, como no No Prelo:
 
 Igual à seção 9 do `SPEC.md` do No Prelo (`houchgabriel-wq/projectmanagement`), inclusive segurança e publicação automática a cada push em `main`. Login, usuários e sessão vêm do No Prelo, simplificados para os perfis admin, editor e leitor.
 
+**Ordem da publicação (19/11/2026):** `npm run deploy` aplica as migrações do banco antes de subir o código. Antes era o contrário, e por alguns segundos o código novo procurava no banco colunas que ainda não existiam. Se a migração falhar, a publicação para e o site continua na versão anterior. Por isso cada migração precisa funcionar também com o código que ainda está no ar: acrescentar tabela ou coluna, sim; apagar ou renomear o que ele usa, só numa publicação seguinte, depois que o código parar de usar. Numa instalação do zero, o banco `no-porto` é criado antes do primeiro deploy (README).
+
 **Ligação com o No Prelo (19/11/2026):** o No Porto chama a porta `NoPortoApi` do Worker `no-prelo` pela ligação interna entre Workers da mesma conta (service binding `NOPRELO`, em `wrangler.jsonc`); a porta não tem endereço na internet e não precisa de senha nem token. Ela entrega só ISBN, ordem de impressão, data de aprovação, título e gráfica. A busca roda no `scheduled` do Worker (cron `40 9 * * *`, 6h40 em Brasília) e na rota `POST /api/noprelo/sync`, só do admin. Publicação: o No Prelo primeiro (com a porta), depois o No Porto (com a ligação). No servidor local e nos testes a ligação não existe: a busca responde que ela não está configurada.
 
 ```
