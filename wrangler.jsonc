@@ -11,7 +11,9 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },
-  // Sem database_id: o wrangler cria o banco "no-porto" no primeiro deploy.
+  // Sem database_id: o wrangler acha o banco pelo nome "no-porto". A publicação (npm run deploy) aplica
+  // as migrações antes de subir o código, então numa instalação do zero o banco precisa ser criado antes
+  // do primeiro deploy (README).
   "d1_databases": [
     { "binding": "DB", "database_name": "no-porto", "migrations_dir": "migrations" }
   ],
