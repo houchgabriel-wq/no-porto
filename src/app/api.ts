@@ -188,6 +188,8 @@ export const api = {
     ),
   importHistory: (items: ImportedHistoryItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/history', { items }),
   suppliers: () => request<{ suppliers: SupplierSummary[]; seeValues: boolean }>('GET', '/api/suppliers'),
+  /** Busca agora as aprovações do arquivo no No Prelo (admin). */
+  syncNoPrelo: () => request<{ updated: number; approvals: number }>('POST', '/api/noprelo/sync'),
   /** O recebido no ano corrente, para o painel (admin, editor, Consulta e leitor). */
   received: () => request<{ year: string; amount: Amount; seeValues: boolean }>('GET', '/api/received'),
   fullCopy: () => request<CopyInput>('GET', '/api/export'),
