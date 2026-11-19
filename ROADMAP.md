@@ -42,4 +42,4 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
 
 ## Depois
 
-Sem prazo: ligação com o No Prelo pelo ISBN, custo final em reais por exemplar, previsão de embarque nas POs, conferência das solicitações com os embarques (avisar de embarque sem aprovação ou com mais containers que o aprovado).
+Sem prazo: ligação com o No Prelo pelo ISBN, custo final em reais por exemplar, conferência das solicitações com os embarques (avisar de embarque sem aprovação ou com mais containers que o aprovado).
