@@ -893,6 +893,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                 onSupplier={(id) => goToProduction({ supplierId: id })}
                 onOrder={(id) => goToProduction({ orderId: id })}
                 onShipment={setShipment}
+                onProduct={setProduct}
                 received={suppliersData ? { year: thisYear, amount: receivedInYear(suppliersData.suppliers, thisYear, suppliersData.seeValues) } : null}
               />
               </>
