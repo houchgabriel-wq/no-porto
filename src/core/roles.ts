@@ -1,7 +1,7 @@
 // Perfis e permissões (SPEC.md, seção 4). A interface usa estas regras para esconder controles;
 // o servidor usa as mesmas para recusar o que o perfil não pode fazer.
 
-export const ROLES = ['admin', 'editor', 'consulta', 'leitor', 'embarques', 'vendas'] as const;
+export const ROLES = ['admin', 'editor', 'consulta', 'leitor', 'embarques', 'vendas', 'agente'] as const;
 export type Role = (typeof ROLES)[number];
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -11,10 +11,11 @@ export const ROLE_LABELS: Record<Role, string> = {
   leitor: 'Leitor',
   embarques: 'Embarques',
   vendas: 'Vendas',
+  agente: 'Agente de cargas',
 };
 
 export type Action =
-  | 'view' // entrar e ver os produtos a caminho, com a previsão de chegada (todos, inclusive Vendas)
+  | 'view' // entrar e ver os produtos a caminho, com a previsão de chegada (toda a equipe, inclusive Vendas; o Agente, que é de fora, não)
   | 'view_shipments' // a tela de embarques completa: fornecedor, invoice, BL e quantidades (Vendas não vê)
   | 'view_all' // painel, produção, fornecedores e fichas de produto (o perfil Embarques não vê)
   | 'view_history' // a lista do histórico (o perfil Embarques vê, sem valores: pedido em 18/11/2026)
@@ -23,10 +24,15 @@ export type Action =
   | 'edit' // cadastrar e alterar POs, itens, invoices, BLs, pagamentos e fornecedores
   | 'import' // carga de planilha
   | 'delete' // exclusões
-  | 'manage_users';
+  | 'manage_users'
+  | 'view_bookings' // ver todas as solicitações de embarque, com os valores dos containers
+  | 'request_bookings' // pedir containers e cancelar as próprias solicitações (só o Agente, que só vê as dele)
+  | 'decide_bookings'; // aprovar e recusar: além do perfil, só quem tem a marca de aprovador (o Gabriel)
+
+const TEAM = ['admin', 'editor', 'consulta', 'leitor', 'embarques', 'vendas'] as const;
 
 const PERMISSIONS: Record<Action, readonly Role[]> = {
-  view: ROLES,
+  view: TEAM,
   view_shipments: ['admin', 'editor', 'consulta', 'leitor', 'embarques'],
   view_all: ['admin', 'editor', 'consulta', 'leitor'],
   view_history: ['admin', 'editor', 'consulta', 'leitor', 'embarques'],
@@ -36,6 +42,9 @@ const PERMISSIONS: Record<Action, readonly Role[]> = {
   import: ['admin'],
   delete: ['admin'],
   manage_users: ['admin'],
+  view_bookings: ['admin', 'editor', 'consulta'],
+  request_bookings: ['agente'],
+  decide_bookings: ['admin'],
 };
 
 export function can(role: Role, action: Action): boolean {

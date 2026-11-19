@@ -2,7 +2,7 @@
 
 Software do Grupo On Line para acompanhar a impressão e a importação dos livros: o que está em produção nos fornecedores, o que está embarcado e quando chega, quanto está pago e a pagar, e o histórico de tudo o que já foi importado. Roda online, com login por usuário, como o No Prelo.
 
-Este documento registra o que foi combinado com o Gabriel até 17/11/2026 (respostas da segunda rodada no mesmo dia). Cada item está marcado como **decidido** (escolha dele) ou **proposta** (sugestão ainda não confirmada). Propostas podem mudar sem cerimônia; decisões só mudam se ele pedir.
+Este documento registra o que foi combinado com o Gabriel até 19/11/2026 (respostas da segunda rodada em 17/11/2026; as solicitações de embarque, em 19/11/2026). Cada item está marcado como **decidido** (escolha dele) ou **proposta** (sugestão ainda não confirmada). Propostas podem mudar sem cerimônia; decisões só mudam se ele pedir.
 
 ## 1. Origem
 
@@ -47,6 +47,11 @@ O que a planilha mostra sobre a relação entre os dados (conferido em 17/11/202
 | Valores e leitor | O leitor não vê preços nem valores (17/11/2026) |
 | Ligação com o No Prelo | Interessa: um livro aprovado na gráfica do No Prelo vira item de PO pelo ISBN. Fica para depois da primeira versão (17/11/2026) |
 | Primeiro administrador | O próprio Gabriel |
+| Solicitações de embarque | O agente de cargas recebia dos fornecedores os pedidos de containers e reservava sem a autorização do Gabriel. Agora o agente cadastra no No Porto o que cada fornecedor pede para um embarque (fornecedor, quantidade de containers, saída e valor do container), e o embarque só é autorizado com a aprovação do Gabriel. Fica no próprio No Porto, não num sistema à parte (19/11/2026) |
+| Tipo de container | O tipo importa: cada solicitação traz a quantidade e o valor de cada tipo, 20', 40' e 40' HC (19/11/2026) |
+| Quem aprova | Só o Gabriel (19/11/2026). A marca de aprovador fica na conta dele, a do primeiro acesso (migração `0009`); outro admin não aprova |
+| Aviso de solicitação nova | No painel, por enquanto (19/11/2026): um aviso no topo e o contador na aba Solicitações. Sem e-mail |
+| Agentes | Um agente só (19/11/2026), com login próprio no perfil Agente de cargas |
 
 ## 3. Fluxo (proposta)
 
@@ -78,26 +83,38 @@ Documentos dos fornecedores (feitos depois do marco 5; decisão de 17/11/2026, n
 
 Pagamento é registrado na invoice, à parte da situação dos itens: data, valor em dólar e taxa de câmbio; o valor em reais é calculado. Uma invoice pode ter mais de um pagamento (na planilha há casos como "Pago 2/3"); a situação dela é a pagar, paga em parte ou paga, conforme a soma dos pagamentos e o total dos itens. O pagamento antigo da planilha (sem valor) quita a invoice. Admin e editor registram pagamentos; só o admin exclui. "A pagar", no painel e na tela Embarques, é a soma do que falta nas invoices.
 
+Solicitações de embarque (feitas em 19/11/2026; as decisões estão na seção 2, o resto é proposta):
+
+- **O agente pede.** Escolhe o fornecedor na lista (não cadastra fornecedor novo), informa o porto de saída (com sugestão dos que já usou), a saída prevista e uma linha por tipo de container, com a quantidade e o valor de cada container em dólar; observações são opcionais (navio, número da reserva). A saída pode ter passado há no máximo 90 dias (pedido registrado atrasado) e estar a no máximo um ano, contra erro de ano; cada tipo entra uma vez, com até 99 containers, e o valor de um container fica entre US$ 100,00 e US$ 100.000,00 (fora disso, é erro de digitação). No valor, ponto ou vírgula seguidos de três dígitos separam os milhares: "2.850" é US$ 2.850,00 (a leitura comum de valores do app daria US$ 2,85). A solicitação entra "Aguardando aprovação". Enquanto aguarda, o agente pode cancelar; para mudar, cancela e cadastra outra.
+- **O Gabriel decide.** O painel avisa das que aguardam e a aba Solicitações mostra o contador. A ficha traz os containers com o valor de cada um e o total, e a situação do fornecedor naquele momento: em produção (valor, exemplares e POs abertas), no mar (embarques a caminho e a próxima chegada), a última chegada e as outras solicitações dele. Ele aprova, podendo aprovar menos containers de cada tipo que o pedido (nunca mais), com uma observação opcional; ou recusa, com o motivo, que é obrigatório. O agente vê a decisão, quem decidiu, quando e o que foi escrito. Decidida, a solicitação não muda mais; a confirmação antes de gravar mostra o que vai ser aprovado ou recusado.
+- **Registro.** Cada solicitação guarda quem pediu e quando, quem decidiu (ou cancelou) e quando, a observação ou o motivo, e o pedido e o aprovado de cada tipo. Total = containers × valor de cada um, em centavos de dólar. O nome do fornecedor fica guardado como estava no pedido; a tela mostra o nome atual, e "começar do zero" mantém as solicitações, só sem a ligação com o fornecedor.
+- **Combinado com o agente.** O app não impede uma reserva feita por fora: ele dá o canal e o registro. O combinado é que só se reserva o que está aprovado no No Porto. O próximo passo (seção 11) é ligar o embarque (BL) à solicitação aprovada e avisar quando chegar embarque sem aprovação ou com mais containers que o aprovado.
+
 ## 4. Perfis e permissões (proposta, menos o que está marcado como decidido)
 
-Seis perfis. Consulta e Embarques foram pedidos pelo Gabriel em 17/11/2026, para a equipe (migração `0006`); Vendas, em 18/11/2026, para os vendedores (migração `0007`).
+Sete perfis. Consulta e Embarques foram pedidos pelo Gabriel em 17/11/2026, para a equipe (migração `0006`); Vendas, em 18/11/2026, para os vendedores (migração `0007`); Agente de cargas, em 19/11/2026, para o agente que reserva os containers (migração `0009`).
 
-| Ação | Admin | Editor | Consulta | Leitor | Embarques | Vendas |
-| --- | --- | --- | --- | --- | --- | --- |
-| Ver os embarques a caminho | sim | sim | sim | sim | sim (decidido) | só a lista: produto e chegada (decidido) |
-| Ver o histórico (o que já chegou) | sim | sim | sim (decidido) | sim | sim, sem o recebido por ano no topo (decidido em 18/11/2026) | **não** |
-| Ver painel, produção, fornecedores e fichas de produto | sim | sim | sim (decidido) | sim | **não** (decidido) | **não** |
-| Ver preços, valores e pagamentos; baixar o arquivo do BL | sim | sim | sim (decidido) | **não** (decidido) | **não** (decidido) | **não** |
-| Cadastrar e alterar POs, itens, invoices, BLs, chegadas e pagamentos | sim | sim | **não** (decidido) | não | não (decidido) | não |
-| Cadastrar fornecedores | sim | sim | não | não | não | não |
-| Carga de planilha e exclusões | sim | não | não | não | não | não |
-| Usuários | sim | não | não | não | não | não |
+| Ação | Admin | Editor | Consulta | Leitor | Embarques | Vendas | Agente de cargas |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Ver os embarques a caminho | sim | sim | sim | sim | sim (decidido) | só a lista: produto e chegada (decidido) | **não** |
+| Ver o histórico (o que já chegou) | sim | sim | sim (decidido) | sim | sim, sem o recebido por ano no topo (decidido em 18/11/2026) | **não** | **não** |
+| Ver painel, produção, fornecedores e fichas de produto | sim | sim | sim (decidido) | sim | **não** (decidido) | **não** | **não** |
+| Ver preços, valores e pagamentos; baixar o arquivo do BL | sim | sim | sim (decidido) | **não** (decidido) | **não** (decidido) | **não** | **não** |
+| Cadastrar e alterar POs, itens, invoices, BLs, chegadas e pagamentos | sim | sim | **não** (decidido) | não | não (decidido) | não | não |
+| Cadastrar fornecedores | sim | sim | não | não | não | não | não |
+| Carga de planilha e exclusões | sim | não | não | não | não | não | não |
+| Usuários | sim | não | não | não | não | não | não |
+| Ver as solicitações de embarque, com os valores | sim | sim | sim | não | não | não | só as próprias |
+| Cadastrar e cancelar solicitações de embarque | não | não | não | não | não | não | sim (cancelar, só enquanto aguarda) |
+| Aprovar e recusar solicitações de embarque | só o Gabriel (decidido) | não | não | não | não | não | não |
 
 O servidor tira preços, totais, câmbio e pagamentos das respostas para o leitor e para o perfil Embarques; não basta esconder na tela. No painel, o leitor vê quantidades (exemplares, itens, embarques) no lugar de valores. O perfil Embarques recebe do servidor, nos dados das telas, só os itens no mar, com as invoices, os BLs, as POs e os fornecedores deles (nada da produção). Desde 18/11/2026 ele vê também o Histórico, sem valores (o servidor tira preço e total) e sem os cartões de recebido por ano no topo; a busca, os filtros por fornecedor e ano, a contagem em exemplares e o Baixar .xlsx (sem valores) continuam, e o nome do produto não abre a ficha. Os fornecedores, as fichas de produto e a cópia completa são recusados para ele; a tela mostra as abas Embarques e Histórico.
 
 O perfil Vendas tem uma tela só, "Embarques", em lista: o produto (nome e ISBN; o ISBN confirmado pelo Gabriel em 18/11/2026) e a chegada prevista, com a situação ("Chega em 5 dias", "Em liberação"), da chegada mais próxima para a mais distante, com busca por produto ou ISBN. O mesmo produto com a mesma chegada aparece uma vez; em embarques com chegadas diferentes, uma linha por chegada. O servidor manda para ele só isso (`/api/sales`): fornecedor, invoice, BL, PO, quantidades e valores não saem do servidor, e as outras rotas de leitura são recusadas.
 
-Equipe (17/11/2026): Marcelo, com acesso de quem lança pedidos e embarques (Administrador ou Editor, escolha do Gabriel ao criar a conta); Leonardo e Paulo, Consulta; Antonio e Vinicius, Embarques. As contas são criadas pelo admin na tela Usuários.
+O perfil Agente de cargas é de fora da editora e tem uma tela só, "Solicitações", com as próprias solicitações e o formulário de nova solicitação. O servidor manda para ele só isso (`/api/bookings`): as solicitações que ele mesmo cadastrou e a lista dos fornecedores, só com o nome. Todas as outras rotas são recusadas, inclusive a lista dos produtos a caminho do perfil Vendas, que passou a conferir o perfil (antes, todo perfil podia lê-la). Para a equipe, as solicitações ficam com quem vê valores (admin, editor e Consulta), porque trazem o valor dos containers (proposta).
+
+Equipe (17/11/2026): Marcelo, com acesso de quem lança pedidos e embarques (Administrador ou Editor, escolha do Gabriel ao criar a conta); Leonardo e Paulo, Consulta; Antonio e Vinicius, Embarques. As contas são criadas pelo admin na tela Usuários. O agente de cargas (19/11/2026) é um só, com a conta criada pelo admin, no perfil Agente de cargas.
 
 ## 5. Telas (proposta)
 
@@ -111,7 +128,10 @@ Equipe (17/11/2026): Marcelo, com acesso de quem lança pedidos e embarques (Adm
 - **Ficha do produto** (feita no marco 4), aberta pelo Histórico ou pela ficha do item ("Todas as compras deste produto"): todas as compras do produto (em produção, embarcadas e entregues), com data, situação, fornecedor, PO ou invoice, quantidade, preço e total; e, para quem vê valores, o último preço, o menor e o maior e quanto o preço variou da primeira para a última compra. O produto é reconhecido pelo ISBN (ou, sem ISBN, pelo nome).
 - **Fornecedores** (feita no marco 5): tabela com o que cada fornecedor tem em produção e no mar, o recebido no ano e desde 2023, e a última chegada; as somas são feitas no banco. A ficha do fornecedor traz o recebido por ano, leva aos itens em produção e deixa o editor corrigir o nome e anotar observações (contato, prazos). O painel ganhou o "Recebido no ano".
 - **Novo pedido, Novo embarque e Registrar chegada** (feitos depois do marco 5, seção 3): botões na Produção (Novo pedido) e nos Embarques (Novo embarque e Registrar chegada), para admin e editor. Cada um mostra o que foi lido e o que vai acontecer antes de gravar.
-- Todas as listas com busca, filtros e **Baixar .xlsx** (Produção, Embarques, Histórico e Fornecedores).
+- **Solicitações** (feita em 19/11/2026; seção 3): aba para admin, editor e Consulta, entre Painel e Embarques (proposta; a ordem das outras abas, decidida em 17/11/2026, não muda), com o número das que aguardam ao lado do nome. No topo, as que aguardam (solicitações, containers e valor), os containers aprovados e as recusadas nos últimos 30 dias. Busca por fornecedor, porto, container ou quem pediu, e filtro por fornecedor. Os cartões vêm por situação: aguardando (da saída mais próxima para a mais distante; a saída em até 3 dias fica em âmbar, e a que já passou, em vermelho), aprovadas (as 12 mais recentes, com "Mostrar todas") e, recolhidas, recusadas e canceladas. A ficha mostra a decisão, os dados do pedido, os containers e, para a equipe, a situação do fornecedor, com o atalho para a produção dele; para o Gabriel, Aprovar e Recusar. Para não quebrar o topo em duas linhas em telas de 1280 px, as seis abas ficam um pouco mais justas e o menu do usuário mostra só as iniciais até 1.400 px.
+- **Aviso no painel** (decisão de 19/11/2026): enquanto há solicitações aguardando, o painel de quem vê as solicitações mostra no topo quantas são e quantos containers, com o botão "Ver e decidir" (para o Gabriel) ou "Ver solicitações".
+- **Tela do agente de cargas** (feita em 19/11/2026): só a aba Solicitações, com as dele, o mesmo resumo do topo e o botão Nova solicitação; a ficha diz se pode reservar e permite cancelar enquanto aguarda.
+- Todas as listas com busca, filtros e **Baixar .xlsx** (Produção, Embarques, Histórico e Fornecedores). As solicitações ainda não têm Baixar .xlsx.
 - **Cópia completa** (feita no marco 5; o lembrete mensal é decisão de 17/11/2026, na seção 2): no menu do admin, "Baixar cópia completa" gera uma planilha com as abas Produção, Embarques e Entregues, nas mesmas colunas da `status_importações`, mais a coluna "Especificação" no fim (18/11/2026). Serve para guardar fora da Cloudflare e volta pela própria carga do sistema (há teste de ida e volta). Os Embarques baixados pela tela usam o mesmo formato.
 - **Cores dos fornecedores**: espaçadas pelo ângulo áureo, começando pelos que têm mais itens, para os principais nunca ficarem parecidos.
 - **Acessibilidade** (revisão do marco 5): auditoria automática (axe-core, WCAG 2.2 AA) em 50 telas e janelas, nos dois temas, no computador e no celular, sem violações. A única marcação que sobra é um alvo de toque coberto pelo menu do usuário aberto no celular, que é o próprio menu por cima da tela. Tudo funciona pelo teclado: entrar, navegar pelas abas, abrir e fechar as fichas (o foco volta para onde estava); as tabelas que rolam por dentro recebem foco. No celular, as cinco abas cabem na largura, com o ícone sobre o nome.
@@ -130,6 +150,7 @@ Em `src/core`, com teste, como no No Prelo:
 - Uma PO, um fornecedor: o dono da PO e a recusa de item de outro fornecedor.
 - Nos números em destaque (painel, "No mar" e totais por fornecedor), dólares inteiros, como US$ 3.042.056, para dar para comparar com a planilha; na tabela e na ficha, com centavos. Na tela Embarques, o que é pagamento sai com centavos (pedido do Gabriel em 18/11/2026): o "a pagar" do topo, o total de cada embarque, o total de cada grupo e a soma filtrada da visão por item.
 - Permissões, inclusive o que o leitor não pode ver.
+- Solicitações de embarque (`src/core/bookings.ts`): o que impede a solicitação de ser gravada, a aprovação (menos que o pedido, nunca mais, e pelo menos um container), os totais em centavos, o texto dos containers ("1 × 20' + 3 × 40' HC"), a ordem e os grupos da lista, quem decide (admin com a marca de aprovador) e quem cancela (o agente, a própria, enquanto aguarda).
 
 ## 7. Carga da planilha (proposta)
 
@@ -189,7 +210,12 @@ order_items      id, product_id, description, supplier_id, purchase_order_id, in
 events           histórico automático de mudanças (entity, entity_id, type, detail), como no No Prelo
 bill_documents   id, bill_of_lading_id (um por BL), name, content_type, size   (migração 0005)
 bill_document_parts  document_id, seq, data (o arquivo em base64, em partes de 1 MB)
-users, sessions, login_attempts   como no No Prelo
+users, sessions, login_attempts   como no No Prelo; users.approves_bookings marca quem aprova as solicitações (migração 0009)
+booking_requests   id, supplier_id, supplier_name (como estava no pedido), departure_port, departure_date,
+                   notes, status (aguardando | aprovada | recusada | cancelada), created_at, created_by,
+                   decided_at, decided_by, decision_note   (migração 0009)
+booking_request_lines  request_id, container_type (20 | 40 | 40HC), quantity, approved_quantity,
+                   price_cents (valor de cada container)   (migração 0009)
 ```
 
 ## 9. Direção visual
@@ -205,3 +231,6 @@ Nenhuma no momento.
 - Ligação com o No Prelo pelo ISBN.
 - Custo final em reais por exemplar (frete, impostos, despachante), se o Gabriel quiser.
 - Previsão de embarque nas POs.
+- Conferência das solicitações com os embarques: ligar o BL à solicitação aprovada (o novo embarque já registra uma invoice por container) e avisar quando chegar embarque sem aprovação ou com mais containers que o aprovado.
+- Aviso por e-mail das solicitações novas, se o aviso no painel não bastar.
+- O frete aprovado entrando no custo final por exemplar.

@@ -13,6 +13,8 @@ export interface SessionUser {
   email: string;
   role: Role;
   mustChangePassword: boolean;
+  /** Aprova as solicitações de embarque (o Gabriel; decidido em 19/11/2026). */
+  approvesBookings: boolean;
 }
 
 export interface Session {
@@ -57,6 +59,7 @@ interface SessionRow {
   email: string;
   role: Role;
   must_change_password: number;
+  approves_bookings: number;
 }
 
 export async function loadSession(env: Env, request: Request, now: Date): Promise<Session | null> {
@@ -64,7 +67,7 @@ export async function loadSession(env: Env, request: Request, now: Date): Promis
   if (!token) return null;
   const tokenHash = await sha256(token);
   const row = await env.DB.prepare(
-    `SELECT s.token_hash, s.expires_at, u.id, u.name, u.email, u.role, u.must_change_password
+    `SELECT s.token_hash, s.expires_at, u.id, u.name, u.email, u.role, u.must_change_password, u.approves_bookings
        FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = ? AND u.active = 1`,
   )
@@ -84,6 +87,7 @@ export async function loadSession(env: Env, request: Request, now: Date): Promis
       email: row.email,
       role: row.role,
       mustChangePassword: row.must_change_password === 1,
+      approvesBookings: row.approves_bookings === 1,
     },
   };
   if (shouldRenew(row.expires_at, now)) {

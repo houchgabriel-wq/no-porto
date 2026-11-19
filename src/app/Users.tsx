@@ -13,6 +13,7 @@ const ROLE_HINTS: Record<Role, string> = {
   leitor: 'Vê tudo, sem preços e valores, e não altera nada',
   embarques: 'Vê os produtos embarcados e o histórico, sem preços e valores',
   vendas: 'Vê só a lista dos produtos a caminho, com a previsão de chegada',
+  agente: 'De fora da editora: cadastra as solicitações de embarque e vê só as próprias',
 };
 
 const ROLE_ICONS: Record<Role, IconName> = {
@@ -22,6 +23,7 @@ const ROLE_ICONS: Record<Role, IconName> = {
   leitor: 'olho',
   embarques: 'navio',
   vendas: 'estrela',
+  agente: 'container',
 };
 
 function message(e: unknown): string {
@@ -273,6 +275,11 @@ function EditUserDialog({
             <Field label="E-mail" type="email" value={email} onChange={setEmail} />
             <RoleChoice value={role} onChange={setRole} disabled={self} />
             {self && <p className="dica">Você não pode mudar o próprio perfil nem desativar a própria conta.</p>}
+            {user.approvesBookings && (
+              <p className="dica">
+                {self ? 'Você aprova' : `${user.name.split(' ')[0]} aprova`} as solicitações de embarque do agente de cargas{self ? '' : ', enquanto for administrador'}.
+              </p>
+            )}
             {confirmReset && (
               <div className="aviso alerta" role="group" aria-label="Confirmar redefinição">
                 <Icon name="alerta" />
@@ -389,6 +396,7 @@ export function UsersScreen({ me }: { me: Me }) {
                     <Icon name={ROLE_ICONS[u.role]} />
                     {ROLE_LABELS[u.role]}
                   </span>
+                  {u.approvesBookings && <span className="aprova">Aprova as solicitações</span>}
                 </div>
                 <div className="col-situacao">
                   <Status user={u} />

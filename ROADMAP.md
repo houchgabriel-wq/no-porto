@@ -35,6 +35,11 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
   *Teste do Gabriel:* cadastrar a próxima PO pelo arquivo, registrar o próximo embarque pela invoice do fornecedor e marcar a chegada do próximo container.
   *Pronto para o teste em 17/11/2026:* carga completa da planilha (as três abas de uma vez, com a opção de apagar antes para começar do zero); lidos sem erro os arquivos reais da PO-062 (Claire), PO-064 (Sara) e PO-065 (Nicola) e as invoices CTNR04 da Claire, HSC20260920 da Nicola e GN-509 da Brijbasi.
 
+- [ ] **Marco 7: solicitações de embarque.**
+  O agente de cargas cadastra o que cada fornecedor pede para um embarque (fornecedor, containers de cada tipo, saída e valor de cada container) e só o Gabriel aprova ou recusa; aviso no painel.
+  *Teste do Gabriel:* criar a conta do agente em Usuários (perfil Agente de cargas), pedir que ele cadastre a próxima solicitação real, aprovar ou recusar pelo No Porto e conferir com o agente que ele viu a resposta.
+  *Pronto para o teste em 19/11/2026:* perfil Agente de cargas, que vê só as próprias solicitações (o servidor recusa todo o resto); aba Solicitações para admin, editor e Consulta, com o contador das que aguardam; aviso no topo do painel; ficha com os containers e a situação do fornecedor (produção, mar, última chegada e outras solicitações); aprovar, podendo aprovar menos que o pedido, ou recusar com o motivo, só pela conta do Gabriel (migração `0009`); o agente cancela enquanto aguarda. Auditoria de acessibilidade sem violações em 40 telas e janelas, nos dois temas, no computador e no celular.
+
 ## Depois
 
-Sem prazo: ligação com o No Prelo pelo ISBN, custo final em reais por exemplar, previsão de embarque nas POs.
+Sem prazo: ligação com o No Prelo pelo ISBN, custo final em reais por exemplar, previsão de embarque nas POs, conferência das solicitações com os embarques (avisar de embarque sem aprovação ou com mais containers que o aprovado).

@@ -15,6 +15,7 @@ import { routeSuppliers } from './suppliers';
 import { routeExport } from './export';
 import { routeReset } from './reset';
 import { routeBillDocuments } from './billDocuments';
+import { routeBookings } from './bookings';
 
 // ---------- Esquemas de entrada ----------
 
@@ -56,12 +57,13 @@ interface UserRow {
   active: number;
   created_at: string;
   last_login_at: string | null;
+  approves_bookings: number;
 }
 
-const PUBLIC_USER_COLUMNS = 'id, name, email, role, must_change_password, active, created_at, last_login_at';
+const PUBLIC_USER_COLUMNS = 'id, name, email, role, must_change_password, active, created_at, last_login_at, approves_bookings';
 
 /** O que a tela de usuários vê. Nunca inclui hash nem sal. */
-function publicUser(row: Pick<UserRow, 'id' | 'name' | 'email' | 'role' | 'must_change_password' | 'active' | 'created_at' | 'last_login_at'>) {
+function publicUser(row: Pick<UserRow, 'id' | 'name' | 'email' | 'role' | 'must_change_password' | 'active' | 'created_at' | 'last_login_at' | 'approves_bookings'>) {
   return {
     id: row.id,
     name: row.name,
@@ -71,6 +73,7 @@ function publicUser(row: Pick<UserRow, 'id' | 'name' | 'email' | 'role' | 'must_
     active: row.active === 1,
     createdAt: row.created_at,
     lastLoginAt: row.last_login_at,
+    approvesBookings: row.approves_bookings === 1,
   };
 }
 
@@ -157,10 +160,11 @@ async function postSetup(request: Request, env: Env, now: Date): Promise<Respons
   const hash = await hashPassword(body.password);
   const id = crypto.randomUUID();
   // Só grava se a tabela ainda estiver vazia, para dois pedidos simultâneos não criarem dois admins.
+  // Quem faz o primeiro acesso (o Gabriel) é quem aprova as solicitações de embarque.
   const result = await env.DB.prepare(
     `INSERT INTO users (id, name, email, role, password_hash, password_salt, password_iterations,
-                        must_change_password, active, created_at, last_login_at)
-     SELECT ?, ?, ?, 'admin', ?, ?, ?, 0, 1, ?, ?
+                        must_change_password, active, created_at, last_login_at, approves_bookings)
+     SELECT ?, ?, ?, 'admin', ?, ?, ?, 0, 1, ?, ?, 1
       WHERE NOT EXISTS (SELECT 1 FROM users)`,
   )
     .bind(id, body.name, body.email, hash.hash, hash.salt, hash.iterations, now.toISOString(), now.toISOString())
@@ -168,7 +172,7 @@ async function postSetup(request: Request, env: Env, now: Date): Promise<Respons
   if (!result.meta.changes) return error(409, 'O primeiro acesso já foi feito. Entre com seu e-mail e senha.');
 
   const cookie = await createSession(env, id, now);
-  const user = { id, name: body.name, email: body.email, role: 'admin' as const, mustChangePassword: false };
+  const user = { id, name: body.name, email: body.email, role: 'admin' as const, mustChangePassword: false, approvesBookings: true };
   return json({ user }, 201, { 'set-cookie': cookie });
 }
 
@@ -198,6 +202,7 @@ async function postLogin(request: Request, env: Env, now: Date): Promise<Respons
     email: row.email,
     role: row.role,
     mustChangePassword: row.must_change_password === 1,
+    approvesBookings: row.approves_bookings === 1,
   };
   return json({ user }, 200, { 'set-cookie': cookie });
 }
@@ -394,6 +399,8 @@ async function routeLoggedIn(
   if (exported) return exported;
   const wiped = await routeReset(request, env, session, key);
   if (wiped) return wiped;
+  const bookings = await routeBookings(request, env, session, key, path, now);
+  if (bookings) return bookings;
 
   return error(404, 'Rota não encontrada.');
 }

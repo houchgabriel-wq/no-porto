@@ -1228,3 +1228,123 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
   .heroi-valor { font-size: clamp(18px, 5.6vw, 24px); }
   .heroi-sub { font-size: 12px; }
 }
+/* ---------- No Porto: solicitações de embarque ---------- */
+/* Contador da aba: o número à vista; a frase inteira vai para o leitor de tela. */
+.aba-conta { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--alerta); color: var(--folha); font-size: 11.5px; font-weight: 700; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; }
+/* Aviso do painel: âmbar, porque pede uma decisão. */
+.lembrete-sol { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; background: var(--alerta-suave); color: var(--tinta); border: 1px solid color-mix(in srgb, var(--alerta) 35%, transparent); border-radius: 14px; padding: 10px 14px; margin: 0 0 16px; font-weight: 500; }
+.lembrete-sol > .ic { color: var(--alerta); width: 20px; height: 20px; flex: none; }
+.lembrete-sol span { flex: 1 1 280px; }
+.lembrete-sol b { font-weight: 700; }
+.lembrete-sol .btn { text-decoration: none; }
+.sol-faixa { display: grid; grid-template-columns: minmax(210px, 280px) repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.sol-cartao.estado-aguardando { border-left-color: var(--alerta); }
+.sol-cartao.estado-aprovada { border-left-color: var(--ok); }
+.sol-cartao.estado-recusada { border-left-color: var(--critico); }
+.sol-cartao.estado-cancelada { border-left-color: var(--fio); }
+.sol-cartao.estado-cancelada .emb-titulo { color: var(--tinta-2); }
+.sol-forn { font-weight: 700; display: inline-flex; align-items: center; overflow-wrap: anywhere; min-width: 0; }
+.sol-nota { font-size: 12.5px; color: var(--tinta-3); margin-top: -4px; }
+.sol-mais { margin-top: 10px; }
+.emb-grupo.sol-aguardando h2 { color: var(--alerta); }
+.aviso.neutro { background: var(--sulco); color: var(--tinta-2); }
+/* Ficha da solicitação */
+dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
+.sol-citacao { display: block; margin-top: 6px; font-weight: 500; color: var(--tinta); white-space: pre-wrap; overflow-wrap: anywhere; }
+.sol-dados { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 18px; margin: 0; }
+.sol-dados dt { color: var(--tinta-3); font-size: 13px; font-weight: 600; padding-top: 1px; }
+.sol-dados dd { margin: 0; overflow-wrap: anywhere; }
+.sol-texto { white-space: pre-wrap; }
+.sol-tabela { max-height: none; }
+.sol-tabela table { min-width: 460px; }
+.sol-contexto { border: 1px solid var(--fio); border-radius: 14px; padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 12px; }
+.sol-contexto-topo { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.sol-contexto-topo h3 { font-family: var(--f-display); font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.sol-ctx-grade { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 16px; }
+.sol-ctx-grade > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.sol-ctx-grade b { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sol-ctx-grade .mudo { font-size: 12.5px; }
+.sol-outras { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--fio); padding-top: 10px; }
+.sol-outras ul { display: flex; flex-direction: column; gap: 6px; }
+.sol-outras li { display: flex; align-items: center; justify-content: space-between; gap: 6px 10px; flex-wrap: wrap; font-size: 13.5px; }
+/* Aprovar: uma linha por tipo, com a quantidade aprovada */
+.sol-aprovar { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sol-aprovar legend { margin-bottom: 4px; }
+.sol-aprovar-linha { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--fio); border-radius: 12px; }
+.sol-aprovar-linha label { display: flex; flex-direction: column; gap: 2px; min-width: 0; cursor: pointer; }
+.sol-aprovar-linha .mudo { font-size: 12.5px; }
+.sol-total { color: var(--tinta-2); }
+.sol-total b { color: var(--tinta); font-variant-numeric: tabular-nums; }
+/* Nova solicitação: os tipos de container em linhas */
+.grade-campos.sol-campos { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(0, 1fr); }
+.sol-linhas { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.sol-linhas legend { margin-bottom: 4px; }
+.sol-linha { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1.2fr) 40px; gap: 8px 10px; align-items: end; }
+.sol-tirar { width: 40px; padding: 0; color: var(--tinta-3); }
+.sol-tirar:hover { color: var(--critico); }
+.sol-tirar-vago { width: 40px; }
+/* Usuários: quem aprova as solicitações */
+.aprova { display: block; width: fit-content; white-space: nowrap; font-size: 11.5px; font-weight: 600; color: var(--alerta); background: var(--alerta-suave); border-radius: 999px; padding: 1px 8px; margin-top: 4px; }
+@media (pointer: coarse) {
+  .sol-tirar, .sol-tirar-vago { width: 44px; min-height: 44px; }
+  .sol-linha { grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1.2fr) 44px; }
+}
+@media (max-width: 860px) {
+  .sol-faixa { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .sol-faixa .emb-total { grid-column: 1 / -1; }
+  .aprova { margin-top: 0; }
+}
+@media (max-width: 600px) {
+  .sol-ctx-grade { grid-template-columns: minmax(0, 1fr); }
+  .grade-campos.sol-campos { grid-template-columns: minmax(0, 1fr); }
+  .sol-linha { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; }
+  .sol-linha > .grupo:first-child { grid-column: 1 / -1; }
+  .sol-dados { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .sol-dados dd + dt { margin-top: 8px; }
+  .sol-faixa { grid-template-columns: minmax(0, 1fr); }
+}
+/* Seis abas (com Solicitações): em telas de notebook (1280 px), as abas ficam um pouco mais justas e o
+   menu do usuário mostra só as iniciais, para o topo continuar numa linha só. */
+@media (min-width: 601px) and (max-width: 1400px) {
+  .topo:has(.aba:nth-child(6)) .aba { padding-inline: 11px; }
+  .topo:has(.aba:nth-child(6)) .menu-botao .nome { display: none; }
+  .topo:has(.aba:nth-child(6)) .menu-botao .nome-celular { display: inline; }
+  .topo:has(.aba:nth-child(6)) .menu-botao { padding-right: 3px; }
+}
+/* Título do grupo longo ("Aguardando a sua aprovação") quebra antes da contagem, que fica inteira. */
+.sol-grupo-topo { flex-wrap: wrap; row-gap: 2px; }
+.sol-grupo-topo .mudo { white-space: nowrap; }
+/* Containers da ficha no celular: cada tipo vira um bloco, com o rótulo antes de cada número. */
+@media (max-width: 600px) {
+  .sol-tabela table { min-width: 0; }
+  .sol-tabela thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .sol-tabela tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 10px; padding: 10px 12px; border-bottom: 1px solid var(--fio); }
+  .sol-tabela tbody tr:last-child { border-bottom: 1px solid var(--fio); }
+  .sol-tabela td, .sol-tabela tfoot th { display: block; padding: 0; border: 0; text-align: left; }
+  .sol-tabela td:first-child, .sol-tabela tfoot th { grid-column: 1 / -1; font-weight: 700; color: var(--tinta); }
+  .sol-tabela td[data-rot]::before { content: attr(data-rot); display: block; font-size: 12px; font-weight: 500; color: var(--tinta-3); }
+  .sol-tabela .sol-vazio { display: none; }
+  .sol-tabela tfoot tr { border-bottom: 0; }
+  .sol-tabela .tabela-resumo tfoot th, .sol-tabela .tabela-resumo tfoot td { border-top: 0; }
+}
+/* Seis abas (com Solicitações) não cabem numa linha no celular: viram uma grade de três colunas, com
+   o ícone ao lado do nome. Cinco abas também, em telas bem estreitas (320 px). */
+@media (max-width: 600px) {
+  .abas:has(.aba:nth-child(6)) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .abas:has(.aba:nth-child(6)) .aba { flex-direction: row; gap: 6px; font-size: 13px; min-height: 44px; padding: 6px 4px; }
+  .abas:has(.aba:nth-child(6)) .aba .ic { width: 16px; height: 16px; flex: none; }
+}
+@media (max-width: 380px) {
+  .abas:has(.aba:nth-child(5)) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .abas:has(.aba:nth-child(5)) .aba { flex-direction: row; gap: 5px; font-size: 12.5px; min-height: 44px; padding: 6px 3px; }
+  .abas:has(.aba:nth-child(5)) .aba .ic { width: 15px; height: 15px; flex: none; }
+}
+@media (max-width: 380px) {
+  /* Em 320 px, "Fornecedores" não cabe ao lado do ícone: o ícone volta para cima do nome. */
+  .abas:has(.aba:nth-child(5)) .aba { flex-direction: column; gap: 3px; font-size: 12px; min-height: 48px; }
+}
+@media (max-width: 600px) {
+  /* O contador de solicitações fica no canto da aba, como um selo, e não empurra o nome para fora. */
+  .abas .aba { position: relative; }
+  .abas .aba .aba-conta { position: absolute; top: 3px; right: 3px; min-width: 18px; height: 18px; padding: 0 5px; font-size: 11px; }
+}
