@@ -11,6 +11,7 @@ import { onlyShipped, salesArrivals } from '../core/shippedItems';
 import { cleanSpecification, latestSpecification, SPECIFICATION_MAX } from '../core/specification';
 import { MAX_PARCELS, readStoredPlan, shipPlanProblem, shipPlanText, sortPlan, type ShipPlan } from '../core/shipPlan';
 import { changedInAppText, checkSheetPatch, SHEET_FIELD_LABELS, SHEET_FIELDS, sheetValues, type SheetField, type SheetValues } from '../core/updateSheet';
+import { NO_PRELO, NO_PRELO_LOCKED } from '../core/noPrelo';
 import { planAssignments, sameProduct } from '../core/allocation';
 import { parseDate, spDate, type Bill, type Invoice, type Payment } from '../core/shipments';
 import type { Session } from './auth';
@@ -214,13 +215,14 @@ export interface ItemRow {
   unit_price_micros: number | null;
   notes: string;
   file_approved_at: string | null;
+  file_approved_from: string | null;
   ship_plan: string;
   created_at: string;
   updated_at: string;
 }
 
 export const ITEM_SELECT = `SELECT i.id, i.product_id, p.isbn, i.description, i.supplier_id, i.purchase_order_id, i.invoice_id, i.status, i.quantity,
-       i.pieces_per_carton, i.unit_price_micros, i.notes, i.file_approved_at, i.ship_plan, i.created_at, i.updated_at
+       i.pieces_per_carton, i.unit_price_micros, i.notes, i.file_approved_at, i.file_approved_from, i.ship_plan, i.created_at, i.updated_at
   FROM order_items i JOIN products p ON p.id = i.product_id`;
 
 export function toItem(row: ItemRow): Item {
@@ -238,6 +240,7 @@ export function toItem(row: ItemRow): Item {
     unitPriceMicros: row.unit_price_micros,
     notes: row.notes,
     fileApprovedAt: row.file_approved_at,
+    fileApprovedFrom: row.file_approved_from,
     shipPlan: readStoredPlan(row.ship_plan),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -353,6 +356,8 @@ export async function loadRefs(env: Env, at: string) {
 export type ItemFieldsInput = Pick<ItemInput, 'description' | 'quantity' | 'piecesPerCarton' | 'unitPriceMicros' | 'notes'> & {
   specification?: string;
   fileApprovedAt?: string | null;
+  /** De onde veio a aprovação do arquivo ('noprelo'); a parte que embarca leva junto. */
+  fileApprovedFrom?: string | null;
   shipPlan?: ShipPlan;
 };
 
@@ -366,8 +371,8 @@ export function insertItem(
 ) {
   return env.DB.prepare(
     `INSERT INTO order_items (id, product_id, description, supplier_id, purchase_order_id, invoice_id, status, quantity, pieces_per_carton,
-                              unit_price_micros, notes, specification, file_approved_at, ship_plan, created_at, created_by, updated_at, updated_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                              unit_price_micros, notes, specification, file_approved_at, file_approved_from, ship_plan, created_at, created_by, updated_at, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     id,
     refs.productId,
@@ -382,6 +387,7 @@ export function insertItem(
     input.notes,
     input.specification ?? '',
     input.fileApprovedAt ?? null,
+    input.fileApprovedFrom ?? null,
     JSON.stringify(sortPlan(input.shipPlan ?? [])),
     at,
     userId,
@@ -541,6 +547,10 @@ async function updateItem(request: Request, env: Env, session: Session, id: stri
     fileApprovedAt: before.fileApprovedAt ?? null,
     shipPlan: before.shipPlan ?? [],
   };
+  // A aprovação do arquivo que veio do No Prelo só muda lá (decidido em 19/11/2026).
+  if (body.fileApprovedAt !== undefined && body.fileApprovedAt !== old.fileApprovedAt && before.fileApprovedFrom === NO_PRELO) {
+    return error(409, NO_PRELO_LOCKED);
+  }
   const next = { ...old, ...body, shipPlan: sortPlan(body.shipPlan ?? old.shipPlan) };
   // A programação não pode somar mais que a quantidade (que também pode ter mudado agora).
   if (body.shipPlan !== undefined || body.quantity !== undefined) {
@@ -648,6 +658,10 @@ async function updateItemsFromSheet(request: Request, env: Env, session: Session
       continue;
     }
     const before = sheetValues(item);
+    if (input.fileApprovedAt !== undefined && input.fileApprovedAt !== before.fileApprovedAt && item.fileApprovedFrom === NO_PRELO) {
+      skipped.push({ row: input.row, message: `${name}: ${NO_PRELO_LOCKED.charAt(0).toLowerCase()}${NO_PRELO_LOCKED.slice(1)}` });
+      continue;
+    }
     const check = checkSheetPatch({ ...before, quantity: item.quantity }, { fileApprovedAt: input.fileApprovedAt, shipPlan: input.shipPlan, notes: input.notes }, input.marks);
     if ('conflict' in check) {
       skipped.push({ row: input.row, message: `${name}: ${changedInAppText(check.conflict)} enquanto a planilha era conferida. Baixe a lista de novo e confira.` });
