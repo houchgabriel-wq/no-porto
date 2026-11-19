@@ -16,7 +16,7 @@ import type { Item, ItemStatus } from '../core/items';
 import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, HttpError, json, readBody } from './http';
-import { eventStatement, findItem, insertItem, ITEM_SELECT, loadRefs, toItem, type ItemRow } from './orders';
+import { eventStatement, findItem, insertItem, itemDay, ITEM_SELECT, loadRefs, toItem, type ItemRow } from './orders';
 
 // ---------- Esquemas de entrada ----------
 
@@ -120,6 +120,8 @@ const importBody = z.object({
         unitPriceMicros: z.number().int().min(0).max(1_000_000_000).refine(isValidUnitPrice, 'O preço unitário tem no máximo três casas decimais.').nullable(),
         notes: z.string().max(2000),
         specification: z.string().max(SPECIFICATION_MAX + 2000).transform(cleanSpecification).default(''),
+        fileApprovedAt: itemDay('Aprovação do arquivo').default(null),
+        shipPlannedAt: itemDay('Programação de envio').default(null),
         invoice: invoiceNumber,
         ref: text(60, 'Ref.'),
         bill: billNumber,
@@ -229,7 +231,8 @@ function shipItemStatements(
     insertItem(
       env,
       id,
-      { description: item.description, quantity, piecesPerCarton: pieces, unitPriceMicros: price, notes: item.notes },
+      // A parte embarcada leva as datas do item (aprovação do arquivo e programação de envio).
+      { description: item.description, quantity, piecesPerCarton: pieces, unitPriceMicros: price, notes: item.notes, fileApprovedAt: item.fileApprovedAt ?? null, shipPlannedAt: item.shipPlannedAt ?? null },
       { productId: item.productId, supplierId: item.supplierId, orderId: item.purchaseOrderId, invoiceId: invoice.id, status },
       userId,
       at,

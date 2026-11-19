@@ -46,6 +46,10 @@ export interface Item {
   notes: string;
   /** Especificação do produto: só na cópia completa (as telas carregam ao abrir a ficha). */
   specification?: string;
+  /** Dia (AAAA-MM-DD) em que o arquivo do livro foi aprovado; null enquanto não foi (19/11/2026). */
+  fileApprovedAt?: string | null;
+  /** Dia (AAAA-MM-DD) programado para o envio pelo fornecedor; null enquanto não há programação. */
+  shipPlannedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -205,6 +209,11 @@ export function filterItems(
   });
 }
 
+/** A programação de envio já passou e o item continua em produção (a tela destaca). `today`: AAAA-MM-DD. */
+export function shipPlanPassed(item: Pick<Item, 'status' | 'shipPlannedAt'>, today: string): boolean {
+  return item.status === 'producao' && !!item.shipPlannedAt && item.shipPlannedAt < today;
+}
+
 /** Código de PO como a editora usa: "PO-063". Aceita "po 63", "PO-63", "po063". */
 export function normalizeOrderCode(text: string): string | null {
   const m = /^\s*PO[\s-]*(\d{1,6})\s*$/i.exec(text);
@@ -212,7 +221,7 @@ export function normalizeOrderCode(text: string): string | null {
   return `PO-${m[1]!.padStart(3, '0')}`;
 }
 
-export const SORT_KEYS = ['description', 'order', 'supplier', 'quantity', 'price', 'total'] as const;
+export const SORT_KEYS = ['description', 'order', 'supplier', 'fileApproved', 'shipPlanned', 'quantity', 'price', 'total'] as const;
 export type SortKey = (typeof SORT_KEYS)[number];
 export interface ItemSort {
   key: SortKey;
@@ -220,8 +229,8 @@ export interface ItemSort {
 }
 
 /**
- * Ordena a tabela. Itens sem preço ou sem PO vão sempre para o fim, nos dois sentidos, para não
- * esconder os itens com dados no começo da lista.
+ * Ordena a tabela. Itens sem preço, sem PO ou sem a data vão sempre para o fim, nos dois sentidos, para
+ * não esconder os itens com dados no começo da lista.
  */
 export function sortItems(items: readonly Item[], sort: ItemSort, orders: readonly PurchaseOrder[], suppliers: readonly Supplier[]): Item[] {
   const codes = new Map(orders.map((o) => [o.id, o.code]));
@@ -234,6 +243,10 @@ export function sortItems(items: readonly Item[], sort: ItemSort, orders: readon
         return item.purchaseOrderId ? (codes.get(item.purchaseOrderId) ?? null) : null;
       case 'supplier':
         return item.supplierId ? searchKey(names.get(item.supplierId) ?? '') : null;
+      case 'fileApproved':
+        return item.fileApprovedAt ?? null;
+      case 'shipPlanned':
+        return item.shipPlannedAt ?? null;
       case 'quantity':
         return item.quantity;
       case 'price':

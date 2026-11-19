@@ -88,6 +88,22 @@ describe('cópia completa', () => {
   });
 });
 
+describe('cargas com as datas do item (cópia completa)', () => {
+  it('Produção, Embarques e Entregues gravam a aprovação do arquivo e a programação de envio', async () => {
+    const dates = { fileApprovedAt: '2026-10-02', shipPlannedAt: '2026-12-05' };
+    expect((await app.call('POST', '/api/import/production', { cookie: who.admin.cookie, body: { items: [{ ...item({ description: 'Na produção' }), row: 2, ...dates }] } })).status).toBe(201);
+    const ship = { row: 2, description: 'No mar', isbn: null, supplier: 'Sara', quantity: 10, piecesPerCarton: null, unitPriceMicros: 1_000, notes: '', invoice: 'S-1', ref: '', bill: null, eta: '2026-12-20', paid: false };
+    expect((await app.call('POST', '/api/import/shipments', { cookie: who.admin.cookie, body: { items: [{ ...ship, ...dates }] } })).status).toBe(201);
+    expect((await app.call('POST', '/api/import/history', { cookie: who.admin.cookie, body: { items: [history({ description: 'Entregue', fileApprovedAt: '2025-03-01' })] } })).status).toBe(201);
+    const d = (await app.call('GET', '/api/data', { cookie: who.admin.cookie })).data;
+    const got = (desc: string) => d.items.find((i: { description: string }) => i.description === desc);
+    expect(got('Na produção')).toMatchObject(dates);
+    expect(got('No mar')).toMatchObject(dates);
+    const copy = (await app.call('GET', '/api/export', { cookie: who.admin.cookie })).data;
+    expect(copy.items.find((i: { description: string }) => i.description === 'Entregue')).toMatchObject({ fileApprovedAt: '2025-03-01', shipPlannedAt: null });
+  });
+});
+
 describe('juntar fornecedores', () => {
   it('o admin junta a Lilian na Ricky: produção, embarques e entregues passam, e a Lilian some', async () => {
     await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: item({ supplier: 'Ricky', description: 'Do Ricky', orderCode: 'PO-070' }) });

@@ -7,6 +7,7 @@ import {
   orderOwners,
   orderSupplierProblem,
   searchKey,
+  shipPlanPassed,
   sortItems,
   totals,
   totalsByOrder,
@@ -156,6 +157,27 @@ describe('ordenação da tabela', () => {
   it('por produto, sem acento', () => {
     const sorted = sortItems(items, { key: 'description', dir: 1 }, orders, suppliers).map((i) => i.description[0]);
     expect(sorted).toEqual(['C', 'C', 'P', 'P']);
+  });
+
+  it('pela programação de envio e pela aprovação do arquivo, com os sem data no fim nos dois sentidos', () => {
+    const dated = [
+      item({ id: 'a', description: 'A', shipPlannedAt: '2026-12-20', fileApprovedAt: '2026-10-01' }),
+      item({ id: 'b', description: 'B', shipPlannedAt: null, fileApprovedAt: '2026-09-15' }),
+      item({ id: 'c', description: 'C', shipPlannedAt: '2026-11-30' }),
+    ];
+    expect(sortItems(dated, { key: 'shipPlanned', dir: 1 }, orders, suppliers).map((i) => i.id)).toEqual(['c', 'a', 'b']);
+    expect(sortItems(dated, { key: 'shipPlanned', dir: -1 }, orders, suppliers).map((i) => i.id)).toEqual(['a', 'c', 'b']);
+    expect(sortItems(dated, { key: 'fileApproved', dir: 1 }, orders, suppliers).map((i) => i.id)).toEqual(['b', 'a', 'c']);
+  });
+});
+
+describe('programação de envio', () => {
+  it('destaca a data que já passou enquanto o item está em produção', () => {
+    expect(shipPlanPassed({ status: 'producao', shipPlannedAt: '2026-11-18' }, '2026-11-19')).toBe(true);
+    expect(shipPlanPassed({ status: 'producao', shipPlannedAt: '2026-11-19' }, '2026-11-19')).toBe(false);
+    expect(shipPlanPassed({ status: 'producao', shipPlannedAt: null }, '2026-11-19')).toBe(false);
+    // Embarcado, a programação já foi cumprida.
+    expect(shipPlanPassed({ status: 'embarcado', shipPlannedAt: '2026-11-01' }, '2026-11-19')).toBe(false);
   });
 });
 

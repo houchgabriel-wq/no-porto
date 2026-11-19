@@ -98,6 +98,32 @@ describe('cadastro de itens', () => {
     ]);
   });
 
+  it('guarda a aprovação do arquivo e a programação de envio, com o histórico das mudanças', async () => {
+    const { item } = (await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: { ...BASE, fileApprovedAt: '2026-10-02' } })).data;
+    expect(item).toMatchObject({ fileApprovedAt: '2026-10-02', shipPlannedAt: null });
+    const res = await app.call('PATCH', `/api/items/${item.id}`, { cookie: who.editor.cookie, body: { shipPlannedAt: '2026-12-05', fileApprovedAt: null } });
+    expect(res.status).toBe(200);
+    expect(res.data.item).toMatchObject({ fileApprovedAt: null, shipPlannedAt: '2026-12-05' });
+    const events = await app.env.DB.prepare("SELECT detail FROM events WHERE entity_id = ? AND type = 'changed'").bind(item.id).all<{ detail: string }>();
+    expect(JSON.parse(events.results[0]!.detail).changes).toEqual([
+      { field: 'Aprovação do arquivo', from: '2026-10-02', to: null },
+      { field: 'Programação de envio', from: null, to: '2026-12-05' },
+    ]);
+    // O leitor também vê as datas (não são valores).
+    const seen = (await production(who.leitor.cookie)).items.find((i: { id: string }) => i.id === item.id);
+    expect(seen).toMatchObject({ fileApprovedAt: null, shipPlannedAt: '2026-12-05' });
+  });
+
+  it('recusa data que não existe', async () => {
+    const bad = await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: { ...BASE, shipPlannedAt: '2026-02-30' } });
+    expect(bad.status).toBe(400);
+    expect(bad.data.error).toBe('Programação de envio: data inválida.');
+    const { item } = (await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: BASE })).data;
+    const patch = await app.call('PATCH', `/api/items/${item.id}`, { cookie: who.editor.cookie, body: { fileApprovedAt: '05/12/2026' } });
+    expect(patch.status).toBe(400);
+    expect(patch.data.error).toBe('Aprovação do arquivo: data inválida.');
+  });
+
   it('trocar só a maiúscula do fornecedor não é mudança', async () => {
     const { item } = (await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: BASE })).data;
     await app.call('PATCH', `/api/items/${item.id}`, { cookie: who.editor.cookie, body: { supplier: 'CLAIRE' } });
