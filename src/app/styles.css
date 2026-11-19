@@ -107,6 +107,9 @@ ul, ol { padding: 0; list-style: none; }
 .campo::placeholder { color: var(--tinta-3); }
 .campo:hover { border-color: var(--tinta-3); }
 .campo[aria-invalid="true"] { border-color: var(--critico); }
+/* Campo só de leitura (o fornecedor do item embarcado, a aprovação vinda do No Prelo): outro fundo. */
+.campo[readonly] { background: var(--fundo); cursor: default; }
+.campo[readonly]:hover { border-color: var(--fio); }
 .rotulo { font-size: 12.5px; font-weight: 600; color: var(--tinta-2); }
 .dica { color: var(--tinta-3); font-size: 12.5px; }
 .grupo { display: flex; flex-direction: column; gap: 6px; min-width: 0; }

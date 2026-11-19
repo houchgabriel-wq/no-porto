@@ -200,7 +200,22 @@ export function App() {
   }
 }
 
-function UserMenu({ user, onPassword, onLogout, onBackup, onFullImport }: { user: Me; onPassword: () => void; onLogout: () => void; onBackup?: () => void; onFullImport?: () => void }) {
+function UserMenu({
+  user,
+  onPassword,
+  onLogout,
+  onBackup,
+  onFullImport,
+  onNoPrelo,
+}: {
+  user: Me;
+  onPassword: () => void;
+  onLogout: () => void;
+  onBackup?: () => void;
+  onFullImport?: () => void;
+  /** Busca agora as aprovações do arquivo no No Prelo (admin). */
+  onNoPrelo?: () => void;
+}) {
   const isAdmin = can(user.role, 'manage_users');
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(readTheme);
@@ -289,6 +304,18 @@ function UserMenu({ user, onPassword, onLogout, onBackup, onFullImport }: { user
             >
               <Icon name="atualizar" />
               Carga completa da planilha
+            </button>
+          )}
+          {onNoPrelo && (
+            <button
+              className="menu-item"
+              onClick={() => {
+                setOpen(false);
+                onNoPrelo();
+              }}
+            >
+              <Icon name="livro" />
+              Buscar aprovações no No Prelo
             </button>
           )}
           <button
@@ -690,6 +717,21 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
       )}
     </>
   );
+  /** Busca agora as aprovações do arquivo no No Prelo (a busca automática roda uma vez por dia, de manhã). */
+  async function syncNoPrelo() {
+    showToast('Buscando as aprovações no No Prelo…');
+    try {
+      const res = await production.write(() => api.syncNoPrelo());
+      showToast(
+        res.updated === 0
+          ? `Nenhuma aprovação nova no No Prelo (${res.approvals} ${res.approvals === 1 ? 'lida' : 'lidas'}).`
+          : `${res.updated} ${res.updated === 1 ? 'item recebeu' : 'itens receberam'} a aprovação do arquivo do No Prelo.`,
+      );
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : 'Não foi possível falar com o No Prelo.');
+    }
+  }
+
   /** Cópia completa (admin): as abas Produção, Embarques e Entregues no formato da planilha. */
   async function downloadFullCopy() {
     if (backingUp) return;
@@ -794,7 +836,14 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
               <span className="rot">Novo item</span>
             </button>
           )}
-          <UserMenu user={user} onPassword={() => setChangingPassword(true)} onLogout={onLogout} onBackup={can(user.role, 'full_copy') ? () => void downloadFullCopy() : undefined} onFullImport={canImport ? () => setFullImport(true) : undefined} />
+          <UserMenu
+            user={user}
+            onPassword={() => setChangingPassword(true)}
+            onLogout={onLogout}
+            onBackup={can(user.role, 'full_copy') ? () => void downloadFullCopy() : undefined}
+            onFullImport={canImport ? () => setFullImport(true) : undefined}
+            onNoPrelo={canImport ? () => void syncNoPrelo() : undefined}
+          />
         </div>
       </header>
 

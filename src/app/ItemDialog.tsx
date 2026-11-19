@@ -3,6 +3,7 @@
 
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { isbnProblem } from '../core/isbn';
+import { NO_PRELO } from '../core/noPrelo';
 import { NO_ORDER, NO_SUPPLIER, normalizeOrderCode, orderOwners, STATUS_LABELS, type Item } from '../core/items';
 import { addMonths, formatMonth, MAX_PARCELS, monthOptions, parcelPassed, plannedTotal, shipPlanProblem, type ShipPlan } from '../core/shipPlan';
 import { formatQuantity, formatUsd, itemTotalCents, parseUnitPrice, unitPriceInput } from '../core/money';
@@ -326,6 +327,8 @@ export function ItemDialog({ state, me, data, production, onClose, onToast, onPr
 
   const title = !item ? 'Novo item em produção' : canEdit ? 'Item' : 'Item (só leitura)';
   const field = (name: keyof Draft) => ({ id: `${ids}-${name}`, 'aria-invalid': error?.field === name || undefined });
+  // A aprovação que veio do No Prelo só muda lá (decidido em 19/11/2026).
+  const fromNoPrelo = item?.fileApprovedFrom === NO_PRELO;
 
   return (
     <Dialog title={title} open onClose={onClose} wide>
@@ -444,7 +447,20 @@ export function ItemDialog({ state, me, data, production, onClose, onToast, onPr
             <label className="rotulo" htmlFor={`${ids}-fileApprovedAt`}>
               Aprovação do arquivo
             </label>
-            <input className="campo" type="date" {...field('fileApprovedAt')} value={draft.fileApprovedAt} onChange={(e) => set('fileApprovedAt')(e.target.value)} />
+            <input
+              className="campo"
+              type="date"
+              {...field('fileApprovedAt')}
+              value={draft.fileApprovedAt}
+              onChange={(e) => set('fileApprovedAt')(e.target.value)}
+              readOnly={fromNoPrelo}
+              aria-describedby={fromNoPrelo ? `${ids}-aprov-dica` : undefined}
+            />
+            {fromNoPrelo && (
+              <span className="dica" id={`${ids}-aprov-dica`}>
+                Vem do No Prelo (a data de aprovação da gráfica). Para mudar, altere lá.
+              </span>
+            )}
           </div>
           <PlanEditor
             rows={planRows}
