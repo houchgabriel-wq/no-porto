@@ -82,6 +82,9 @@ export interface ItemInput {
   notes: string;
   /** Especificação do produto nesta compra; ausente para não mexer na que existe. */
   specification?: string;
+  /** Aprovação do arquivo e programação de envio (AAAA-MM-DD ou null). */
+  fileApprovedAt?: string | null;
+  shipPlannedAt?: string | null;
 }
 
 export class ApiError extends Error {

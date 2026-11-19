@@ -7,6 +7,7 @@ import {
   filterItems,
   NO_ORDER,
   NO_SUPPLIER,
+  shipPlanPassed,
   sortItems,
   totals,
   totalsByOrder,
@@ -18,6 +19,7 @@ import {
   type Totals,
 } from '../core/items';
 import { formatQuantity, formatUnitPrice, formatUsd, formatUsdWhole } from '../core/money';
+import { formatDay } from '../core/shipments';
 import type { ProductionData } from './api';
 import { supplierHue, hueStyle } from './components';
 import { Icon } from './icons';
@@ -101,7 +103,7 @@ export function ProductionView({ data, filters, onFilters, sort, onSort, grouped
         selection.onChange(next);
       }
     : undefined;
-  const ctx: Ctx = { seeValues, codes, names, onOpen, selected: selection?.ids, toggle };
+  const ctx: Ctx = { seeValues, today: data.today, codes, names, onOpen, selected: selection?.ids, toggle };
   const chosen = selection ? data.items.filter((i) => selection.ids.has(i.id)) : [];
   const chosenSuppliers = new Set(chosen.map((i) => i.supplierId));
 
@@ -226,6 +228,8 @@ export function ProductionView({ data, filters, onFilters, sort, onSort, grouped
 
 interface Ctx {
   seeValues: boolean;
+  /** Hoje (AAAA-MM-DD), para destacar a programação de envio que já passou. */
+  today: string;
   codes: Map<string, string>;
   names: Map<string, string>;
   onOpen: (item: Item) => void;
@@ -253,10 +257,12 @@ function byGroup(items: readonly Item[], groups: NonNullable<Groups>) {
   return groups.map((g) => ({ group: g, items: items.filter((i) => i.purchaseOrderId === g.orderId) }));
 }
 
-const COLUMNS: { key: SortKey; label: string; num?: boolean; values?: boolean }[] = [
+const COLUMNS: { key: SortKey; label: string; num?: boolean; values?: boolean; date?: boolean }[] = [
   { key: 'description', label: 'Produto' },
   { key: 'order', label: 'PO' },
   { key: 'supplier', label: 'Fornecedor' },
+  { key: 'fileApproved', label: 'Aprovação do arquivo', date: true },
+  { key: 'shipPlanned', label: 'Programação de envio', date: true },
   { key: 'quantity', label: 'Quantidade', num: true },
   { key: 'price', label: 'Preço unitário', num: true, values: true },
   { key: 'total', label: 'Total', num: true, values: true },
@@ -267,7 +273,7 @@ function ItemTable({ items, groups, ctx, sort, onSort }: { items: Item[]; groups
   const toggle = (key: SortKey) => onSort(sort.key === key ? { key, dir: sort.dir === 1 ? -1 : 1 } : { key, dir: key === 'quantity' || key === 'total' || key === 'price' ? -1 : 1 });
   return (
     <div className="tabela-caixa">
-      <table className="tabela-itens">
+      <table className="tabela-itens tabela-producao">
         <thead>
           <tr>
             {ctx.toggle && (
@@ -276,7 +282,7 @@ function ItemTable({ items, groups, ctx, sort, onSort }: { items: Item[]; groups
               </th>
             )}
             {columns.map((c) => (
-              <th key={c.key} className={c.num ? 'num' : undefined} aria-sort={sort.key === c.key ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
+              <th key={c.key} className={c.num ? 'num' : c.date ? 'th-data' : undefined} aria-sort={sort.key === c.key ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
                 <button type="button" onClick={() => toggle(c.key)}>
                   {c.label}
                   {sort.key === c.key && <Icon name={sort.dir === 1 ? 'cima' : 'baixo'} />}
@@ -335,6 +341,10 @@ function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
         <span className="forn-ponto h" style={hueStyle(item.supplierId ? supplierHue(item.supplierId) : 0)} aria-hidden="true" />
         {supplier}
       </td>
+      <td className="nowrap">{item.fileApprovedAt ? formatDay(item.fileApprovedAt, true) : <span className="mudo">—</span>}</td>
+      <td className="nowrap">
+        <ShipPlan item={item} today={ctx.today} />
+      </td>
       <td className="num">{formatQuantity(item.quantity)}</td>
       {ctx.seeValues && (
         <>
@@ -344,6 +354,19 @@ function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
       )}
       <td className="num mudo">{item.piecesPerCarton ?? '—'}</td>
     </tr>
+  );
+}
+
+/** Programação de envio; a que já passou, com o item ainda em produção, em destaque. */
+function ShipPlan({ item, today }: { item: Item; today: string }) {
+  if (!item.shipPlannedAt) return <span className="mudo">—</span>;
+  if (!shipPlanPassed(item, today)) return <>{formatDay(item.shipPlannedAt, true)}</>;
+  return (
+    <span className="alerta-texto envio-passou">
+      <Icon name="alerta" />
+      {formatDay(item.shipPlannedAt, true)}
+      <span className="so-leitor"> (já passou)</span>
+    </span>
   );
 }
 
@@ -390,6 +413,16 @@ function ItemCard({ item, ctx }: { item: Item; ctx: Ctx }) {
           <span className="forn-ponto h" style={hueStyle(item.supplierId ? supplierHue(item.supplierId) : 0)} aria-hidden="true" />
           {supplier} · {item.purchaseOrderId ? ctx.codes.get(item.purchaseOrderId) : NO_ORDER}
         </span>
+        {(item.fileApprovedAt || item.shipPlannedAt) && (
+          <span className="item-cartao-datas">
+            {item.fileApprovedAt && <span>Aprovação do arquivo: {formatDay(item.fileApprovedAt, true)}</span>}
+            {item.shipPlannedAt && (
+              <span>
+                Programação de envio: <ShipPlan item={item} today={ctx.today} />
+              </span>
+            )}
+          </span>
+        )}
         <span className="item-cartao-num">
           <span>{formatQuantity(item.quantity)} ex.</span>
           {ctx.seeValues && <b>{item.totalCents == null ? 'Sem preço' : formatUsd(item.totalCents)}</b>}

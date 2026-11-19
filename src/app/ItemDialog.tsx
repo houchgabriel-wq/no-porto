@@ -3,9 +3,9 @@
 
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { isbnProblem } from '../core/isbn';
-import { NO_ORDER, NO_SUPPLIER, normalizeOrderCode, orderOwners, STATUS_LABELS, type Item } from '../core/items';
+import { NO_ORDER, NO_SUPPLIER, normalizeOrderCode, orderOwners, shipPlanPassed, STATUS_LABELS, type Item } from '../core/items';
 import { formatQuantity, formatUsd, itemTotalCents, parseUnitPrice, unitPriceInput } from '../core/money';
-import { arrivalOf, arrivalState, arrivalText } from '../core/shipments';
+import { arrivalOf, arrivalState, arrivalText, parseDate } from '../core/shipments';
 import { can } from '../core/roles';
 import { isReprintSpecification } from '../core/specification';
 import { api, ApiError, type ItemInput, type Me, type ProductionData } from './api';
@@ -35,10 +35,13 @@ interface Draft {
   unitPrice: string;
   notes: string;
   specification: string;
+  /** Datas no formato do campo de data (AAAA-MM-DD), ou vazias. */
+  fileApprovedAt: string;
+  shipPlannedAt: string;
 }
 
 function draftFrom(item: Item | null, data: ProductionData): Draft {
-  if (!item) return { description: '', isbn: '', supplier: '', orderCode: '', quantity: '', piecesPerCarton: '', unitPrice: '', notes: '', specification: '' };
+  if (!item) return { description: '', isbn: '', supplier: '', orderCode: '', quantity: '', piecesPerCarton: '', unitPrice: '', notes: '', specification: '', fileApprovedAt: '', shipPlannedAt: '' };
   return {
     description: item.description,
     isbn: item.isbn ?? '',
@@ -50,6 +53,8 @@ function draftFrom(item: Item | null, data: ProductionData): Draft {
     notes: item.notes,
     // Carregada ao abrir a ficha (as listas não trazem esse texto).
     specification: '',
+    fileApprovedAt: item.fileApprovedAt ?? '',
+    shipPlannedAt: item.shipPlannedAt ?? '',
   };
 }
 
@@ -73,6 +78,8 @@ function validate(d: Draft, seeValues: boolean): { input: ItemInput } | { error:
     price = parseUnitPrice(d.unitPrice);
     if (price === null) return { error: 'Preço unitário inválido. Use até três casas decimais, como 0,575.', field: 'unitPrice' };
   }
+  if (d.fileApprovedAt && parseDate(d.fileApprovedAt) !== d.fileApprovedAt) return { error: 'Data de aprovação do arquivo inválida.', field: 'fileApprovedAt' };
+  if (d.shipPlannedAt && parseDate(d.shipPlannedAt) !== d.shipPlannedAt) return { error: 'Data da programação de envio inválida.', field: 'shipPlannedAt' };
   return {
     input: {
       description: d.description,
@@ -84,6 +91,8 @@ function validate(d: Draft, seeValues: boolean): { input: ItemInput } | { error:
       unitPriceMicros: price,
       notes: d.notes,
       specification: d.specification,
+      fileApprovedAt: d.fileApprovedAt || null,
+      shipPlannedAt: d.shipPlannedAt || null,
     },
   };
 }
@@ -321,6 +330,30 @@ export function ItemDialog({ state, me, data, production, onClose, onToast, onPr
               </span>
             </div>
           )}
+          <div className="grupo">
+            <label className="rotulo" htmlFor={`${ids}-fileApprovedAt`}>
+              Aprovação do arquivo
+            </label>
+            <input className="campo" type="date" {...field('fileApprovedAt')} value={draft.fileApprovedAt} onChange={(e) => set('fileApprovedAt')(e.target.value)} />
+          </div>
+          <div className="grupo">
+            <label className="rotulo" htmlFor={`${ids}-shipPlannedAt`}>
+              Programação de envio
+            </label>
+            <input
+              className="campo"
+              type="date"
+              {...field('shipPlannedAt')}
+              value={draft.shipPlannedAt}
+              onChange={(e) => set('shipPlannedAt')(e.target.value)}
+              aria-describedby={item && shipPlanPassed({ status: item.status, shipPlannedAt: draft.shipPlannedAt || null }, data.today) ? `${ids}-envio-dica` : undefined}
+            />
+            {item && shipPlanPassed({ status: item.status, shipPlannedAt: draft.shipPlannedAt || null }, data.today) && (
+              <span className="dica alerta-texto" id={`${ids}-envio-dica`}>
+                A data já passou e o item continua em produção.
+              </span>
+            )}
+          </div>
           <div className="grupo largo">
             <label className="rotulo" htmlFor={`${ids}-notes`}>
               Observações
