@@ -3,6 +3,7 @@
 // aprovar menos containers que o pedido) ou recusa com o motivo. Só depois da aprovação o agente reserva.
 
 import { searchKey } from './items';
+import { parseCents } from './money';
 import { can, type Role } from './roles';
 import { daysBetween, parseDate } from './shipments';
 
@@ -26,6 +27,8 @@ export const BOOKING_STATUS_LABELS: Record<BookingStatus, string> = {
 export const MAX_CONTAINERS = 99;
 /** Teto do valor de um container (US$ 100.000,00), também contra erro de digitação. */
 export const MAX_PRICE_CENTS = 10_000_000;
+/** Piso do valor de um container (US$ 100,00): abaixo disso, é "2,85" digitado no lugar de "2.850". */
+export const MIN_PRICE_CENTS = 10_000;
 /** A saída pode ter passado há no máximo 90 dias (pedido registrado atrasado) e estar a no máximo um ano. */
 const MAX_DAYS_BEFORE = 90;
 const MAX_DAYS_AFTER = 366;
@@ -86,9 +89,25 @@ export function bookingProblem(input: { departurePort: string; departureDate: st
     if (!Number.isInteger(line.quantity) || line.quantity < 1) return `Informe quantos containers de ${label}.`;
     if (line.quantity > MAX_CONTAINERS) return `No máximo ${MAX_CONTAINERS} containers de cada tipo.`;
     if (!Number.isInteger(line.priceCents) || line.priceCents <= 0) return `Informe o valor de cada container de ${label}.`;
+    if (line.priceCents < MIN_PRICE_CENTS) return `O valor de cada container de ${label} está abaixo de US$ 100,00. Confira.`;
     if (line.priceCents > MAX_PRICE_CENTS) return `O valor de cada container de ${label} passa de US$ 100.000,00. Confira.`;
   }
   return null;
+}
+
+/**
+ * Valor de um container digitado no formulário → centavos de dólar; null se não for um valor.
+ * Um separador seguido de exatamente três dígitos é o de milhar: "2.850" e "2,850" são US$ 2.850,00
+ * (dinheiro não tem três casas decimais, e a leitura comum daria US$ 2,85). O resto segue parseCents:
+ * "2.850,00", "2,850.00", "2850", "2850,5".
+ */
+export function parseContainerPrice(text: string): number | null {
+  const t = text.trim().replace(/^US\$|^\$|^USD/i, '').replace(/\s/g, '');
+  if (/^\d{1,3}(\.\d{3})+$/.test(t) || /^\d{1,3}(,\d{3})+$/.test(t)) {
+    const cents = Number(t.replace(/[.,]/g, '')) * 100;
+    return Number.isSafeInteger(cents) ? cents : null;
+  }
+  return parseCents(t);
 }
 
 /** O que impede a aprovação com estas quantidades, ou null. Pode aprovar menos que o pedido, nunca mais. */

@@ -19,6 +19,7 @@ import {
   groupBookings,
   matchesBooking,
   otherBookingsOfSupplier,
+  parseContainerPrice,
   pendingCount,
   portSuggestions,
   sortedLines,
@@ -26,7 +27,7 @@ import {
   type BookingStatus,
   type ContainerType,
 } from '../core/bookings';
-import { formatQuantity, formatUsd, parseCents } from '../core/money';
+import { formatQuantity, formatUsd } from '../core/money';
 import { arrivalState, arrivalText, daysBetween, formatDay, shipmentUnits, spDate } from '../core/shipments';
 import type { SupplierSummary } from '../core/suppliers';
 import { api, ApiError, type BookingsData, type Me, type ProductionData } from './api';
@@ -820,7 +821,7 @@ export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boo
   const parsed = lines.map((l) => ({
     containerType: l.containerType,
     quantity: /^\d+$/.test(l.quantity.trim()) ? Number(l.quantity) : NaN,
-    priceCents: parseCents(l.price) ?? NaN,
+    priceCents: parseContainerPrice(l.price) ?? NaN,
   }));
   const complete = parsed.every((l) => Number.isFinite(l.quantity) && Number.isFinite(l.priceCents));
   const count = parsed.reduce((s, l) => s + (Number.isFinite(l.quantity) ? l.quantity : 0), 0);
@@ -834,6 +835,8 @@ export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boo
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!supplierId) return setError('Escolha o fornecedor.');
+    const unreadable = lines.find((l, i) => l.price.trim() && Number.isNaN(parsed[i]!.priceCents));
+    if (unreadable) return setError(`O valor de cada container de ${CONTAINER_LABELS[unreadable.containerType]} não é um número. Escreva, por exemplo, 2.850,00.`);
     const input = { departurePort: port.replace(/\s+/g, ' ').trim(), departureDate: date, lines: parsed.map((l) => ({ ...l, quantity: Number.isNaN(l.quantity) ? 0 : l.quantity, priceCents: Number.isNaN(l.priceCents) ? 0 : l.priceCents })) };
     const problem = bookingProblem(input, data.today);
     if (problem) return setError(problem);
