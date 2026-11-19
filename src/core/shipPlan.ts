@@ -104,39 +104,59 @@ export function shipPlanText(plan: readonly ShipParcel[]): string {
     .join('; ');
 }
 
-const PARCEL = /^\s*(?:([a-zç]{3})\/(\d{4})|(\d{1,2})\/(\d{4})|(\d{4})-(\d{2}))\s*(?::\s*([\d.]+)\s*(?:ex\.?)?)?\s*$/i;
+/** Um embarque escrito: o mês e, depois de dois pontos, a quantidade ("dez/2026: 20.000"). */
+const PARCEL = /^\s*(.+?)\s*(?::\s*([\d.]+)\s*(?:ex\.?)?)?\s*$/i;
 
 /**
- * Lê a programação escrita na planilha (a cópia completa do app): "dez/2026: 20.000; fev/2027: 20.000".
- * O mês pode vir como "dez/2026", "12/2026" ou "2026-12", e os embarques separados por ";" ou quebra de
- * linha. Um mês sozinho, sem quantidade, vale para o item inteiro. Devolve null quando não dá para ler ou
- * quando a programação não vale para o item.
+ * O mês (AAAA-MM) escrito como "dez/2026", "12/2026" ou "2026-12". Também como dia ("01/12/2026" ou
+ * "2026-12-01"), porque a planilha transforma em data o "dez/2026" digitado; o dia não conta.
  */
-export function parseShipPlanText(text: string, itemQuantity: number): ShipPlan | null {
+function readMonth(text: string): string | null {
+  let m = /^([a-zç]{3})\/(\d{4})$/i.exec(text);
+  if (m) {
+    const index = MONTH_NAMES.indexOf(m[1]!.toLowerCase() as (typeof MONTH_NAMES)[number]);
+    return index < 0 ? null : `${m[2]}-${String(index + 1).padStart(2, '0')}`;
+  }
+  let month: string | null = null;
+  if ((m = /^(\d{1,2})\/(\d{4})$/.exec(text))) month = `${m[2]}-${m[1]!.padStart(2, '0')}`;
+  else if ((m = /^(\d{4})-(\d{2})$/.exec(text))) month = `${m[1]}-${m[2]}`;
+  else if ((m = /^\d{1,2}\/(\d{1,2})\/(\d{4})$/.exec(text))) month = `${m[2]}-${m[1]!.padStart(2, '0')}`;
+  else if ((m = /^(\d{4})-(\d{2})-\d{2}$/.exec(text))) month = `${m[1]}-${m[2]}`;
+  return month && isMonth(month) ? month : null;
+}
+
+/**
+ * Lê a programação escrita na planilha: "dez/2026: 20.000; fev/2027: 20.000", com os embarques
+ * separados por ";" ou quebra de linha. Um mês sozinho, sem quantidade, vale para o item inteiro. Só
+ * confere a escrita; quem usa confere a programação com shipPlanProblem.
+ */
+export function readShipPlanText(text: string, itemQuantity: number): { plan: ShipPlan } | { error: string } {
   const parts = text
     .split(/[;\n]+/)
     .map((s) => s.trim())
     .filter(Boolean);
-  if (parts.length === 0) return [];
   const plan: ShipPlan = [];
   for (const part of parts) {
     const m = PARCEL.exec(part);
-    if (!m) return null;
-    let month: string;
-    if (m[1]) {
-      const index = MONTH_NAMES.indexOf(m[1].toLowerCase() as (typeof MONTH_NAMES)[number]);
-      if (index < 0) return null;
-      month = `${m[2]}-${String(index + 1).padStart(2, '0')}`;
-    } else if (m[3]) month = `${m[4]}-${m[3].padStart(2, '0')}`;
-    else month = `${m[5]}-${m[6]}`;
-    if (!isMonth(month)) return null;
+    const month = m ? readMonth(m[1]!) : null;
+    if (!m || !month) return { error: `"${part}" não é um embarque. Escreva como "dez/2026: 20.000; fev/2027: 20.000".` };
     let quantity: number;
-    if (m[7]) quantity = Number(m[7].replace(/\./g, ''));
+    if (m[2]) quantity = Number(m[2].replace(/\./g, ''));
     else if (parts.length === 1) quantity = itemQuantity;
-    else return null;
+    else return { error: `Falta a quantidade em "${part}". Com mais de um embarque, escreva como "dez/2026: 20.000; fev/2027: 20.000".` };
     plan.push({ month, quantity });
   }
-  return shipPlanProblem(plan, itemQuantity) === null ? sortPlan(plan) : null;
+  return { plan: sortPlan(plan) };
+}
+
+/**
+ * Lê a programação escrita na planilha (a cópia completa do app), como readShipPlanText. Devolve null
+ * quando não dá para ler ou quando a programação não vale para o item.
+ */
+export function parseShipPlanText(text: string, itemQuantity: number): ShipPlan | null {
+  const read = readShipPlanText(text, itemQuantity);
+  if ('error' in read) return null;
+  return shipPlanProblem(read.plan, itemQuantity) === null ? read.plan : null;
 }
 
 /** Programação gravada no banco (texto JSON) → lista; o que não for uma lista válida vira vazia. */

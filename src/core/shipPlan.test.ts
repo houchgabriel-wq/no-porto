@@ -7,6 +7,7 @@ import {
   parcelPassed,
   parseShipPlanText,
   plannedTotal,
+  readShipPlanText,
   readStoredPlan,
   shipPlanProblem,
   shipPlanText,
@@ -87,6 +88,25 @@ describe('na tela e na planilha', () => {
     expect(parseShipPlanText('12/2026: 20000\n2027-02: 20.000', 60_000)).toEqual(TRES.slice(0, 2));
     expect(parseShipPlanText('Dez/2026', 8_000)).toEqual([{ month: '2026-12', quantity: 8_000 }]);
     expect(parseShipPlanText('  ', 8_000)).toEqual([]);
+  });
+
+  it('aceita o mês que a planilha transformou em data ao digitar "dez/2026"; o dia não conta', () => {
+    expect(parseShipPlanText('01/12/2026', 8_000)).toEqual([{ month: '2026-12', quantity: 8_000 }]);
+    expect(parseShipPlanText('15/12/2026: 3.000; 2027-02-01: 5.000', 8_000)).toEqual([
+      { month: '2026-12', quantity: 3_000 },
+      { month: '2027-02', quantity: 5_000 },
+    ]);
+    expect(parseShipPlanText('31/13/2026', 8_000)).toBeNull();
+  });
+
+  it('diz o que está errado na escrita, sem conferir a soma', () => {
+    expect(readShipPlanText('dezembro', 8_000)).toEqual({ error: '"dezembro" não é um embarque. Escreva como "dez/2026: 20.000; fev/2027: 20.000".' });
+    expect(readShipPlanText('dez/2026; fev/2027: 2.000', 8_000)).toEqual({
+      error: 'Falta a quantidade em "dez/2026". Com mais de um embarque, escreva como "dez/2026: 20.000; fev/2027: 20.000".',
+    });
+    // A soma passa do item: a escrita está certa; quem confere a soma é shipPlanProblem.
+    expect(readShipPlanText('fev/2027: 9.000', 8_000)).toEqual({ plan: [{ month: '2027-02', quantity: 9_000 }] });
+    expect(readShipPlanText('', 8_000)).toEqual({ plan: [] });
   });
 
   it('o que não dá para ler, ou não vale para o item, volta null', () => {
