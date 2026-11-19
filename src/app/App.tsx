@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { itemExportRows } from '../core/exportItems';
 import type { HistoryRow } from '../core/history';
 import { backupDue, backupFileName } from '../core/backup';
@@ -11,7 +11,8 @@ import { Avatar, Brand, Dialog, FormError, hueStyle, setSupplierHues, STATUS_PRE
 import { Dashboard } from './Dashboard';
 import { downloadXlsx } from './download';
 import { ForcedPasswordScreen, LoginScreen, PasswordForm, SetupScreen } from './Entry';
-import { Icon } from './icons';
+import { Icon, type IconName } from './icons';
+import { BookingDialog, BookingsView, NewBookingDialog, PendingBadge, PendingBookingsNotice, useBookings } from './Bookings';
 import { FullImportDialog } from './FullImport';
 import { ImportDialog, type ImportSheet } from './ImportDialog';
 import { ItemDialog, type ItemDialogState } from './ItemDialog';
@@ -111,7 +112,7 @@ function applyTheme(theme: Theme) {
   }
 }
 
-const VIEWS = ['painel', 'producao', 'embarques', 'historico', 'fornecedores', 'usuarios'] as const;
+const VIEWS = ['painel', 'solicitacoes', 'producao', 'embarques', 'historico', 'fornecedores', 'usuarios'] as const;
 type View = (typeof VIEWS)[number];
 
 function viewFromHash(): View {
@@ -190,6 +191,8 @@ export function App() {
           />
         );
       }
+      // O agente de cargas tem uma tela só, as próprias solicitações de embarque.
+      if (can(state.user.role, 'request_bookings')) return <AgentShell user={state.user} onLogout={() => void logout()} />;
       // Vendas tem uma tela só, a lista dos produtos a caminho.
       if (!can(state.user.role, 'view_shipments')) return <SalesShell user={state.user} onLogout={() => void logout()} />;
       return <Shell user={state.user} onLogout={() => void logout()} />;
@@ -350,16 +353,17 @@ function Welcome({ user, onImport, onNew }: { user: Me; onImport?: () => void; o
   );
 }
 
-const TABS: { view: View; label: string; icon: 'inicio' | 'caixa' | 'navio' | 'arquivo' | 'pessoas' }[] = [
+const TABS: { view: View; label: string; icon: IconName }[] = [
   { view: 'painel', label: 'Painel', icon: 'inicio' },
+  { view: 'solicitacoes', label: 'Solicitações', icon: 'container' },
   { view: 'embarques', label: 'Embarques', icon: 'navio' },
   { view: 'producao', label: 'Produção', icon: 'caixa' },
   { view: 'historico', label: 'Histórico', icon: 'arquivo' },
   { view: 'fornecedores', label: 'Fornecedores', icon: 'pessoas' },
 ];
 
-/** Tela do perfil Vendas: só a aba Embarques, em lista, com produto e chegada. */
-function SalesShell({ user, onLogout }: { user: Me; onLogout: () => void }) {
+/** Perfis de uma tela só (Vendas e Agente de cargas): a aba, o menu do usuário e o conteúdo. */
+function OneTabShell({ user, onLogout, tab, children }: { user: Me; onLogout: () => void; tab: { href: string; label: string; icon: IconName }; children: (showToast: (msg: string) => void) => ReactNode }) {
   const [changingPassword, setChangingPassword] = useState(false);
   const [toast, showToast] = useToast();
   return (
@@ -377,9 +381,9 @@ function SalesShell({ user, onLogout }: { user: Me; onLogout: () => void }) {
       <header className="topo">
         <Brand />
         <nav className="abas" aria-label="Visões">
-          <a className="aba" href="#embarques" aria-current="page">
-            <Icon name="navio" />
-            Embarques
+          <a className="aba" href={tab.href} aria-current="page">
+            <Icon name={tab.icon} />
+            {tab.label}
           </a>
         </nav>
         <div className="acoes">
@@ -387,7 +391,7 @@ function SalesShell({ user, onLogout }: { user: Me; onLogout: () => void }) {
         </div>
       </header>
       <main id="conteudo" tabIndex={-1}>
-        <SalesView />
+        {children(showToast)}
       </main>
       <Dialog title="Trocar senha" open={changingPassword} onClose={() => setChangingPassword(false)}>
         <div className="dlg-corpo">
@@ -403,6 +407,75 @@ function SalesShell({ user, onLogout }: { user: Me; onLogout: () => void }) {
       {toast}
       <UpdateNotice />
     </div>
+  );
+}
+
+/** Tela do perfil Vendas: só a aba Embarques, em lista, com produto e chegada. */
+function SalesShell({ user, onLogout }: { user: Me; onLogout: () => void }) {
+  return (
+    <OneTabShell user={user} onLogout={onLogout} tab={{ href: '#embarques', label: 'Embarques', icon: 'navio' }}>
+      {() => <SalesView />}
+    </OneTabShell>
+  );
+}
+
+/** Tela do agente de cargas: só as próprias solicitações de embarque. */
+function AgentShell({ user, onLogout }: { user: Me; onLogout: () => void }) {
+  return (
+    <OneTabShell user={user} onLogout={onLogout} tab={{ href: '#solicitacoes', label: 'Solicitações', icon: 'container' }}>
+      {(showToast) => <AgentBookings user={user} onToast={showToast} />}
+    </OneTabShell>
+  );
+}
+
+function AgentBookings({ user, onToast }: { user: Me; onToast: (msg: string) => void }) {
+  const bookings = useBookings(true);
+  const [open, setOpen] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  if (!bookings.data) {
+    return bookings.loadError ? (
+      <div className="erro-carga">
+        <FormError message={bookings.loadError} />
+        <button className="btn" onClick={() => void bookings.reload()}>
+          Tentar de novo
+        </button>
+      </div>
+    ) : (
+      <p className="carregando" role="status">
+        Carregando as solicitações…
+      </p>
+    );
+  }
+  return (
+    <>
+      {bookings.loadError && (
+        <p className="aviso alerta" role="status">
+          <Icon name="alerta" />
+          <span>Sem conexão com o servidor. A lista pode estar desatualizada.</span>
+        </p>
+      )}
+      <BookingsView data={bookings.data} onOpen={setOpen} onNew={() => setCreating(true)} />
+      <NewBookingDialog
+        open={creating}
+        data={bookings.data}
+        onClose={() => setCreating(false)}
+        onCreated={(request) => {
+          bookings.put(request);
+          setCreating(false);
+          onToast('Solicitação enviada para aprovação. A resposta aparece aqui.');
+        }}
+      />
+      <BookingDialog
+        request={bookings.data.requests.find((r) => r.id === open) ?? null}
+        data={bookings.data}
+        me={user}
+        onClose={() => setOpen(null)}
+        onSaved={(request, msg) => {
+          bookings.put(request);
+          onToast(msg);
+        }}
+      />
+    </>
   );
 }
 
@@ -430,7 +503,11 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [suppliersData, setSuppliersData] = useState<SuppliersData | null>(null);
   const [supplier, setSupplier] = useState<SupplierSummary | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [booking, setBooking] = useState<string | null>(null);
   const production = useProduction();
+  // Solicitações de embarque: carregadas desde a entrada, para o painel e a aba avisarem das que aguardam.
+  const seesBookings = can(user.role, 'view_bookings');
+  const bookings = useBookings(seesBookings);
   const data = production.data;
   // Cores dos fornecedores, dos que têm mais itens para os que têm menos (antes de desenhar as telas).
   if (data) setSupplierHues(data.suppliers, data.items);
@@ -453,8 +530,8 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   }, []);
 
   const seesAll = can(user.role, 'view_all');
-  // O perfil Embarques tem só as telas de embarques e do histórico.
-  const allowed = (v: View) => seesAll || v === 'embarques' || (v === 'historico' && can(user.role, 'view_history'));
+  // O perfil Embarques tem só as telas de embarques e do histórico; as solicitações são de quem vê valores.
+  const allowed = (v: View) => (v === 'solicitacoes' ? seesBookings : seesAll || v === 'embarques' || (v === 'historico' && can(user.role, 'view_history')));
   const current: View = !allowed(view) ? 'embarques' : view === 'usuarios' && !isAdmin ? 'painel' : view;
   const tabs = TABS.filter((t) => allowed(t.view));
   // No celular, as abas rolam de lado: a aba atual fica à vista.
@@ -475,7 +552,8 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
     if (current === 'historico') void loadHistory();
   }, [current, loadHistory]);
 
-  // Resumo por fornecedor (somado no banco): na tela Fornecedores e no "Recebido no ano" do painel.
+  // Resumo por fornecedor (somado no banco): na tela Fornecedores, no "Recebido no ano" do painel e na
+  // situação do fornecedor, na ficha da solicitação de embarque.
   const loadSuppliers = useCallback(async () => {
     try {
       setSuppliersData(await api.suppliers());
@@ -484,7 +562,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
     }
   }, []);
   useEffect(() => {
-    if (current === 'fornecedores' || current === 'painel') void loadSuppliers();
+    if (current === 'fornecedores' || current === 'painel' || current === 'solicitacoes') void loadSuppliers();
   }, [current, loadSuppliers, data?.items.length]);
   const thisYear = data?.today.slice(0, 4) ?? String(new Date().getFullYear());
 
@@ -696,6 +774,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
             <a key={t.view} className="aba" href={`#${t.view}`} aria-current={current === t.view ? 'page' : undefined}>
               <Icon name={t.icon} />
               {t.label}
+              {t.view === 'solicitacoes' && <PendingBadge data={bookings.data} />}
             </a>
           ))}
         </nav>
@@ -713,6 +792,29 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
       <main id="conteudo" tabIndex={-1}>
         {current === 'usuarios' ? (
           <UsersScreen me={user} />
+        ) : current === 'solicitacoes' ? (
+          bookings.data ? (
+            <>
+              {bookings.loadError && (
+                <p className="aviso alerta" role="status">
+                  <Icon name="alerta" />
+                  <span>Sem conexão com o servidor. A lista pode estar desatualizada.</span>
+                </p>
+              )}
+              <BookingsView data={bookings.data} onOpen={setBooking} />
+            </>
+          ) : bookings.loadError ? (
+            <div className="erro-carga">
+              <FormError message={bookings.loadError} />
+              <button className="btn" onClick={() => void bookings.reload()}>
+                Tentar de novo
+              </button>
+            </div>
+          ) : (
+            <p className="carregando" role="status">
+              Carregando as solicitações…
+            </p>
+          )
         ) : !data ? (
           production.loadError ? (
             <div className="erro-carga">
@@ -779,6 +881,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
               <Welcome user={user} onImport={canImport ? () => setFullImport(true) : undefined} onNew={canEdit ? () => setDialog({ mode: 'new' }) : undefined} />
             ) : current === 'painel' ? (
               <>
+              {bookings.data && <PendingBookingsNotice data={bookings.data} />}
               {canImport && backupDue(lastBackup, data.today) && (
                 <div className="lembrete-copia" role="status">
                   <Icon name="arquivo" />
@@ -931,6 +1034,27 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
           onClose={() => setShipment(null)}
           onToast={showToast}
           onOpenItem={(item) => setDialog({ mode: 'edit', item })}
+        />
+      )}
+      {bookings.data && (
+        <BookingDialog
+          request={bookings.data.requests.find((r) => r.id === booking) ?? null}
+          data={bookings.data}
+          me={user}
+          context={{ production: data, suppliers: suppliersData?.suppliers ?? null }}
+          onClose={() => setBooking(null)}
+          onSaved={(request, msg) => {
+            bookings.put(request);
+            showToast(msg);
+          }}
+          onProduction={
+            seesAll
+              ? (id) => {
+                  setBooking(null);
+                  goToProduction({ supplierId: id });
+                }
+              : undefined
+          }
         />
       )}
       <Dialog title="Trocar senha" open={changingPassword} onClose={() => setChangingPassword(false)}>

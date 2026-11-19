@@ -37,6 +37,7 @@ const PATHS = {
   caixa: <><path d="M3 8 12 3.5 21 8v8L12 20.5 3 16z" /><path d="M3 8l9 4.5L21 8M12 12.5v8" /></>,
   navio: <><path d="M3 15h18l-2.5 5h-13z" /><path d="M6 15V9h12v6M10 9V5h4v4" /></>,
   container: <><rect x="2.5" y="6.5" width="19" height="11" rx="1.5" /><path d="M6.5 9.5v5M10 9.5v5M13.5 9.5v5M17 9.5v5" /></>,
+  relogio: <><circle cx="12" cy="12" r="9" /><path d="M12 7.5V12l3 2" /></>,
   desfazer: <><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-3" /></>,
 } as const;
 
