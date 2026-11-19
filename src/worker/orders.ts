@@ -641,7 +641,11 @@ async function saveOrderSpecifications(request: Request, env: Env, session: Sess
 export async function routeOrders(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {
   const role = session.user.role;
   if (key === 'GET /api/data') return getData(env, session, now);
-  if (key === 'GET /api/sales') return getSales(env, session, now);
+  if (key === 'GET /api/sales') {
+    // A lista é de toda a equipe; o Agente, que é de fora, não recebe.
+    if (!can(role, 'view')) return error(403, 'Seu perfil vê só as solicitações de embarque.');
+    return getSales(env, session, now);
+  }
 
   if (key === 'POST /api/import/production') {
     if (!can(role, 'import')) return error(403, 'Só o admin faz a carga da planilha.');

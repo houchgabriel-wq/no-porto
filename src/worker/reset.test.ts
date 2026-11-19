@@ -26,7 +26,7 @@ describe('começar do zero', () => {
     expect(res.data).toEqual({ items: 1 });
     const d = (await app.call('GET', '/api/data', { cookie: who.admin.cookie })).data;
     expect([d.suppliers, d.orders, d.items, d.bills, d.invoices, d.payments].map((x: unknown[]) => x.length)).toEqual([0, 0, 0, 0, 0, 0]);
-    expect((await app.call('GET', '/api/users', { cookie: who.admin.cookie })).data.users).toHaveLength(6);
+    expect((await app.call('GET', '/api/users', { cookie: who.admin.cookie })).data.users).toHaveLength(7);
   });
 
   it('editor e leitor não apagam', async () => {
