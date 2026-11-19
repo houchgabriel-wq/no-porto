@@ -9,6 +9,7 @@
 
 import type { RowNote } from './importProduction';
 import { NO_ORDER, normalizeOrderCode, searchKey, type Item, type PurchaseOrder } from './items';
+import { NO_PRELO } from './noPrelo';
 import { formatQuantity, formatUnitPrice, parseSheetUnitPrice } from './money';
 import { parseDate } from './shipments';
 import { readShipPlanText, shipPlanProblem, shipPlanText, sortPlan, type ShipPlan } from './shipPlan';
@@ -317,6 +318,11 @@ export function parseUpdateRows(
       // Mudou na planilha e também no app depois do download: a planilha não desfaz a mudança do app.
       if (fieldMark(field, current) !== code.marks[field]) {
         conflicts.push(field);
+        continue;
+      }
+      // A aprovação que veio do No Prelo só muda lá (decidido em 19/11/2026).
+      if (field === 'fileApprovedAt' && item.fileApprovedFrom === NO_PRELO) {
+        errors.push('a aprovação do arquivo deste item vem do No Prelo; para mudar, altere lá.');
         continue;
       }
       if (field === 'shipPlan') {

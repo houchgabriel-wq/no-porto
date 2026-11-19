@@ -49,6 +49,8 @@ export interface Item {
   specification?: string;
   /** Dia (AAAA-MM-DD) em que o arquivo do livro foi aprovado; null enquanto não foi (19/11/2026). */
   fileApprovedAt?: string | null;
+  /** 'noprelo' quando a aprovação do arquivo veio do No Prelo (e só muda lá); null quando foi digitada. */
+  fileApprovedFrom?: string | null;
   /** Programação de envio: até três embarques (mês e quantidade), do mais próximo para o mais distante. */
   shipPlan?: ShipPlan;
   createdAt: string;

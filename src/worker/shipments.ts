@@ -235,7 +235,7 @@ function shipItemStatements(
       env,
       id,
       // A parte embarcada leva também a data de aprovação do arquivo.
-      { description: item.description, quantity, piecesPerCarton: pieces, unitPriceMicros: price, notes: item.notes, fileApprovedAt: item.fileApprovedAt ?? null, shipPlan: plan.taken },
+      { description: item.description, quantity, piecesPerCarton: pieces, unitPriceMicros: price, notes: item.notes, fileApprovedAt: item.fileApprovedAt ?? null, fileApprovedFrom: item.fileApprovedFrom ?? null, shipPlan: plan.taken },
       { productId: item.productId, supplierId: item.supplierId, orderId: item.purchaseOrderId, invoiceId: invoice.id, status },
       userId,
       at,

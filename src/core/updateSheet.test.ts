@@ -267,6 +267,14 @@ describe('atualizar pela planilha', () => {
     ]);
   });
 
+  it('a aprovação que veio do No Prelo não muda pela planilha; as outras colunas da linha, sim', () => {
+    const linked = { ...cafe, fileApprovedAt: '2026-11-12', fileApprovedFrom: 'noprelo' };
+    const report = parse([sheetRow(linked, { 'Aprovação do arquivo': '01/12/2026' })], [linked]);
+    expect(report.updates).toEqual([]);
+    expect(report.problems).toEqual([{ row: 2, message: '"Livro Café com Aristóteles": a aprovação do arquivo deste item vem do No Prelo; para mudar, altere lá.' }]);
+    expect(parse([sheetRow(linked, { Observações: 'Nova nota' })], [linked]).updates.map((u) => u.patch)).toEqual([{ notes: 'Nova nota' }]);
+  });
+
   it('observações com quebra de linha do Windows e espaços nas pontas não contam como mudança', () => {
     const notes = item({ id: 'n', notes: 'Linha 1\nLinha 2' });
     expect(parse([sheetRow(notes, { Observações: ' Linha 1\r\nLinha 2 ' })], [notes]).unchanged).toBe(1);
