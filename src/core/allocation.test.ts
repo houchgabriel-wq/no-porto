@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allocateInvoices, allocateShipment, guessSupplier, productionQueue, sameProduct } from './allocation';
+import { allocateInvoices, allocateShipment, guessSupplier, planAssignments, productionQueue, sameProduct } from './allocation';
 import type { Item } from './items';
 
 const orders = [
@@ -127,6 +127,46 @@ describe('allocateInvoices', () => {
         ],
         extra: 0,
       },
+    ]);
+  });
+});
+
+describe('planAssignments', () => {
+  const item = (id: string, over: object = {}) => ({ id, isbn: null, description: `Livro ${id}`, status: 'producao' as const, quantity: 1000, shipPlan: [], ...over });
+  const dez = [{ month: '2026-12', quantity: 1000 }];
+
+  it('a programação da linha vai para o item do mesmo produto que ainda não tem', () => {
+    const lots = [
+      { month: '2026-12', quantity: 500 },
+      { month: '2027-03', quantity: 500 },
+    ];
+    expect(
+      planAssignments(
+        [
+          { description: 'Livro a', isbn: null, quantity: 1000, shipPlan: dez },
+          { description: 'Livro b', isbn: null, quantity: 1000, shipPlan: lots },
+          { description: 'Livro sem data', isbn: null, quantity: 1000, shipPlan: [] },
+        ],
+        [item('a'), item('b'), item('c')],
+      ),
+    ).toEqual({ assign: [{ itemId: 'a', plan: dez }, { itemId: 'b', plan: lots }], kept: 0, notFit: 0 });
+  });
+
+  it('o item que já tem programação fica como está; o que não cabe é contado; o que embarcou fica de fora', () => {
+    const lines = ['a', 'b', 'c'].map((id) => ({ description: `Livro ${id}`, isbn: null, quantity: 1000, shipPlan: dez }));
+    const items = [item('a', { shipPlan: [{ month: '2027-01', quantity: 1000 }] }), item('b', { quantity: 600 }), item('c', { status: 'embarcado' })];
+    expect(planAssignments(lines, items)).toEqual({ assign: [], kept: 1, notFit: 1 });
+  });
+
+  it('com dois itens do mesmo produto, vai para o de mesma quantidade, e cada linha para um item só', () => {
+    const lines = [
+      { description: 'Livro x', isbn: '9786583970527', quantity: 3000, shipPlan: [{ month: '2027-01', quantity: 3000 }] },
+      { description: 'Livro x', isbn: '9786583970527', quantity: 1000, shipPlan: dez },
+    ];
+    const items = [item('1', { isbn: '9786583970527', quantity: 1000 }), item('2', { isbn: '9786583970527', quantity: 3000 })];
+    expect(planAssignments(lines, items).assign).toEqual([
+      { itemId: '2', plan: [{ month: '2027-01', quantity: 3000 }] },
+      { itemId: '1', plan: dez },
     ]);
   });
 });

@@ -4,6 +4,7 @@
 // produção entra embarcado assim mesmo, sem PO, para a pessoa conferir.
 
 import { compareOrderCodes, searchKey, titleKey, type Item, type PurchaseOrder, type Supplier } from './items';
+import { shipPlanProblem, type ShipPlan } from './shipPlan';
 
 export interface ShipmentLineInput {
   description: string;
@@ -136,4 +137,47 @@ export function guessSupplier(
   let best: string | null = null;
   for (const [id, n] of score) if (best === null || n > score.get(best)!) best = id;
   return best;
+}
+
+export interface PlanAssignments {
+  /** A programação que vai para cada item. */
+  assign: { itemId: string; plan: ShipPlan }[];
+  /** Linhas cujo item (em produção) já tinha programação: fica a do app. */
+  kept: number;
+  /** Linhas cuja programação não cabe na quantidade de agora do item (parte já embarcou). */
+  notFit: number;
+}
+
+/**
+ * PO já cadastrada, com o arquivo de novo (o Novo pedido de uma PO que entrou sem as datas de envio):
+ * a programação de cada linha vai para um item em produção do mesmo produto que ainda não tem
+ * programação, de preferência o de mesma quantidade, e só se ela couber na quantidade do item. A
+ * programação que alguém já pôs no item fica; quem quiser trocar usa a ficha do item.
+ */
+export function planAssignments(
+  lines: readonly (ShipmentLineInput & { shipPlan?: ShipPlan })[],
+  items: readonly (Pick<Item, 'id' | 'isbn' | 'description' | 'status' | 'quantity'> & { shipPlan: ShipPlan })[],
+): PlanAssignments {
+  const result: PlanAssignments = { assign: [], kept: 0, notFit: 0 };
+  const taken = new Set<string>();
+  for (const line of lines) {
+    const plan = line.shipPlan ?? [];
+    if (plan.length === 0) continue;
+    const same = items.filter((i) => i.status === 'producao' && !taken.has(i.id) && sameProduct(line, i));
+    if (same.length === 0) continue;
+    const free = same.filter((i) => i.shipPlan.length === 0);
+    if (free.length === 0) {
+      result.kept++;
+      continue;
+    }
+    const fits = (i: (typeof free)[number]) => shipPlanProblem(plan, i.quantity) === null;
+    const chosen = free.find((i) => i.quantity === line.quantity && fits(i)) ?? free.find(fits);
+    if (!chosen) {
+      result.notFit++;
+      continue;
+    }
+    taken.add(chosen.id);
+    result.assign.push({ itemId: chosen.id, plan });
+  }
+  return result;
 }
