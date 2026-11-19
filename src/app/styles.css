@@ -1394,3 +1394,33 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 .juntar-linha .grupo { flex: 1 1 220px; min-width: 0; }
 .confirma-exclusao.confirma-juntar { border-color: color-mix(in srgb, var(--alerta) 45%, transparent); background: var(--alerta-suave); }
 .dlg-corpo.juntar-caixa { padding-top: 0; }
+
+/* Atualizar pela planilha: os itens que mudam, com o antes e o depois de cada campo. "Antes" e "Depois"
+   vão escritos, não só na cor; o valor novo fica em destaque. */
+.lista-dicas { margin: 0; padding-left: 20px; list-style: disc; display: flex; flex-direction: column; gap: 4px; color: var(--tinta-2); font-size: 13.5px; max-width: 70ch; }
+.lista-dicas li::marker { color: var(--acento); }
+.mud-caixa { max-height: min(52vh, 460px); }
+.mud-lista { list-style: none; margin: 0; padding: 0; }
+.mud-item { padding: 12px 16px; border-bottom: 1px solid var(--fio); display: flex; flex-direction: column; gap: 8px; }
+.mud-item:last-child { border-bottom: 0; }
+.mud-cab { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 0; }
+.mud-nome { font-weight: 600; color: var(--tinta); overflow-wrap: anywhere; }
+.mud-meta { font-size: 12.5px; color: var(--tinta-3); white-space: nowrap; }
+.mud-campos { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.mud-campo { display: grid; grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1fr); gap: 4px 12px; align-items: start; font-size: 13.5px; }
+.mud-campo dt { color: var(--tinta-2); font-weight: 600; font-size: 13px; padding-top: 4px; }
+.mud-campo dd { margin: 0; display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 4px 8px; border-radius: 8px; }
+.mud-antes { background: var(--sulco); }
+.mud-depois { background: var(--acento-suave); }
+.mud-rot { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--tinta-2); }
+.mud-valor { white-space: pre-line; overflow-wrap: anywhere; line-height: 1.45; color: var(--tinta); }
+.mud-depois .mud-valor { font-weight: 600; }
+.mud-valor.mud-vazio { font-style: italic; font-weight: 400; color: var(--tinta-2); }
+@media (max-width: 600px) {
+  .mud-item { padding: 12px; }
+  .mud-campo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .mud-campo dt { grid-column: 1 / -1; padding-top: 0; }
+}
+@media (max-width: 400px) {
+  .mud-campo { grid-template-columns: minmax(0, 1fr); }
+}

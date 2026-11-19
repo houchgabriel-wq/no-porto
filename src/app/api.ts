@@ -13,6 +13,7 @@ import type { Item, PurchaseOrder, Supplier } from '../core/items';
 import type { Role } from '../core/roles';
 import type { BookingRequest, ContainerType, NewBookingLine } from '../core/bookings';
 import type { ShipPlan } from '../core/shipPlan';
+import type { SheetUpdate } from '../core/updateSheet';
 
 export interface Me {
   id: string;
@@ -192,6 +193,9 @@ export const api = {
   updateItem: (id: string, body: Partial<ItemInput>) => request<{ item: Item }>('PATCH', `/api/items/${encodeURIComponent(id)}`, body),
   deleteItem: (id: string) => request<{ ok: true }>('DELETE', `/api/items/${encodeURIComponent(id)}`),
   importProduction: (items: ImportedItem[]) => request<{ inserted: number; skipped: number; withoutOrder: string[] }>('POST', '/api/import/production', { items }),
+  /** Atualizar pela planilha: os campos que mudaram em cada item, com a marca do download. */
+  updateItemsFromSheet: (items: ({ id: string; row: number; marks: SheetUpdate['marks'] } & SheetUpdate['patch'])[]) =>
+    request<{ updated: number; skipped: { row: number; message: string }[] }>('PATCH', '/api/items', { items }),
   bookings: () => request<BookingsData>('GET', '/api/bookings'),
   createBooking: (body: NewBooking) => request<{ request: BookingRequest }>('POST', '/api/bookings', body),
   cancelBooking: (id: string) => request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/cancel`),

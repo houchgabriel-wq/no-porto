@@ -15,6 +15,7 @@ import { Icon, type IconName } from './icons';
 import { BookingDialog, BookingsView, NewBookingDialog, PendingBadge, PendingBookingsNotice, useBookings } from './Bookings';
 import { FullImportDialog } from './FullImport';
 import { ImportDialog, type ImportSheet } from './ImportDialog';
+import { UpdateSheetDialog } from './UpdateSheet';
 import { ItemDialog, type ItemDialogState } from './ItemDialog';
 import { useProduction } from './production';
 import { ProductionView } from './Production';
@@ -488,6 +489,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [grouped, setGrouped] = useState(readGrouped);
   const [dialog, setDialog] = useState<ItemDialogState>(null);
   const [importing, setImporting] = useState<ImportSheet | null>(null);
+  const [updatingSheet, setUpdatingSheet] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [shipping, setShipping] = useState<string[] | null>(null);
@@ -659,6 +661,12 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
         <Icon name="arquivo" />
         <span className="rot">{exporting ? 'Gerando…' : 'Baixar .xlsx'}</span>
       </button>
+      {canEdit && (
+        <button type="button" className="btn" onClick={() => setUpdatingSheet(true)}>
+          <Icon name="lapis" />
+          <span className="rot">Atualizar pela planilha</span>
+        </button>
+      )}
       {canImport && (
         <button type="button" className="btn" onClick={() => setImporting('Produção')}>
           <Icon name="atualizar" />
@@ -952,6 +960,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
           onToast={showToast}
         />
       )}
+      {canEdit && <UpdateSheetDialog open={updatingSheet} production={production} onClose={() => setUpdatingSheet(false)} onToast={showToast} />}
       {canImport && data && (
         <FullImportDialog
           open={fullImport}
