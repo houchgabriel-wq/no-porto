@@ -8,6 +8,7 @@ import { parseOrderDocument, type DocumentLine, type DocumentNote, type OrderDoc
 import { NO_SUPPLIER, normalizeOrderCode, searchKey } from '../core/items';
 import { formatQuantity, formatUnitPrice, formatUsd, itemTotalCents } from '../core/money';
 import { arrivalOf, formatDay, shipmentUnits } from '../core/shipments';
+import { formatMonth, type ShipPlan } from '../core/shipPlan';
 import { api, ApiError, type ProductionData } from './api';
 import { Dialog, FormError } from './components';
 import { Icon } from './icons';
@@ -137,15 +138,29 @@ export function OrderUploadDialog({
     }
   }
 
-  /** PO já cadastrada: guarda só as especificações do arquivo nos itens dela. */
-  async function saveSpecifications() {
+  /**
+   * PO já cadastrada: guarda a especificação e a programação de envio do arquivo nos itens dela (a
+   * programação, só nos itens em produção que ainda não têm).
+   */
+  async function saveDetails() {
     if (!doc || !normalized) return;
     setBusy(true);
     setError(null);
     try {
-      const items = doc.lines.filter((l) => l.specification).map((l) => ({ description: l.description, isbn: l.isbn, specification: l.specification }));
-      const res = await production.write(() => api.saveOrderSpecifications(normalized, items));
-      onDone(`${normalized}: especificação guardada em ${res.updated} de ${res.items} ${res.items === 1 ? 'item' : 'itens'}.`, existing!.id);
+      const items = doc.lines
+        .filter((l) => l.specification || l.shipPlan?.length)
+        .map((l) => ({ description: l.description, isbn: l.isbn, quantity: l.quantity, specification: l.specification, shipPlan: l.shipPlan ?? [] }));
+      const res = await production.write(() => api.saveOrderDetails(normalized, items));
+      const itens = (n: number) => `${n} ${n === 1 ? 'item' : 'itens'}`;
+      const parts: string[] = [];
+      if (withSpecs > 0) parts.push(`especificação guardada em ${res.updated} de ${itens(res.items)}`);
+      if (withPlans > 0) {
+        let plans = `programação de envio guardada em ${itens(res.planned)}`;
+        if (res.kept > 0) plans += ` (${itens(res.kept)} já ${res.kept === 1 ? 'tinha' : 'tinham'} e ${res.kept === 1 ? 'ficou como estava' : 'ficaram como estavam'})`;
+        if (res.notFit > 0) plans += `; em ${itens(res.notFit)}, parte já embarcou e a programação do arquivo não cabe mais`;
+        parts.push(plans);
+      }
+      onDone(`${normalized}: ${parts.join('; ')}.`, existing!.id);
       onClose();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Não foi possível gravar.');
@@ -154,6 +169,8 @@ export function OrderUploadDialog({
   }
 
   const withSpecs = doc ? doc.lines.filter((l) => l.specification).length : 0;
+  const withPlans = doc ? doc.lines.filter((l) => l.shipPlan?.length).length : 0;
+  const detailsLabel = withSpecs > 0 && withPlans > 0 ? 'Guardar especificações e programação de envio' : withSpecs > 0 ? 'Guardar só as especificações' : 'Guardar só a programação de envio';
   const total = doc ? doc.lines.reduce((s, l) => s + l.quantity, 0) : 0;
   return (
     <Dialog title="Novo pedido" open={open} onClose={onClose} wide>
@@ -172,6 +189,7 @@ export function OrderUploadDialog({
             <p className="dica-texto">
               <b>{file}</b>: {doc.lines.length} {doc.lines.length === 1 ? 'item' : 'itens'}, {formatQuantity(total)} ex.
               {data.seeValues && ` · ${formatUsd(linesValue(doc.lines))}`}
+              {withPlans > 0 && ` · ${withPlans === doc.lines.length ? (withPlans === 1 ? 'com data de envio' : 'todos com data de envio') : `${withPlans} com data de envio`}`}
             </p>
             <fieldset className="grade-campos tres" disabled={busy}>
               <legend className="so-leitor">Dados da PO</legend>
@@ -204,17 +222,22 @@ export function OrderUploadDialog({
                 <Icon name="alerta" />
                 <span>
                   A {normalized} já está cadastrada, com {existingItems} {existingItems === 1 ? 'item' : 'itens'}. Confira o número.
-                  {withSpecs > 0 && ' Se for ela mesma, dá para guardar só as especificações deste arquivo nos itens que já estão no app.'}
+                  {withSpecs > 0 && withPlans > 0
+                    ? ' Se for ela mesma, dá para guardar a especificação e a programação de envio deste arquivo nos itens que já estão no app (a programação, só nos que ainda não têm).'
+                    : withSpecs > 0
+                      ? ' Se for ela mesma, dá para guardar só as especificações deste arquivo nos itens que já estão no app.'
+                      : withPlans > 0 && ' Se for ela mesma, dá para guardar a programação de envio deste arquivo nos itens que já estão no app e ainda não têm.'}
                 </span>
               </p>
             )}
             {newSupplier && <p className="dica">{supplier.trim()} ainda não está cadastrado: será criado ao gravar.</p>}
             <div className="tabela-caixa resumo-caixa" tabIndex={0} role="region" aria-label="Itens da PO">
-              <table className="tabela-resumo tabela-empilha">
+              <table className="tabela-resumo tabela-empilha po-itens">
                 <thead>
                   <tr>
                     <th>Produto</th>
                     <th className="num">Quantidade</th>
+                    {withPlans > 0 && <th>Envio</th>}
                     {data.seeValues && (
                       <>
                         <th className="num">Preço</th>
@@ -232,6 +255,11 @@ export function OrderUploadDialog({
                         {l.specification && <span className="t-isbn espec-po">{l.specification}</span>}
                       </td>
                       <td className="num" data-rot="Quantidade">{formatQuantity(l.quantity)}</td>
+                      {withPlans > 0 && (
+                        <td className="po-envio" data-rot="Envio">
+                          <PlanText plan={l.shipPlan ?? []} quantity={l.quantity} />
+                        </td>
+                      )}
                       {data.seeValues && (
                         <>
                           <td className="num" data-rot="Preço">{l.unitPriceMicros === null ? <span className="mudo">Sem preço</span> : formatUnitPrice(l.unitPriceMicros)}</td>
@@ -250,9 +278,9 @@ export function OrderUploadDialog({
             <button type="button" className="btn" onClick={() => setDoc(null)} disabled={busy}>
               Outro arquivo
             </button>
-            {existingItems > 0 && withSpecs > 0 ? (
-              <button type="button" className="btn primario" disabled={busy} onClick={() => void saveSpecifications()}>
-                {busy ? 'Gravando…' : 'Guardar só as especificações'}
+            {existingItems > 0 && (withSpecs > 0 || withPlans > 0) ? (
+              <button type="button" className="btn primario" disabled={busy} onClick={() => void saveDetails()}>
+                {busy ? 'Gravando…' : detailsLabel}
               </button>
             ) : (
               <button type="submit" className="btn primario" disabled={busy || existingItems > 0}>
@@ -263,6 +291,21 @@ export function OrderUploadDialog({
         </form>
       )}
     </Dialog>
+  );
+}
+
+/** A programação de envio de uma linha da PO: só o mês, quando um embarque leva o item inteiro. */
+function PlanText({ plan, quantity }: { plan: ShipPlan; quantity: number }) {
+  if (plan.length === 0) return <span className="mudo">—</span>;
+  if (plan.length === 1 && plan[0]!.quantity === quantity) return <>{formatMonth(plan[0]!.month)}</>;
+  return (
+    <>
+      {plan.map((p) => (
+        <span key={p.month} className="envio-parcela">
+          {formatMonth(p.month)} · {formatQuantity(p.quantity)}
+        </span>
+      ))}
+    </>
   );
 }
 

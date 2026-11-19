@@ -1424,3 +1424,7 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 @media (max-width: 400px) {
   .mud-campo { grid-template-columns: minmax(0, 1fr); }
 }
+/* Novo pedido: a programação de envio de cada linha da PO, um embarque por linha; preço e total sem
+   quebrar ("US$" de um lado e o número do outro). */
+.po-envio .envio-parcela { display: block; }
+.po-itens td.num, .po-envio { white-space: nowrap; }
