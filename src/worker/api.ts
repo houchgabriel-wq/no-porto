@@ -12,6 +12,7 @@ import { routeOrders } from './orders';
 import { routeShipments } from './shipments';
 import { routeHistory } from './history';
 import { routeSuppliers } from './suppliers';
+import { routeNoPrelo } from './noPrelo';
 import { routeExport } from './export';
 import { routeReset } from './reset';
 import { routeBillDocuments } from './billDocuments';
@@ -401,6 +402,8 @@ async function routeLoggedIn(
   if (wiped) return wiped;
   const bookings = await routeBookings(request, env, session, key, path, now);
   if (bookings) return bookings;
+  const noPrelo = await routeNoPrelo(request, env, session, key, now);
+  if (noPrelo) return noPrelo;
 
   return error(404, 'Rota não encontrada.');
 }
