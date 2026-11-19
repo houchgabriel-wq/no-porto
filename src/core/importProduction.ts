@@ -6,6 +6,7 @@ import { isbnDigits, isbnProblem } from './isbn';
 import { searchKey, normalizeOrderCode, NO_SUPPLIER, orderOwners } from './items';
 import { itemTotalCents, looksLikeReais, parseCents, parseSheetUnitPrice } from './money';
 import { parseDate } from './shipments';
+import { parseShipPlanText, type ShipPlan } from './shipPlan';
 import { cleanSpecification } from './specification';
 
 /** Itens por envio ao servidor; a planilha vai em partes deste tamanho. */
@@ -26,9 +27,9 @@ export interface ImportedItem {
   notes: string;
   /** Especificação do produto (só na cópia completa do app). */
   specification: string;
-  /** Aprovação do arquivo e programação de envio (AAAA-MM-DD; só na cópia completa do app). */
+  /** Aprovação do arquivo (AAAA-MM-DD) e programação de envio (só na cópia completa do app). */
   fileApprovedAt: string | null;
-  shipPlannedAt: string | null;
+  shipPlan: ShipPlan;
 }
 
 export interface RowNote {
@@ -56,7 +57,7 @@ const ITEM_HEADERS = {
   // de aprovação do arquivo e de programação de envio.
   specification: ['especificacao'],
   fileApprovedAt: ['aprovacao do arquivo'],
-  shipPlannedAt: ['programacao de envio'],
+  shipPlan: ['programacao de envio'],
 } as const;
 
 const PO_PATTERN = /^\s*PO[\s-]*\d+\s*$/i;
@@ -108,7 +109,7 @@ export interface ItemCells {
   notes: string[];
   specification: string;
   fileApprovedAt: string | null;
-  shipPlannedAt: string | null;
+  shipPlan: ShipPlan;
 }
 
 /**
@@ -178,20 +179,31 @@ export function readItemCells(cell: (col: keyof typeof ITEM_HEADERS) => string, 
       warn(`"${description}": o total da planilha não bate com quantidade × preço; vale quantidade × preço.`);
     }
   }
-  // Datas da cópia completa do app: o que não é data fica nas observações, para não se perder.
-  const day = (col: 'fileApprovedAt' | 'shipPlannedAt', label: string): string | null => {
-    const text = clean(cell(col));
-    if (!text) return null;
-    const date = parseDate(text);
-    if (!date) {
-      notes.push(`${label} na planilha: ${text}`);
-      warn(`"${description}": ${label.toLowerCase()} "${text}" não é uma data; fica nas observações.`);
-    }
-    return date;
+  // Colunas da cópia completa do app: o que não dá para ler fica nas observações, para não se perder.
+  const approvedText = clean(cell('fileApprovedAt'));
+  const fileApprovedAt = approvedText ? parseDate(approvedText) : null;
+  if (approvedText && !fileApprovedAt) {
+    notes.push(`Aprovação do arquivo na planilha: ${approvedText}`);
+    warn(`"${description}": aprovação do arquivo "${approvedText}" não é uma data; fica nas observações.`);
+  }
+  const planText = cell('shipPlan').trim();
+  const shipPlan = parseShipPlanText(planText, quantity);
+  if (shipPlan === null) {
+    notes.push(`Programação de envio na planilha: ${clean(planText)}`);
+    warn(`"${description}": programação de envio "${clean(planText)}" não foi entendida (o certo é como "dez/2026: 20.000; fev/2027: 20.000"); fica nas observações.`);
+  }
+  return {
+    description,
+    isbn,
+    supplier,
+    quantity,
+    piecesPerCarton,
+    unitPriceMicros,
+    notes,
+    specification: cleanSpecification(cell('specification')),
+    fileApprovedAt,
+    shipPlan: shipPlan ?? [],
   };
-  const fileApprovedAt = day('fileApprovedAt', 'Aprovação do arquivo');
-  const shipPlannedAt = day('shipPlannedAt', 'Programação de envio');
-  return { description, isbn, supplier, quantity, piecesPerCarton, unitPriceMicros, notes, specification: cleanSpecification(cell('specification')), fileApprovedAt, shipPlannedAt };
 }
 
 /** A coluna da PO não tem título: é a coluna sem título com mais códigos "PO-0xx". */

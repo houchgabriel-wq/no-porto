@@ -2,6 +2,7 @@
 // quem vê valores.
 
 import { NO_ORDER, NO_SUPPLIER, type Item, type PurchaseOrder, type Supplier } from './items';
+import { shipPlanText } from './shipPlan';
 
 export interface ItemExportRow {
   po: string;
@@ -13,8 +14,9 @@ export interface ItemExportRow {
   /** Em dólar, com as casas do preço; ausente para quem não vê valores. */
   unitPrice?: number | null;
   total?: number | null;
-  /** Aprovação do arquivo e programação de envio, como dd/mm/aaaa (vazio quando não há). */
+  /** Aprovação do arquivo, como dd/mm/aaaa (vazio quando não há). */
   fileApproved: string;
+  /** Programação de envio: "dez/2026: 20.000; fev/2027: 20.000" (vazio quando não há). */
   shipPlanned: string;
   notes: string;
 }
@@ -34,7 +36,7 @@ export function itemExportRows(items: readonly Item[], orders: readonly Purchase
       quantity: i.quantity,
       piecesPerCarton: i.piecesPerCarton,
       fileApproved: br(i.fileApprovedAt),
-      shipPlanned: br(i.shipPlannedAt),
+      shipPlanned: shipPlanText(i.shipPlan ?? []),
       notes: i.notes,
     };
     if (seeValues) {
