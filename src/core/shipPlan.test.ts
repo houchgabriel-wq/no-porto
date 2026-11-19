@@ -7,6 +7,7 @@ import {
   parcelPassed,
   parseShipPlanText,
   plannedTotal,
+  readMonthText,
   readShipPlanText,
   readStoredPlan,
   shipPlanProblem,
@@ -97,6 +98,22 @@ describe('na tela e na planilha', () => {
       { month: '2027-02', quantity: 5_000 },
     ]);
     expect(parseShipPlanText('31/13/2026', 8_000)).toBeNull();
+  });
+
+  it('lê o mês das datas das POs, em inglês ou português; o dia não conta', () => {
+    for (const [text, month] of [
+      ['16-Dec-2026', '2026-12'],
+      ['01-Mar-2027', '2027-03'],
+      ['Dec 2026', '2026-12'],
+      ['Dec 16, 2026', '2026-12'],
+      ['16/12/2026', '2026-12'],
+      ['2026-12-16', '2026-12'],
+      ['dezembro de 2026', '2026-12'],
+      ['Fev/2027', '2027-02'],
+    ] as const) {
+      expect(readMonthText(text), text).toBe(month);
+    }
+    for (const text of ['asap', 'TBC', 'after CNY', '12/16/2026', '2026', 'Dec']) expect(readMonthText(text), text).toBeNull();
   });
 
   it('diz o que está errado na escrita, sem conferir a soma', () => {

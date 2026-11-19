@@ -6,8 +6,9 @@
 
 import { isbnDigits, isbnProblem } from './isbn';
 import { normalizeOrderCode, searchKey } from './items';
-import { parseSheetUnitPrice } from './money';
+import { formatQuantity, parseSheetUnitPrice } from './money';
 import { parseDate } from './shipments';
+import { mergePlans, plannedTotal, readMonthText, shipPlanProblem, type ShipPlan } from './shipPlan';
 import { cleanSpecification } from './specification';
 
 export interface SheetRows {
@@ -28,6 +29,11 @@ export interface DocumentLine {
   notes: string;
   /** Especificação do produto (formato, papel, acabamento), como veio na PO. */
   specification: string;
+  /**
+   * Programação de envio, da coluna "Estimated Shipping Date" da PO (o item inteiro naquele mês) ou dos
+   * lotes escritos no comentário. Só na PO.
+   */
+  shipPlan?: ShipPlan;
   /**
    * Caixas fora do padrão (a sobra, como 1 caixa de 50 quando o padrão é 60), vindas da packing list.
    * Só para a prévia: não é gravado.
@@ -73,7 +79,7 @@ function clean(text: string | undefined): string {
   return (text ?? '').replace(/\s+/g, ' ').trim();
 }
 
-type Role = 'description' | 'quantity' | 'price' | 'isbn' | 'order' | 'pieces' | 'comments' | 'specification';
+type Role = 'description' | 'quantity' | 'price' | 'isbn' | 'order' | 'pieces' | 'comments' | 'specification' | 'shipDate';
 
 /** Peso de cada coluna candidata a nome do produto: "Name" vale mais que "Description". */
 function descriptionScore(l: string): number {
@@ -98,6 +104,8 @@ const ROLE_TESTS: Record<Exclude<Role, 'description'>, (l: string) => boolean> =
   comments: (l) => /^(comment|remark|observ)/.test(l),
   // "Specifications" na PO da editora (a "DESCRIPTION & SPECIFICATION" da Nicola também serve).
   specification: (l) => l.includes('specification') || l === 'specs' || l === 'spec' || l.startsWith('especifica'),
+  // "Estimated Shipping Date" na PO da editora; "ETD", "Delivery date", "Data de envio".
+  shipDate: (l) => /^etd\b/.test(l) || (/\b(ship|shipping|shipment|delivery|envio|embarque)\b/.test(l) && /\b(date|data|dia)\b/.test(l)),
 };
 
 interface Header {
@@ -191,7 +199,48 @@ function isTotalRow(row: readonly string[]): boolean {
   return row.some((c) => /^(in )?total( |$)/.test(label(c)));
 }
 
-function readLines(rows: readonly string[][], header: Header, warnings: DocumentNote[]): DocumentLine[] {
+/** O comentário fala em lotes: "Ship in 2 lots", "em 2 lotes". */
+const LOTS = /\b(?:in|em)\s+(?:\d|two|three|dois|duas|tr[eê]s)\s+(?:lots|lotes|shipments|embarques|parts|partes)\b/i;
+/** Um lote: "15,000 pcs by 16-Dec-2026". */
+const LOT = /(\d[\d.,]*)\s*(?:pcs|pieces|copies|units|ex\.?|exemplares)\s+(?:by|on|until|em|até)\s+(\d{1,2}[-\s.][a-zç]{3,9}\.?[-\s.]\d{4}|\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}|[a-zç]{3,9}\.?\s+\d{4}|\d{1,2}\/\d{4})/gi;
+
+/**
+ * Os lotes escritos no comentário da linha da PO: "Ship in 2 lots: 15,000 pcs by 16-Dec-2026 / 15,000
+ * pcs by 01-Mar-2027". Só valem quando o comentário fala em lotes e as quantidades somam a da linha
+ * (assim, "ship FIRST the lot already in production (PO-056 – 5,000 pcs)" não conta). null quando o
+ * comentário não fala em lotes.
+ */
+export function lotsFromComment(text: string, quantity: number): { plan: ShipPlan } | { error: string } | null {
+  if (!LOTS.test(text)) return null;
+  const lots: ShipPlan = [];
+  for (const m of text.matchAll(LOT)) {
+    const lotQuantity = parseQuantity(m[1]);
+    const month = readMonthText(m[2]!);
+    if (lotQuantity !== null && month !== null) lots.push({ month, quantity: lotQuantity });
+  }
+  if (lots.length < 2) return { error: 'o comentário fala em lotes, mas não deu para ler a quantidade e a data de cada um' };
+  const total = plannedTotal(lots);
+  if (total !== quantity) return { error: `os lotes do comentário somam ${formatQuantity(total)} exemplares, e a linha tem ${formatQuantity(quantity)}` };
+  const plan = mergePlans(lots, []);
+  const problem = shipPlanProblem(plan, quantity);
+  return problem ? { error: problem.charAt(0).toLowerCase() + problem.slice(1).replace(/\.$/, '') } : { plan };
+}
+
+/**
+ * Programação de envio de uma linha da PO: os lotes do comentário, quando há; senão, o item inteiro no
+ * mês da coluna de envio. O que não dá para ler vira aviso, e o item entra sem programação.
+ */
+function linePlan(shipText: string, comment: string, quantity: number, warn: (message: string) => void): ShipPlan {
+  const lots = lotsFromComment(comment, quantity);
+  if (lots && 'plan' in lots) return lots.plan;
+  const month = shipText ? readMonthText(shipText) : null;
+  if (lots) warn(`${lots.error.charAt(0).toUpperCase()}${lots.error.slice(1)}; ${month ? 'vale a data de envio da coluna' : 'o item entra sem programação de envio'}.`);
+  if (month) return [{ month, quantity }];
+  if (shipText) warn(`Data de envio "${shipText}" não reconhecida; o item entra sem programação de envio.`);
+  return [];
+}
+
+function readLines(rows: readonly string[][], header: Header, warnings: DocumentNote[], withShipPlan = false): DocumentLine[] {
   const { cols } = header;
   const cell = (row: readonly string[], role: Role) => (cols[role] === undefined ? '' : (row[cols[role]!] ?? ''));
   const lines: DocumentLine[] = [];
@@ -229,7 +278,8 @@ function readLines(rows: readonly string[][], header: Header, warnings: Document
       }
     }
     const orderMatch = /PO[\s-]*\d{1,6}/i.exec(cell(row, 'order'));
-    lines.push({
+    const notes = clean(cell(row, 'comments')).slice(0, 2000);
+    const line: DocumentLine = {
       row: rowNumber,
       description: description || `ISBN ${isbn}`,
       isbn,
@@ -237,9 +287,11 @@ function readLines(rows: readonly string[][], header: Header, warnings: Document
       piecesPerCarton: parseQuantity(cell(row, 'pieces')),
       unitPriceMicros,
       orderCode: orderMatch ? normalizeOrderCode(orderMatch[0]) : null,
-      notes: clean(cell(row, 'comments')).slice(0, 2000),
+      notes,
       specification: cleanSpecification(cell(row, 'specification')),
-    });
+    };
+    if (withShipPlan) line.shipPlan = linePlan(clean(cell(row, 'shipDate')), notes, quantity, (message) => warnings.push({ row: rowNumber, message }));
+    lines.push(line);
   }
   return lines;
 }
@@ -292,7 +344,7 @@ export function parseOrderDocument(sheets: readonly SheetRows[], fileName: strin
     const header = findHeader(sheet.rows);
     if (!header) continue;
     const warnings: DocumentNote[] = [];
-    const lines = readLines(sheet.rows, header, warnings);
+    const lines = readLines(sheet.rows, header, warnings, true);
     if (lines.length === 0) continue;
     const top = sheet.rows.slice(0, header.end);
     const codeText = fieldValue(top, /order\s*(no|n[º°o]|number)\b\.?/i);

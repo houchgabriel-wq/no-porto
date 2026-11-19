@@ -107,22 +107,35 @@ export function shipPlanText(plan: readonly ShipParcel[]): string {
 /** Um embarque escrito: o mês e, depois de dois pontos, a quantidade ("dez/2026: 20.000"). */
 const PARCEL = /^\s*(.+?)\s*(?::\s*([\d.]+)\s*(?:ex\.?)?)?\s*$/i;
 
+/** Nome do mês em português ou inglês (as POs vão em inglês): as três primeiras letras bastam. */
+const MONTH_KEYS: Record<string, number> = {
+  jan: 1, fev: 2, feb: 2, mar: 3, abr: 4, apr: 4, mai: 5, may: 5, jun: 6, jul: 7,
+  ago: 8, aug: 8, set: 9, sep: 9, out: 10, oct: 10, nov: 11, dez: 12, dec: 12,
+};
+
+function monthNumber(name: string): number | null {
+  const key = name.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().slice(0, 3);
+  return MONTH_KEYS[key] ?? null;
+}
+
 /**
- * O mês (AAAA-MM) escrito como "dez/2026", "12/2026" ou "2026-12". Também como dia ("01/12/2026" ou
- * "2026-12-01"), porque a planilha transforma em data o "dez/2026" digitado; o dia não conta.
+ * O mês (AAAA-MM) de uma data escrita de vários jeitos: "dez/2026", "12/2026", "2026-12", e também como
+ * dia ("16/12/2026", "2026-12-16"), porque a planilha transforma em data o "dez/2026" digitado, e como
+ * nas POs em inglês ("16-Dec-2026", "Dec 2026", "Dec 16, 2026"). O dia não conta. null quando não é data.
  */
-function readMonth(text: string): string | null {
-  let m = /^([a-zç]{3})\/(\d{4})$/i.exec(text);
-  if (m) {
-    const index = MONTH_NAMES.indexOf(m[1]!.toLowerCase() as (typeof MONTH_NAMES)[number]);
-    return index < 0 ? null : `${m[2]}-${String(index + 1).padStart(2, '0')}`;
-  }
-  let month: string | null = null;
-  if ((m = /^(\d{1,2})\/(\d{4})$/.exec(text))) month = `${m[2]}-${m[1]!.padStart(2, '0')}`;
-  else if ((m = /^(\d{4})-(\d{2})$/.exec(text))) month = `${m[1]}-${m[2]}`;
-  else if ((m = /^\d{1,2}\/(\d{1,2})\/(\d{4})$/.exec(text))) month = `${m[2]}-${m[1]!.padStart(2, '0')}`;
-  else if ((m = /^(\d{4})-(\d{2})-\d{2}$/.exec(text))) month = `${m[1]}-${m[2]}`;
-  return month && isMonth(month) ? month : null;
+export function readMonthText(text: string): string | null {
+  const t = text.trim();
+  const month = (year: string, n: number | null) => {
+    const m = n === null ? '' : `${year}-${String(n).padStart(2, '0')}`;
+    return isMonth(m) ? m : null;
+  };
+  let m = /^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/.exec(t);
+  if (m) return month(m[1]!, Number(m[2]));
+  m = /^(?:\d{1,2}[/.-])?(\d{1,2})[/.-](\d{4})$/.exec(t);
+  if (m) return month(m[2]!, Number(m[1]));
+  m = /^(?:\d{1,2}[\s/.-]+)?([a-zç]{3,9})\.?[\s/.,-]+(?:de\s+)?(?:\d{1,2},?\s+)?(\d{4})$/i.exec(t);
+  if (m) return month(m[2]!, monthNumber(m[1]!));
+  return null;
 }
 
 /**
@@ -138,7 +151,7 @@ export function readShipPlanText(text: string, itemQuantity: number): { plan: Sh
   const plan: ShipPlan = [];
   for (const part of parts) {
     const m = PARCEL.exec(part);
-    const month = m ? readMonth(m[1]!) : null;
+    const month = m ? readMonthText(m[1]!) : null;
     if (!m || !month) return { error: `"${part}" não é um embarque. Escreva como "dez/2026: 20.000; fev/2027: 20.000".` };
     let quantity: number;
     if (m[2]) quantity = Number(m[2].replace(/\./g, ''));
