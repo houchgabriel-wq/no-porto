@@ -1,6 +1,6 @@
-// Painel (SPEC.md, seção 5): em produção, no mar e a pagar em destaque; próximas chegadas (com os
-// atrasos), a produção por fornecedor e as POs maiores. O leitor vê exemplares e não vê o que falta
-// pagar.
+// Painel (SPEC.md, seção 5): em produção, no mar e a pagar em destaque; logo abaixo, o terminal de
+// consulta de produtos; próximas chegadas (com os atrasos), a produção por fornecedor e as POs maiores.
+// O leitor vê exemplares e não vê o que falta pagar.
 
 import { useMemo } from 'react';
 import { NO_SUPPLIER, totals, totalsByOrder, totalsBySupplier } from '../core/items';
@@ -10,6 +10,7 @@ import type { Amount } from '../core/suppliers';
 import type { ProductionData } from './api';
 import { supplierHue, hueStyle } from './components';
 import { Icon } from './icons';
+import { LookupTerminal } from './Lookup';
 import { headline, itemsCount } from './Production';
 
 interface Props {
@@ -17,11 +18,13 @@ interface Props {
   onSupplier: (id: string) => void;
   onOrder: (id: string) => void;
   onShipment: (unitKey: string) => void;
+  /** Abre a ficha do produto (o terminal de consulta). */
+  onProduct: (productId: string) => void;
   /** Recebido no ano corrente (do resumo por fornecedor); null enquanto carrega. */
   received: { year: string; amount: Amount } | null;
 }
 
-export function Dashboard({ data, onSupplier, onOrder, onShipment, received }: Props) {
+export function Dashboard({ data, onSupplier, onOrder, onShipment, onProduct, received }: Props) {
   const { seeValues } = data;
   const production = useMemo(() => data.items.filter((i) => i.status === 'producao'), [data.items]);
   const inProduction = useMemo(() => totals(production, seeValues), [production, seeValues]);
@@ -98,6 +101,8 @@ export function Dashboard({ data, onSupplier, onOrder, onShipment, received }: P
           </p>
         )}
       </section>
+
+      <LookupTerminal today={data.today} onProduct={onProduct} />
 
       <div className="painel-grade">
         <section className="bloco">

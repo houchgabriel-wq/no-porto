@@ -14,6 +14,7 @@ import type { Role } from '../core/roles';
 import type { BookingRequest, ContainerType, NewBookingLine } from '../core/bookings';
 import type { ShipPlan } from '../core/shipPlan';
 import type { SheetUpdate } from '../core/updateSheet';
+import type { ProductSummary } from '../core/productLookup';
 
 export interface Me {
   id: string;
@@ -171,6 +172,8 @@ export const api = {
   importShipments: (items: ImportedShipmentItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/shipments', { items }),
   sales: () => request<{ today: string; rows: SalesArrival[] }>('GET', '/api/sales'),
   history: () => request<{ items: Item[]; invoices: InvoiceInfo[]; suppliers: Supplier[]; seeValues: boolean }>('GET', '/api/history'),
+  /** Terminal de consulta do painel: o resumo de cada produto (só quantidades). */
+  lookup: () => request<{ products: ProductSummary[] }>('GET', '/api/lookup'),
   product: (id: string) =>
     request<{
       product: { id: string; isbn: string | null; title: string };
