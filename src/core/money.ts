@@ -12,13 +12,18 @@ export function isValidUnitPrice(micros: number): boolean {
   return Number.isSafeInteger(micros) && micros >= 0 && micros % MICROS_PER_STEP === 0;
 }
 
+/** O texto do número sem o "US$" (ou "$", "USD") do começo e sem espaços. */
+function numberText(text: string): string {
+  return text.trim().replace(/^US\$|^\$|^USD/i, '').replace(/\s/g, '');
+}
+
 /**
  * Lê um número escrito à mão ou vindo da planilha ("0.575", "0,575", "1.234,56", "1,234.56", "US$ 2.80")
  * e devolve o valor multiplicado por 10^decimals, sem passar por ponto flutuante. Devolve null quando o
  * texto não é um número, é negativo ou tem mais casas do que o permitido.
  */
 export function parseScaled(text: string, decimals: number, opts: { round?: boolean } = {}): number | null {
-  let t = text.trim().replace(/^US\$|^\$|^USD/i, '').replace(/\s/g, '');
+  const t = numberText(text);
   if (!t || !/^[\d.,]+$/.test(t)) return null;
   const lastDot = t.lastIndexOf('.');
   const lastComma = t.lastIndexOf(',');
@@ -76,9 +81,26 @@ export function roundUnitPrice(micros: number): number {
   return Math.round(micros / MICROS_PER_STEP) * MICROS_PER_STEP;
 }
 
-/** Valor em dólar → centavos. */
+/** Valor em dólar → centavos, pela leitura comum (a das planilhas): "12.300" é US$ 12,30. */
 export function parseCents(text: string): number | null {
   return parseScaled(text, 2);
+}
+
+/**
+ * Valor em dólar digitado à mão (pagamento da invoice, valor do container) → centavos; null se não for
+ * um valor. Dinheiro não tem três casas decimais: ponto ou vírgula seguidos de exatamente três dígitos
+ * separam os milhares, e "12.300" ou "12,300" é US$ 12.300,00 (a leitura comum daria US$ 12,30). O resto
+ * segue parseCents: "12.300,50", "12,300.50", "2,85", "0,5", "US$ 1.234,56". Um primeiro grupo zero não
+ * é de milhar: "0,500" é US$ 0,50, como se lê. As planilhas têm regras próprias e não passam por aqui.
+ */
+export function parseMoneyCents(text: string): number | null {
+  const t = numberText(text);
+  const onlyThousands = /^\d{1,3}(\.\d{3})+$/.test(t) || /^\d{1,3}(,\d{3})+$/.test(t);
+  if (onlyThousands && !/^0+[.,]/.test(t)) {
+    const cents = Number(t.replace(/[.,]/g, '')) * 100;
+    return Number.isSafeInteger(cents) ? cents : null;
+  }
+  return parseCents(text);
 }
 
 /** Taxa de câmbio (reais por dólar) → inteiro com quatro casas. */
