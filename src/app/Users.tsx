@@ -13,6 +13,7 @@ const ROLE_HINTS: Record<Role, string> = {
   leitor: 'Vê tudo, sem preços e valores, e não altera nada',
   embarques: 'Vê os produtos embarcados e o histórico, sem preços e valores',
   vendas: 'Vê só a lista dos produtos a caminho, com a previsão de chegada',
+  agente: 'De fora da editora: cadastra as solicitações de embarque e vê só as próprias',
 };
 
 const ROLE_ICONS: Record<Role, IconName> = {
@@ -22,6 +23,7 @@ const ROLE_ICONS: Record<Role, IconName> = {
   leitor: 'olho',
   embarques: 'navio',
   vendas: 'estrela',
+  agente: 'container',
 };
 
 function message(e: unknown): string {
