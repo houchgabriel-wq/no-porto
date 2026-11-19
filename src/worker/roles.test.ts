@@ -36,6 +36,7 @@ describe('perfil Consulta', () => {
     const tries: [string, string, object][] = [
       ['POST', '/api/items', line({})],
       ['PATCH', `/api/items/${d.items[0].id}`, { quantity: 5 }],
+      ['PATCH', '/api/items', { items: [{ id: d.items[0].id, row: 2, notes: 'x', marks: { notes: '000000' } }] }],
       ['POST', '/api/orders', { code: 'PO-099', supplier: 'Sara', items: [line({})] }],
       ['POST', '/api/arrivals', { invoiceIds: [d.invoices[0].id], arrivedAt: '2026-11-16' }],
       ['POST', `/api/invoices/${d.invoices[0].id}/payments`, { paidAt: null, amountCents: 1, exchangeRateE4: null, notes: '' }],

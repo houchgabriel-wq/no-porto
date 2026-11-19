@@ -129,6 +129,7 @@ describe('o agente pede', () => {
     const tries: [string, string, object][] = [
       ['POST', '/api/items', { description: 'X', isbn: null, supplier: 'Claire', orderCode: null, quantity: 1, piecesPerCarton: null, unitPriceMicros: null, notes: '' }],
       ['PATCH', `/api/items/${admin.items[0].id}`, { quantity: 5 }],
+      ['PATCH', '/api/items', { items: [{ id: admin.items[0].id, row: 2, notes: 'x', marks: { notes: '000000' } }] }],
       ['POST', '/api/orders', { code: 'PO-099', supplier: 'Sara', items: [] }],
       ['POST', '/api/ship', { lines: [{ itemId: admin.items[0].id, quantity: 1 }], newInvoice: { number: 'X', ref: '', bill: null, eta: null } }],
       ['PATCH', `/api/suppliers/${claire}`, { notes: 'x' }],
