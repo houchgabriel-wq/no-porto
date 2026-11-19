@@ -1181,3 +1181,50 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
 .espec-ultima .rotulo { margin: 0 0 4px; display: block; }
 .espec-ultima p, .espec-produto p { margin: 6px 0 0; white-space: pre-wrap; font-size: 13.5px; line-height: 1.45; color: var(--tinta); overflow-wrap: anywhere; }
 .espec-po { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; }
+
+/* ---------- Celular (revisão de 19/11/2026): a página rola inteira, sem barra presa ---------- */
+@media (max-width: 600px) {
+  /* A barra de cima rola junto com a página: presa, ela tomava quase um quinto da tela. */
+  .topo { position: static; padding-block: 10px 8px; gap: 10px; }
+  .marca-selo { width: 30px; height: 30px; }
+  .marca h1 { font-size: 18px; }
+  /* As cinco abas cabem numa linha, sem rolar de lado: ícone em cima, nome embaixo. */
+  .abas { overflow: visible; padding: 3px; gap: 2px; }
+  .abas .aba { flex: 1 1 auto; min-width: 0; flex-direction: column; justify-content: center; gap: 3px; padding: 6px 2px; font-size: 11.5px; line-height: 1.1; min-height: 50px; text-align: center; }
+  .abas .aba .ic { display: block; width: 18px; height: 18px; }
+
+  /* Cartões de resumo mais baixos: a lista aparece antes. */
+  .forn-total, .emb-total { padding: 12px 14px; border-radius: 16px; }
+  .forn-total b, .emb-total b { font-size: 24px; }
+  .forn-lista { gap: 8px; }
+  .forn { padding: 9px 11px; gap: 3px; border-radius: 12px; }
+  .forn b { font-size: 16px; }
+  .emb-faixa { gap: 8px; }
+  .emb-stat { padding: 10px 12px; gap: 10px; }
+  .emb-stat b { font-size: 18px; }
+  .hist-anos { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .hist-ano { padding: 9px 11px; gap: 3px; border-radius: 12px; }
+  .hist-ano b { font-size: 16px; }
+  .heroi { padding: 16px; gap: 14px; border-radius: 16px; }
+  .heroi-valor { font-size: 26px; }
+  .filtros { padding-block: 4px 12px; gap: 8px; }
+
+  /* Histórico e Fornecedores: cada linha vira um cartão (o produto ou o fornecedor em cima). */
+  .tabela-hist.tabela-empilha, .tabela-forn.tabela-empilha { min-width: 0; }
+  .tabela-hist.tabela-empilha td.t-produto { order: -1; grid-column: 1 / -1; }
+  .tabela-hist.tabela-empilha td:first-child { grid-column: auto; }
+  .tabela-empilha td.nowrap { white-space: normal; }
+  .tabela-forn.tabela-empilha td .t-isbn { display: block; }
+}
+@media (max-width: 600px) {
+  /* Nome do produto longo quebra a linha no cartão, em vez de sair pela direita. */
+  .tabela-empilha .t-produto, .tabela-empilha .abrir-item { white-space: normal; overflow-wrap: anywhere; text-align: left; }
+}
+@media (max-width: 600px) {
+  /* Painel: os números em destaque em duas colunas, em vez de quatro blocos altos empilhados. */
+  .heroi-tres { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 14px; }
+  .heroi-bloco + .heroi-bloco { border-top: 0; padding-top: 0; }
+  .heroi-bloco .heroi-rot { font-size: 12.5px; }
+  .heroi-valor { font-size: clamp(18px, 5.6vw, 24px); }
+  .heroi-sub { font-size: 12px; }
+}

@@ -48,7 +48,7 @@ export function SuppliersView({ data, year, onOpen, actions }: Props) {
         <div className="filtros-acoes">{actions}</div>
       </div>
       <div className="tabela-caixa">
-        <table className="tabela-forn">
+        <table className="tabela-forn tabela-empilha">
           <thead>
             <tr>
               <th>Fornecedor</th>
@@ -70,12 +70,12 @@ export function SuppliersView({ data, year, onOpen, actions }: Props) {
                   {s.notes && <span className="t-isbn">{s.notes}</span>}
                 </td>
                 {[s.production, s.atSea, inYear(s), s.delivered].map((a, i) => (
-                  <td key={i} className="num">
+                  <td key={i} className="num" data-rot={['Em produção', 'No mar', `Recebido em ${year}`, 'Recebido desde 2023'][i]}>
                     <b className={a.items ? undefined : 'mudo'}>{amount(a)}</b>
                     <span className="t-isbn">{sub(a, seeValues)}</span>
                   </td>
                 ))}
-                <td className="nowrap">{s.lastArrival ? formatDay(s.lastArrival, true) : <span className="mudo">—</span>}</td>
+                <td className="nowrap" data-rot="Última chegada">{s.lastArrival ? formatDay(s.lastArrival, true) : <span className="mudo">—</span>}</td>
               </tr>
             ))}
           </tbody>

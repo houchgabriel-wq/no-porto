@@ -142,7 +142,7 @@ export function HistoryView({ history, suppliers, onProduct, showYears, onExport
       ) : (
         <>
           <div className="tabela-caixa" tabIndex={onProduct ? undefined : 0} role={onProduct ? undefined : 'region'} aria-label={onProduct ? undefined : 'Itens recebidos'}>
-            <table className="tabela-hist">
+            <table className="tabela-hist tabela-empilha">
               <thead>
                 <tr>
                   <th>Chegada</th>
@@ -161,7 +161,7 @@ export function HistoryView({ history, suppliers, onProduct, showYears, onExport
               <tbody>
                 {shown.slice(0, shownCount).map(({ item, invoice, arrivedAt }) => (
                   <tr key={item.id}>
-                    <td className="nowrap" title={invoice?.notes || undefined}>
+                    <td className="nowrap" title={invoice?.notes || undefined} data-rot="Chegada">
                       {arrivedAt ? formatDay(arrivedAt, true) : <span className="mudo">Sem data</span>}
                     </td>
                     <td className="t-produto">
@@ -174,19 +174,19 @@ export function HistoryView({ history, suppliers, onProduct, showYears, onExport
                       )}
                       <span className="t-isbn">{item.isbn ?? 'Sem ISBN'}</span>
                     </td>
-                    <td className="nowrap">
+                    <td className="nowrap" data-rot="Fornecedor">
                       <span className="forn-ponto h" style={hueStyle(item.supplierId ? supplierHue(item.supplierId) : 0)} aria-hidden="true" />
                       {item.supplierId ? (names.get(item.supplierId) ?? NO_SUPPLIER) : NO_SUPPLIER}
                     </td>
-                    <td>
+                    <td data-rot="Invoice">
                       {invoice?.number ?? '—'}
                       {invoice?.billNumber && <span className="t-isbn">BL {invoice.billNumber}</span>}
                     </td>
-                    <td className="num">{formatQuantity(item.quantity)}</td>
+                    <td className="num" data-rot="Quantidade">{formatQuantity(item.quantity)}</td>
                     {seeValues && (
                       <>
-                        <td className="num">{item.unitPriceMicros == null ? <span className="mudo">Sem preço</span> : formatUnitPrice(item.unitPriceMicros)}</td>
-                        <td className="num forte">{item.totalCents == null ? <span className="mudo">—</span> : formatUsd(item.totalCents)}</td>
+                        <td className="num" data-rot="Preço unitário">{item.unitPriceMicros == null ? <span className="mudo">Sem preço</span> : formatUnitPrice(item.unitPriceMicros)}</td>
+                        <td className="num forte" data-rot="Total">{item.totalCents == null ? <span className="mudo">—</span> : formatUsd(item.totalCents)}</td>
                       </>
                     )}
                   </tr>
