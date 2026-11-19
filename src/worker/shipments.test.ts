@@ -40,17 +40,37 @@ describe('embarcar', () => {
     expect(byDesc('Livro B', 'embarcado')).toMatchObject([{ quantity: 2000, unitPriceMicros: 500_000, purchaseOrderId: byDesc('Livro B', 'producao')[0].purchaseOrderId }]);
   });
 
-  it('embarcando em parte, a parte embarcada leva a aprovação do arquivo e a programação de envio', async () => {
-    const a = await create({ description: 'Livro A', quantity: 5000, fileApprovedAt: '2026-10-02', shipPlannedAt: '2026-11-10' });
-    await app.call('POST', '/api/ship', { cookie: who.editor.cookie, body: { lines: [{ itemId: a.id, quantity: 2000 }], newInvoice: NEW_INVOICE } });
-    const d = await data();
-    const parts = d.items.filter((i: { description: string }) => i.description === 'Livro A').map((i: { status: string; quantity: number; fileApprovedAt: string | null; shipPlannedAt: string | null }) => [i.status, i.quantity, i.fileApprovedAt, i.shipPlannedAt]);
-    expect(parts).toEqual(
-      expect.arrayContaining([
-        ['producao', 3000, '2026-10-02', '2026-11-10'],
-        ['embarcado', 2000, '2026-10-02', '2026-11-10'],
-      ]),
-    );
+  it('embarcando em parte, sai o que estava programado para antes; desfeito o embarque, a programação volta', async () => {
+    const shipPlan = [
+      { month: '2026-12', quantity: 20_000 },
+      { month: '2027-02', quantity: 20_000 },
+      { month: '2027-04', quantity: 20_000 },
+    ];
+    const a = await create({ description: 'Livro A', quantity: 60_000, fileApprovedAt: '2026-10-02', shipPlan });
+    const res = await app.call('POST', '/api/ship', { cookie: who.editor.cookie, body: { lines: [{ itemId: a.id, quantity: 25_000 }], newInvoice: NEW_INVOICE } });
+    expect(res.status).toBe(201);
+    let d = await data();
+    const part = (status: string) => d.items.find((i: { description: string; status: string }) => i.description === 'Livro A' && i.status === status);
+    expect(part('producao')).toMatchObject({
+      quantity: 35_000,
+      fileApprovedAt: '2026-10-02',
+      shipPlan: [
+        { month: '2027-02', quantity: 15_000 },
+        { month: '2027-04', quantity: 20_000 },
+      ],
+    });
+    expect(part('embarcado')).toMatchObject({
+      quantity: 25_000,
+      fileApprovedAt: '2026-10-02',
+      shipPlan: [
+        { month: '2026-12', quantity: 20_000 },
+        { month: '2027-02', quantity: 5_000 },
+      ],
+    });
+    // Excluir o embarque junta a parte embarcada ao saldo, com a programação de antes.
+    expect((await app.call('DELETE', `/api/invoices/${res.data.invoiceId}`, { cookie: who.admin.cookie })).status).toBe(200);
+    d = await data();
+    expect(d.items.filter((i: { description: string }) => i.description === 'Livro A')).toMatchObject([{ status: 'producao', quantity: 60_000, shipPlan }]);
   });
 
   it('embarca numa invoice que já existe, do mesmo fornecedor', async () => {

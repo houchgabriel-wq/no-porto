@@ -159,11 +159,11 @@ describe('ordenação da tabela', () => {
     expect(sorted).toEqual(['C', 'C', 'P', 'P']);
   });
 
-  it('pela programação de envio e pela aprovação do arquivo, com os sem data no fim nos dois sentidos', () => {
+  it('pela programação de envio (o primeiro embarque) e pela aprovação do arquivo, com os sem data no fim nos dois sentidos', () => {
     const dated = [
-      item({ id: 'a', description: 'A', shipPlannedAt: '2026-12-20', fileApprovedAt: '2026-10-01' }),
-      item({ id: 'b', description: 'B', shipPlannedAt: null, fileApprovedAt: '2026-09-15' }),
-      item({ id: 'c', description: 'C', shipPlannedAt: '2026-11-30' }),
+      item({ id: 'a', description: 'A', shipPlan: [{ month: '2026-12', quantity: 1 }, { month: '2027-02', quantity: 1 }], fileApprovedAt: '2026-10-01' }),
+      item({ id: 'b', description: 'B', shipPlan: [], fileApprovedAt: '2026-09-15' }),
+      item({ id: 'c', description: 'C', shipPlan: [{ month: '2026-11', quantity: 1 }] }),
     ];
     expect(sortItems(dated, { key: 'shipPlanned', dir: 1 }, orders, suppliers).map((i) => i.id)).toEqual(['c', 'a', 'b']);
     expect(sortItems(dated, { key: 'shipPlanned', dir: -1 }, orders, suppliers).map((i) => i.id)).toEqual(['a', 'c', 'b']);
@@ -172,12 +172,13 @@ describe('ordenação da tabela', () => {
 });
 
 describe('programação de envio', () => {
-  it('destaca a data que já passou enquanto o item está em produção', () => {
-    expect(shipPlanPassed({ status: 'producao', shipPlannedAt: '2026-11-18' }, '2026-11-19')).toBe(true);
-    expect(shipPlanPassed({ status: 'producao', shipPlannedAt: '2026-11-19' }, '2026-11-19')).toBe(false);
-    expect(shipPlanPassed({ status: 'producao', shipPlannedAt: null }, '2026-11-19')).toBe(false);
+  it('destaca o primeiro embarque cujo mês já acabou, enquanto o item está em produção', () => {
+    const plan = (month: string) => [{ month, quantity: 1 }];
+    expect(shipPlanPassed({ status: 'producao', shipPlan: plan('2026-10') }, '2026-11-19')).toBe(true);
+    expect(shipPlanPassed({ status: 'producao', shipPlan: plan('2026-11') }, '2026-11-19')).toBe(false);
+    expect(shipPlanPassed({ status: 'producao', shipPlan: [] }, '2026-11-19')).toBe(false);
     // Embarcado, a programação já foi cumprida.
-    expect(shipPlanPassed({ status: 'embarcado', shipPlannedAt: '2026-11-01' }, '2026-11-19')).toBe(false);
+    expect(shipPlanPassed({ status: 'embarcado', shipPlan: plan('2026-10') }, '2026-11-19')).toBe(false);
   });
 });
 

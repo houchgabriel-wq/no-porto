@@ -9,6 +9,7 @@ import { itemForViewer, normalizeOrderCode, orderOwners, orderSupplierProblem, s
 import { can } from '../core/roles';
 import { onlyShipped, salesArrivals } from '../core/shippedItems';
 import { cleanSpecification, latestSpecification, SPECIFICATION_MAX } from '../core/specification';
+import { MAX_PARCELS, readStoredPlan, shipPlanProblem, shipPlanText, sortPlan, type ShipPlan } from '../core/shipPlan';
 import { sameProduct } from '../core/allocation';
 import { parseDate, spDate, type Bill, type Invoice, type Payment } from '../core/shipments';
 import type { Session } from './auth';
@@ -94,7 +95,16 @@ export const itemDay = (label: string) =>
       return t;
     });
 const fileApprovedAt = itemDay('Aprovação do arquivo');
-const shipPlannedAt = itemDay('Programação de envio');
+/** Programação de envio: até três embarques, com o mês (AAAA-MM) e a quantidade. */
+export const shipPlanSchema = z
+  .array(
+    z.object({
+      month: z.string({ error: 'Escolha o mês de cada embarque.' }).regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Escolha o mês de cada embarque.'),
+      quantity: z.number({ error: 'Informe a quantidade de cada embarque.' }).int('A quantidade do embarque é um número inteiro.').positive('Informe a quantidade de cada embarque.').max(100_000_000, 'Quantidade grande demais.'),
+    }),
+    { error: 'Programação de envio inválida.' },
+  )
+  .max(MAX_PARCELS, `No máximo ${MAX_PARCELS} embarques na programação de envio.`);
 
 const itemFields = {
   description,
@@ -107,7 +117,7 @@ const itemFields = {
   notes: notes.default(''),
   specification: specification.default(''),
   fileApprovedAt: fileApprovedAt.default(null),
-  shipPlannedAt: shipPlannedAt.default(null),
+  shipPlan: shipPlanSchema.default([]),
 };
 
 const createItemBody = z.object(itemFields);
@@ -123,7 +133,7 @@ const updateItemBody = z
     notes,
     specification,
     fileApprovedAt,
-    shipPlannedAt,
+    shipPlan: shipPlanSchema,
   })
   .partial()
   .refine((b) => Object.keys(b).length > 0, 'Nada para alterar.');
@@ -180,13 +190,13 @@ export interface ItemRow {
   unit_price_micros: number | null;
   notes: string;
   file_approved_at: string | null;
-  ship_planned_at: string | null;
+  ship_plan: string;
   created_at: string;
   updated_at: string;
 }
 
 export const ITEM_SELECT = `SELECT i.id, i.product_id, p.isbn, i.description, i.supplier_id, i.purchase_order_id, i.invoice_id, i.status, i.quantity,
-       i.pieces_per_carton, i.unit_price_micros, i.notes, i.file_approved_at, i.ship_planned_at, i.created_at, i.updated_at
+       i.pieces_per_carton, i.unit_price_micros, i.notes, i.file_approved_at, i.ship_plan, i.created_at, i.updated_at
   FROM order_items i JOIN products p ON p.id = i.product_id`;
 
 export function toItem(row: ItemRow): Item {
@@ -204,7 +214,7 @@ export function toItem(row: ItemRow): Item {
     unitPriceMicros: row.unit_price_micros,
     notes: row.notes,
     fileApprovedAt: row.file_approved_at,
-    shipPlannedAt: row.ship_planned_at,
+    shipPlan: readStoredPlan(row.ship_plan),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -319,7 +329,7 @@ export async function loadRefs(env: Env, at: string) {
 export type ItemFieldsInput = Pick<ItemInput, 'description' | 'quantity' | 'piecesPerCarton' | 'unitPriceMicros' | 'notes'> & {
   specification?: string;
   fileApprovedAt?: string | null;
-  shipPlannedAt?: string | null;
+  shipPlan?: ShipPlan;
 };
 
 export function insertItem(
@@ -332,7 +342,7 @@ export function insertItem(
 ) {
   return env.DB.prepare(
     `INSERT INTO order_items (id, product_id, description, supplier_id, purchase_order_id, invoice_id, status, quantity, pieces_per_carton,
-                              unit_price_micros, notes, specification, file_approved_at, ship_planned_at, created_at, created_by, updated_at, updated_by)
+                              unit_price_micros, notes, specification, file_approved_at, ship_plan, created_at, created_by, updated_at, updated_by)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     id,
@@ -348,7 +358,7 @@ export function insertItem(
     input.notes,
     input.specification ?? '',
     input.fileApprovedAt ?? null,
-    input.shipPlannedAt ?? null,
+    JSON.stringify(sortPlan(input.shipPlan ?? [])),
     at,
     userId,
     at,
@@ -451,6 +461,8 @@ async function getSales(env: Env, session: Session, now: Date): Promise<Response
 async function createItem(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
   checkMutation(request);
   const input = await readBody(request, createItemBody);
+  const planProblem = shipPlanProblem(input.shipPlan, input.quantity);
+  if (planProblem) return error(400, planProblem);
   await checkOrderSupplier(env, input.orderCode, input.supplier, '');
   const at = now.toISOString();
   const refs = await loadRefs(env, at);
@@ -476,7 +488,7 @@ const TRACKED: Record<string, string> = {
   notes: 'Observações',
   specification: 'Especificação',
   fileApprovedAt: 'Aprovação do arquivo',
-  shipPlannedAt: 'Programação de envio',
+  shipPlan: 'Programação de envio',
 };
 
 async function updateItem(request: Request, env: Env, session: Session, id: string, now: Date): Promise<Response> {
@@ -503,18 +515,25 @@ async function updateItem(request: Request, env: Env, session: Session, id: stri
     notes: before.notes,
     specification: (spec!.results[0] as { specification: string } | undefined)?.specification ?? '',
     fileApprovedAt: before.fileApprovedAt ?? null,
-    shipPlannedAt: before.shipPlannedAt ?? null,
+    shipPlan: before.shipPlan ?? [],
   };
-  const next = { ...old, ...body };
+  const next = { ...old, ...body, shipPlan: sortPlan(body.shipPlan ?? old.shipPlan) };
+  // A programação não pode somar mais que a quantidade (que também pode ter mudado agora).
+  if (body.shipPlan !== undefined || body.quantity !== undefined) {
+    const problem = shipPlanProblem(next.shipPlan, next.quantity);
+    if (problem) return error(400, problem);
+  }
+  // A programação entra no histórico como texto ("dez/2026: 20.000; fev/2027: 20.000").
+  const value = (from: typeof old, k: string) => (k === 'shipPlan' ? shipPlanText(from.shipPlan) : from[k as keyof typeof old]);
   const changes = Object.keys(TRACKED)
     .filter((k) => {
-      const a = old[k as keyof typeof old];
-      const b = next[k as keyof typeof next];
+      const a = value(old, k);
+      const b = value(next, k);
       // "sara" e "Sara" são o mesmo fornecedor.
       if (k === 'supplier') return (a ? searchKey(String(a)) : null) !== (b ? searchKey(String(b)) : null);
       return a !== b;
     })
-    .map((k) => ({ field: TRACKED[k], from: old[k as keyof typeof old], to: next[k as keyof typeof next] }));
+    .map((k) => ({ field: TRACKED[k], from: value(old, k), to: value(next, k) }));
   if (changes.length === 0) return json({ item: itemForViewer(before, true) });
   // Só confere a regra da PO quando a PO ou o fornecedor mudam; assim, um item antigo de uma PO com
   // dois fornecedores ainda pode ter outros campos corrigidos.
@@ -533,7 +552,7 @@ async function updateItem(request: Request, env: Env, session: Session, id: stri
     ...refs.statements,
     env.DB.prepare(
       `UPDATE order_items SET product_id = ?, description = ?, supplier_id = ?, purchase_order_id = ?, quantity = ?, pieces_per_carton = ?,
-              unit_price_micros = ?, notes = ?, specification = ?, file_approved_at = ?, ship_planned_at = ?, updated_at = ?, updated_by = ?
+              unit_price_micros = ?, notes = ?, specification = ?, file_approved_at = ?, ship_plan = ?, updated_at = ?, updated_by = ?
         WHERE id = ?`,
     ).bind(
       productId,
@@ -546,7 +565,7 @@ async function updateItem(request: Request, env: Env, session: Session, id: stri
       next.notes,
       next.specification,
       next.fileApprovedAt,
-      next.shipPlannedAt,
+      JSON.stringify(next.shipPlan),
       at,
       session.user.id,
       id,
@@ -571,6 +590,8 @@ async function deleteItem(request: Request, env: Env, session: Session, id: stri
 async function importProduction(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
   checkMutation(request);
   const body = await readBody(request, importBody);
+  const badPlan = body.items.map((i) => ({ row: i.row, problem: shipPlanProblem(i.shipPlan, i.quantity) })).find((p) => p.problem);
+  if (badPlan) return error(400, `Linha ${badPlan.row}: ${badPlan.problem}`);
   const at = now.toISOString();
   const refs = await loadRefs(env, at);
 

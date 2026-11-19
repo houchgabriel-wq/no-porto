@@ -90,7 +90,7 @@ describe('cópia completa', () => {
 
 describe('cargas com as datas do item (cópia completa)', () => {
   it('Produção, Embarques e Entregues gravam a aprovação do arquivo e a programação de envio', async () => {
-    const dates = { fileApprovedAt: '2026-10-02', shipPlannedAt: '2026-12-05' };
+    const dates = { fileApprovedAt: '2026-10-02', shipPlan: [{ month: '2026-12', quantity: 10 }] };
     expect((await app.call('POST', '/api/import/production', { cookie: who.admin.cookie, body: { items: [{ ...item({ description: 'Na produção' }), row: 2, ...dates }] } })).status).toBe(201);
     const ship = { row: 2, description: 'No mar', isbn: null, supplier: 'Sara', quantity: 10, piecesPerCarton: null, unitPriceMicros: 1_000, notes: '', invoice: 'S-1', ref: '', bill: null, eta: '2026-12-20', paid: false };
     expect((await app.call('POST', '/api/import/shipments', { cookie: who.admin.cookie, body: { items: [{ ...ship, ...dates }] } })).status).toBe(201);
@@ -100,7 +100,11 @@ describe('cargas com as datas do item (cópia completa)', () => {
     expect(got('Na produção')).toMatchObject(dates);
     expect(got('No mar')).toMatchObject(dates);
     const copy = (await app.call('GET', '/api/export', { cookie: who.admin.cookie })).data;
-    expect(copy.items.find((i: { description: string }) => i.description === 'Entregue')).toMatchObject({ fileApprovedAt: '2025-03-01', shipPlannedAt: null });
+    expect(copy.items.find((i: { description: string }) => i.description === 'Entregue')).toMatchObject({ fileApprovedAt: '2025-03-01', shipPlan: [] });
+    // Programação maior que a quantidade não entra pela carga.
+    const bad = await app.call('POST', '/api/import/production', { cookie: who.admin.cookie, body: { items: [{ ...item({ description: 'Outro' }), row: 7, shipPlan: [{ month: '2026-12', quantity: 5_000 }] }] } });
+    expect(bad.status).toBe(400);
+    expect(bad.data.error).toBe('Linha 7: A programação de envio soma 5.000 exemplares, mais que os 1.000 do item.');
   });
 });
 

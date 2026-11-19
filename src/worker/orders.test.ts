@@ -100,28 +100,41 @@ describe('cadastro de itens', () => {
 
   it('guarda a aprovação do arquivo e a programação de envio, com o histórico das mudanças', async () => {
     const { item } = (await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: { ...BASE, fileApprovedAt: '2026-10-02' } })).data;
-    expect(item).toMatchObject({ fileApprovedAt: '2026-10-02', shipPlannedAt: null });
-    const res = await app.call('PATCH', `/api/items/${item.id}`, { cookie: who.editor.cookie, body: { shipPlannedAt: '2026-12-05', fileApprovedAt: null } });
+    expect(item).toMatchObject({ fileApprovedAt: '2026-10-02', shipPlan: [] });
+    // Fora de ordem, a programação é gravada do mês mais próximo para o mais distante.
+    const shipPlan = [
+      { month: '2027-02', quantity: 3_000 },
+      { month: '2026-12', quantity: 3_000 },
+    ];
+    const res = await app.call('PATCH', `/api/items/${item.id}`, { cookie: who.editor.cookie, body: { shipPlan, fileApprovedAt: null } });
     expect(res.status).toBe(200);
-    expect(res.data.item).toMatchObject({ fileApprovedAt: null, shipPlannedAt: '2026-12-05' });
+    expect(res.data.item).toMatchObject({ fileApprovedAt: null, shipPlan: [shipPlan[1], shipPlan[0]] });
     const events = await app.env.DB.prepare("SELECT detail FROM events WHERE entity_id = ? AND type = 'changed'").bind(item.id).all<{ detail: string }>();
     expect(JSON.parse(events.results[0]!.detail).changes).toEqual([
       { field: 'Aprovação do arquivo', from: '2026-10-02', to: null },
-      { field: 'Programação de envio', from: null, to: '2026-12-05' },
+      { field: 'Programação de envio', from: '', to: 'dez/2026: 3.000; fev/2027: 3.000' },
     ]);
-    // O leitor também vê as datas (não são valores).
+    // O leitor também vê (não são valores).
     const seen = (await production(who.leitor.cookie)).items.find((i: { id: string }) => i.id === item.id);
-    expect(seen).toMatchObject({ fileApprovedAt: null, shipPlannedAt: '2026-12-05' });
+    expect(seen).toMatchObject({ fileApprovedAt: null, shipPlan: [shipPlan[1], shipPlan[0]] });
   });
 
-  it('recusa data que não existe', async () => {
-    const bad = await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: { ...BASE, shipPlannedAt: '2026-02-30' } });
+  it('recusa data que não existe, mês inválido, mais de três embarques e programação maior que o item', async () => {
+    const bad = await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: { ...BASE, fileApprovedAt: '2026-02-30' } });
     expect(bad.status).toBe(400);
-    expect(bad.data.error).toBe('Programação de envio: data inválida.');
-    const { item } = (await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: BASE })).data;
-    const patch = await app.call('PATCH', `/api/items/${item.id}`, { cookie: who.editor.cookie, body: { fileApprovedAt: '05/12/2026' } });
-    expect(patch.status).toBe(400);
-    expect(patch.data.error).toBe('Aprovação do arquivo: data inválida.');
+    expect(bad.data.error).toBe('Aprovação do arquivo: data inválida.');
+    const over = await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: { ...BASE, shipPlan: [{ month: '2026-12', quantity: 7_000 }] } });
+    expect(over.status).toBe(400);
+    expect(over.data.error).toBe('A programação de envio soma 7.000 exemplares, mais que os 6.000 do item.');
+    const { item } = (await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: { ...BASE, shipPlan: [{ month: '2026-12', quantity: 6_000 }] } })).data;
+    const month = await app.call('PATCH', `/api/items/${item.id}`, { cookie: who.editor.cookie, body: { shipPlan: [{ month: '12/2026', quantity: 1 }] } });
+    expect(month.data.error).toBe('Escolha o mês de cada embarque.');
+    const four = ['2026-12', '2027-01', '2027-02', '2027-03'].map((m) => ({ month: m, quantity: 1 }));
+    expect((await app.call('PATCH', `/api/items/${item.id}`, { cookie: who.editor.cookie, body: { shipPlan: four } })).data.error).toBe('No máximo 3 embarques na programação de envio.');
+    // Diminuir a quantidade abaixo do programado também não passa.
+    const fewer = await app.call('PATCH', `/api/items/${item.id}`, { cookie: who.editor.cookie, body: { quantity: 5_000 } });
+    expect(fewer.status).toBe(400);
+    expect(fewer.data.error).toBe('A programação de envio soma 6.000 exemplares, mais que os 5.000 do item.');
   });
 
   it('trocar só a maiúscula do fornecedor não é mudança', async () => {
