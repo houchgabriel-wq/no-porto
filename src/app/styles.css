@@ -856,6 +856,21 @@ th.num button { flex-direction: row-reverse; }
 
 /* Tabela dos itens */
 .tabela-itens { min-width: 860px; }
+/* A da Produção tem as duas colunas de data. */
+.tabela-itens.tabela-producao { min-width: 1040px; }
+/* Colunas de data da Produção (aprovação do arquivo e programação de envio): o título quebra em duas linhas. */
+th.th-data { white-space: normal; min-width: 96px; line-height: 1.25; }
+/* Números (quantidade, preço e total) numa linha só; quem quebra é o nome do produto. Com as duas colunas
+   de data, as células ficam um pouco mais justas, para a tabela caber em telas de notebook. */
+.tabela-itens td.num { white-space: nowrap; }
+.tabela-itens th, .tabela-itens td { padding-inline: 10px; }
+/* A regra geral das tabelas (td:nth-child(2) sem quebra) pegava o produto, que aqui é a segunda coluna
+   por causa da marcação: nome comprido alargava a tabela inteira. */
+.tabela-itens td.t-produto { white-space: normal; min-width: 220px; }
+th.th-data button { text-align: left; }
+.envio-passou { display: inline-flex; align-items: center; gap: 4px; }
+.envio-passou .ic { width: 14px; height: 14px; }
+.item-cartao-datas { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 13px; color: var(--tinta-2); }
 .tabela-itens td { vertical-align: top; }
 .t-produto { min-width: 280px; }
 .abrir-item { background: none; border: 0; padding: 0; text-align: left; font-weight: 600; color: var(--tinta); cursor: pointer; overflow-wrap: anywhere; }
