@@ -9,7 +9,7 @@ import { Icon, type IconName } from './icons';
 const ROLE_HINTS: Record<Role, string> = {
   admin: 'Tudo, inclusive usuários, carga de planilha e exclusões',
   editor: 'Cadastra e altera POs, embarques e pagamentos; vê valores',
-  consulta: 'Vê tudo, com preços e valores, mas não altera nada',
+  consulta: 'Vê tudo, com preços e valores, e baixa a cópia completa; não altera nada',
   leitor: 'Vê tudo, sem preços e valores, e não altera nada',
   embarques: 'Vê os produtos embarcados e o histórico, sem preços e valores',
   vendas: 'Vê só a lista dos produtos a caminho, com a previsão de chegada',

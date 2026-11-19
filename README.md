@@ -46,4 +46,4 @@ O endereço próprio é **noporto.editoraonline.com.br**. Como o DNS do domínio
 
 ## Cópia de segurança
 
-No menu do admin, **Baixar cópia completa** gera uma planilha com as abas Produção, Embarques e Entregues, nas mesmas colunas da `status_importações`. Guarde uma cópia de tempos em tempos fora da Cloudflare (no Drive, por exemplo). Se um dia for preciso, ela volta pela **Carga completa da planilha**, no mesmo menu, que pode apagar o que está no app antes de carregar (pede para digitar APAGAR).
+No menu do admin (e de quem tem o perfil Consulta), **Baixar cópia completa** gera uma planilha com as abas Produção, Embarques e Entregues, nas mesmas colunas da `status_importações`. Guarde uma cópia de tempos em tempos fora da Cloudflare (no Drive, por exemplo). Se um dia for preciso, ela volta pela **Carga completa da planilha**, no mesmo menu, que pode apagar o que está no app antes de carregar (pede para digitar APAGAR).

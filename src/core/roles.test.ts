@@ -46,6 +46,13 @@ describe('can', () => {
   });
 });
 
+describe('cópia completa', () => {
+  it('o admin e a Consulta baixam; os outros perfis não', () => {
+    for (const role of ['admin', 'consulta'] as const) expect(can(role, 'full_copy')).toBe(true);
+    for (const role of ['editor', 'leitor', 'embarques', 'vendas', 'agente'] as const) expect(can(role, 'full_copy'), role).toBe(false);
+  });
+});
+
 describe('solicitações de embarque', () => {
   it('o Agente pede containers e não vê mais nada do app', () => {
     expect(can('agente', 'request_bookings')).toBe(true);

@@ -72,14 +72,19 @@ describe('fornecedores', () => {
 });
 
 describe('cópia completa', () => {
-  it('só o admin baixa; traz itens, invoices, BLs, pagamentos, POs e fornecedores', async () => {
+  it('o admin e a Consulta baixam; traz itens, invoices, BLs, pagamentos, POs e fornecedores', async () => {
     await app.call('POST', '/api/items', { cookie: who.editor.cookie, body: item({}) });
-    expect((await app.call('GET', '/api/export', { cookie: who.editor.cookie })).status).toBe(403);
-    expect((await app.call('GET', '/api/export', { cookie: who.leitor.cookie })).status).toBe(403);
-    const res = await app.call('GET', '/api/export', { cookie: who.admin.cookie });
-    expect(res.status).toBe(200);
-    expect(Object.keys(res.data).sort()).toEqual(['bills', 'invoices', 'items', 'orders', 'payments', 'suppliers']);
-    expect(res.data.items[0]).toMatchObject({ unitPriceMicros: 575_000, purchaseOrderId: expect.any(String) });
+    for (const w of [who.editor, who.leitor, who.embarques, who.vendas, who.agente]) {
+      const denied = await app.call('GET', '/api/export', { cookie: w.cookie });
+      expect(denied.status).toBe(403);
+      expect(denied.data.error).toBe('Seu perfil não baixa a cópia completa.');
+    }
+    for (const w of [who.admin, who.consulta]) {
+      const res = await app.call('GET', '/api/export', { cookie: w.cookie });
+      expect(res.status).toBe(200);
+      expect(Object.keys(res.data).sort()).toEqual(['bills', 'invoices', 'items', 'orders', 'payments', 'suppliers']);
+      expect(res.data.items[0]).toMatchObject({ unitPriceMicros: 575_000, purchaseOrderId: expect.any(String) });
+    }
   });
 });
 

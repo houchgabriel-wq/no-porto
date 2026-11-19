@@ -1,5 +1,6 @@
 // Cópia completa (SPEC.md, seção 5): todos os dados para a planilha no formato da status_importações,
-// montada no navegador. Só para o admin, porque leva preços, pagamentos e tudo o que foi excluído não.
+// montada no navegador. Para o admin e o perfil Consulta (pedido do Gabriel em 19/11/2026), que já veem
+// tudo, com preços e pagamentos; os outros perfis não recebem.
 
 import { can } from '../core/roles';
 import type { Session } from './auth';
@@ -34,6 +35,6 @@ async function getExport(env: Env): Promise<Response> {
 
 export async function routeExport(env: Env, session: Session, key: string): Promise<Response | null> {
   if (key !== 'GET /api/export') return null;
-  if (!can(session.user.role, 'import')) return error(403, 'Só o admin baixa a cópia completa.');
+  if (!can(session.user.role, 'full_copy')) return error(403, 'Seu perfil não baixa a cópia completa.');
   return getExport(env);
 }

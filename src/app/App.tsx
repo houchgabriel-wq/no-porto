@@ -785,7 +785,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
               <span className="rot">Novo item</span>
             </button>
           )}
-          <UserMenu user={user} onPassword={() => setChangingPassword(true)} onLogout={onLogout} onBackup={canImport ? () => void downloadFullCopy() : undefined} onFullImport={canImport ? () => setFullImport(true) : undefined} />
+          <UserMenu user={user} onPassword={() => setChangingPassword(true)} onLogout={onLogout} onBackup={can(user.role, 'full_copy') ? () => void downloadFullCopy() : undefined} onFullImport={canImport ? () => setFullImport(true) : undefined} />
         </div>
       </header>
 
