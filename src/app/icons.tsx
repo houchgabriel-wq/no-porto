@@ -39,6 +39,7 @@ const PATHS = {
   container: <><rect x="2.5" y="6.5" width="19" height="11" rx="1.5" /><path d="M6.5 9.5v5M10 9.5v5M13.5 9.5v5M17 9.5v5" /></>,
   relogio: <><circle cx="12" cy="12" r="9" /><path d="M12 7.5V12l3 2" /></>,
   desfazer: <><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-3" /></>,
+  tendencia: <><path d="M3 20h18" /><path d="m4 15 5-5 4 4 7-7" /><path d="M15 7h5v5" /></>,
 } as const;
 
 export type IconName = keyof typeof PATHS;

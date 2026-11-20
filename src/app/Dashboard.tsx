@@ -5,7 +5,9 @@
 import { useMemo } from 'react';
 import { NO_SUPPLIER, totals, totalsByOrder, totalsBySupplier } from '../core/items';
 import { formatQuantity, formatUsdWhole } from '../core/money';
-import { arrivalState, arrivalText, formatDay, shipmentUnits, totalDue } from '../core/shipments';
+import { arrivalState, arrivalText, daysBetween, formatDay, shipmentUnits, totalDue } from '../core/shipments';
+import type { CurveInfo } from '../core/stockCurve';
+import type { ForecastSummary } from '../core/stockForecast';
 import type { Amount } from '../core/suppliers';
 import type { ProductionData } from './api';
 import { supplierHue, hueStyle } from './components';
@@ -22,9 +24,11 @@ interface Props {
   onProduct: (productId: string) => void;
   /** Recebido no ano corrente (do resumo por fornecedor); null enquanto carrega. */
   received: { year: string; amount: Amount } | null;
+  /** O cartão da previsão de estoque: ausente para quem não vê a aba; null enquanto carrega. */
+  stock?: { today: string; curve: CurveInfo | null; summary: ForecastSummary | null } | null;
 }
 
-export function Dashboard({ data, onSupplier, onOrder, onShipment, onProduct, received }: Props) {
+export function Dashboard({ data, onSupplier, onOrder, onShipment, onProduct, received, stock }: Props) {
   const { seeValues } = data;
   const production = useMemo(() => data.items.filter((i) => i.status === 'producao'), [data.items]);
   const inProduction = useMemo(() => totals(production, seeValues), [production, seeValues]);
@@ -150,6 +154,7 @@ export function Dashboard({ data, onSupplier, onOrder, onShipment, onProduct, re
             </ul>
           )}
         </section>
+        {stock !== undefined && <StockCard stock={stock} />}
         <section className="bloco">
           <div className="bloco-topo">
             <h2>Produção por fornecedor</h2>
@@ -197,5 +202,75 @@ export function Dashboard({ data, onSupplier, onOrder, onShipment, onProduct, re
         </section>
       </div>
     </>
+  );
+}
+
+/** A previsão de estoque no painel (pedido do Gabriel em 20/11/2026): o que precisa embarcar e reimprimir. */
+function StockCard({ stock }: { stock: NonNullable<Props['stock']> | null }) {
+  const titles = (n: number) => `${n.toLocaleString('pt-BR')} ${n === 1 ? 'título' : 'títulos'}`;
+  const s = stock?.summary;
+  const age = stock?.curve ? daysBetween(stock.curve.stockDate, stock.today) : 0;
+  return (
+    <section className="bloco prev-painel">
+      <div className="bloco-topo">
+        <h2>Previsão de estoque</h2>
+        <a className="btn-texto" href="#estoque">
+          Ver a previsão
+        </a>
+      </div>
+      {!stock ? (
+        <p className="vazio-lista">Carregando…</p>
+      ) : !stock.curve || !s ? (
+        <p className="vazio-lista">
+          Nenhuma curva ABC carregada. <a href="#estoque">Abrir a previsão de estoque</a>
+        </p>
+      ) : (
+        <>
+          <ul className="lista">
+            <li>
+              <a className={`prev-painel-linha ${s.late > 0 ? 'critico' : s.ship > 0 ? 'alerta' : 'ok'}`} href="#estoque">
+                <span className="prev-painel-ic" aria-hidden="true">
+                  <Icon name={s.ship > 0 ? 'alerta' : 'check'} />
+                </span>
+                <span className="barra-nome">Atenção no embarque</span>
+                <b>{titles(s.ship)}</b>
+                <span className="barra-sub">
+                  {s.shipSoon.toLocaleString('pt-BR')} com prazo em até 30 dias (ou vencido) · {s.late.toLocaleString('pt-BR')} {s.late === 1 ? 'pode' : 'podem'} faltar: a PO fica
+                  pronta depois do prazo
+                </span>
+              </a>
+            </li>
+            <li>
+              <a className={`prev-painel-linha ${s.reprint > 0 ? 'alerta' : 'ok'}`} href="#estoque">
+                <span className="prev-painel-ic" aria-hidden="true">
+                  <Icon name="livro" />
+                </span>
+                <span className="barra-nome">Reimpressão sugerida</span>
+                <b>{titles(s.reprint)}</b>
+                <span className="barra-sub">
+                  {s.reprint3.toLocaleString('pt-BR')} pela média de 3 meses · {s.reprint6.toLocaleString('pt-BR')} pela de 6
+                </span>
+              </a>
+            </li>
+            {s.gaps > 0 && (
+              <li>
+                <a className="prev-painel-linha critico" href="#estoque">
+                  <span className="prev-painel-ic" aria-hidden="true">
+                    <Icon name="navio" />
+                  </span>
+                  <span className="barra-nome">Acabam antes de o embarcado chegar</span>
+                  <b>{titles(s.gaps)}</b>
+                  <span className="barra-sub">o estoque físico não dura até a chegada prevista</span>
+                </a>
+              </li>
+            )}
+          </ul>
+          <p className="dica prev-painel-pe">
+            Curva com o estoque de {formatDay(stock.curve.stockDate, true)}
+            {age > 8 ? ` (há ${age} dias: carregue a desta semana)` : ''}.
+          </p>
+        </>
+      )}
+    </section>
   );
 }

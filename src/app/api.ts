@@ -15,6 +15,8 @@ import type { BookingRequest, ContainerType, NewBookingLine } from '../core/book
 import type { ShipPlan } from '../core/shipPlan';
 import type { SheetUpdate } from '../core/updateSheet';
 import type { ProductSummary } from '../core/productLookup';
+import type { CurveInfo, CurveRow } from '../core/stockCurve';
+import type { ForecastSummary, TitleHolding } from '../core/stockForecast';
 
 export interface Me {
   id: string;
@@ -24,6 +26,14 @@ export interface Me {
   mustChangePassword: boolean;
   /** Aprova as solicitações de embarque (o Gabriel). */
   approvesBookings: boolean;
+}
+
+/** A aba Previsão de estoque: a curva carregada e o que o No Porto tem de cada título (a tela calcula). */
+export interface StockData {
+  today: string;
+  curve: CurveInfo | null;
+  rows: CurveRow[];
+  holdings: TitleHolding[];
 }
 
 export interface UserSummary {
@@ -204,6 +214,12 @@ export const api = {
   /** Atualizar pela planilha: os campos que mudaram em cada item, com a marca do download. */
   updateItemsFromSheet: (items: ({ id: string; row: number; marks: SheetUpdate['marks'] } & SheetUpdate['patch'])[]) =>
     request<{ updated: number; skipped: { row: number; message: string }[] }>('PATCH', '/api/items', { items }),
+  /** Previsão de estoque (admin, editor, Consulta e leitor). */
+  stock: () => request<StockData>('GET', '/api/stock'),
+  /** Os números do cartão do painel. */
+  stockSummary: () => request<{ today: string; curve: CurveInfo | null; summary: ForecastSummary | null }>('GET', '/api/stock/summary'),
+  /** Carrega a curva ABC da semana (admin e editor); substitui a anterior. */
+  loadStockCurve: (body: { stockDate: string; fileName: string; rows: CurveRow[] }) => request<{ stockDate: string; rowCount: number }>('POST', '/api/stock', body),
   bookings: () => request<BookingsData>('GET', '/api/bookings'),
   createBooking: (body: NewBooking) => request<{ request: BookingRequest }>('POST', '/api/bookings', body),
   cancelBooking: (id: string) => request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/cancel`),

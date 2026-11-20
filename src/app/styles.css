@@ -1462,3 +1462,108 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
   .consulta-num { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 10px; }
   .consulta-rot { flex-basis: 100%; }
 }
+
+/* Previsão de estoque (20/11/2026): de quando é a curva, os quatro filtros em cartões, a tabela com as
+   colunas duplas (média de 3 meses em cima, de 6 embaixo), a ficha do título e o cartão do painel. */
+.prev-curva { display: flex; align-items: flex-start; gap: 8px; color: var(--tinta-2); font-size: 13.5px; margin: 0 0 12px; }
+.prev-curva .ic { color: var(--acento); margin-top: 2px; flex: none; }
+.prev-curva.antiga { color: var(--alerta); background: var(--alerta-suave); padding: 9px 13px; border-radius: 12px; font-weight: 600; }
+.prev-curva.antiga .ic { color: inherit; }
+.prev-resumo { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.prev-cartao { --tom: var(--acento); --tom-suave: var(--acento-suave); text-align: left; background: var(--folha); color: var(--tinta); border: 2px solid transparent; border-radius: 16px; padding: 13px 15px; box-shadow: var(--sombra-1); display: flex; flex-direction: column; gap: 4px; cursor: pointer; min-width: 0; }
+.prev-cartao.alerta { --tom: var(--alerta); --tom-suave: var(--alerta-suave); }
+.prev-cartao.critico { --tom: var(--critico); --tom-suave: var(--critico-suave); }
+.prev-cartao.navio { --tom: hsl(200 var(--x-s) var(--x-l)); --tom-suave: hsl(200 var(--t-s) var(--t-l)); }
+.prev-cartao.neutro { --tom: var(--tinta-2); --tom-suave: var(--sulco); }
+.prev-cartao:hover { box-shadow: var(--sombra-2); }
+.prev-cartao[aria-pressed="true"] { border-color: var(--tom); background: var(--tom-suave); }
+.prev-cartao-topo { display: inline-flex; align-items: center; gap: 7px; font-weight: 700; font-size: 13px; color: var(--tom); }
+.prev-cartao b { font-family: var(--f-display); font-weight: 800; font-size: 30px; line-height: 1.05; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.prev-cartao-sub { color: var(--tinta-3); font-size: 12.5px; font-weight: 500; }
+.prev-cartao[aria-pressed="true"] .prev-cartao-sub { color: var(--tinta-2); }
+.prev-importados { align-self: center; min-height: 40px; }
+.prev-legenda { margin: -4px 0 10px; max-width: 90ch; }
+.tabela-estoque { min-width: 1180px; }
+.tabela-estoque td { vertical-align: top; }
+.tabela-estoque th.num, .tabela-estoque td.num { text-align: right; }
+.tabela-estoque td.t-produto { min-width: 260px; max-width: 380px; }
+.tabela-estoque td.num .t-isbn { white-space: nowrap; }
+/* position: o texto só para leitores de tela fica preso à célula; solto, ele alarga a página. */
+.par-linha { position: relative; display: flex; justify-content: flex-end; align-items: baseline; gap: 6px; white-space: nowrap; }
+.par-linha + .par-linha { margin-top: 3px; }
+.par-rot { font-size: 11px; font-weight: 600; color: var(--tinta-3); }
+.prev-reimp { color: var(--tinta); }
+.prev-embarque { min-width: 160px; }
+.prev-embarque b { display: block; white-space: nowrap; }
+.prev-embarque .pilula { margin-top: 6px; }
+.t-isbn.prev-sub, .prev-sub { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.prev-np { color: var(--acento); font-weight: 600; }
+.prev-pilula { margin-top: 6px; white-space: normal; }
+.fora-curva { margin-top: 16px; padding: 14px 18px; }
+.fora-curva summary { cursor: pointer; font-weight: 600; color: var(--tinta-2); }
+.fora-curva .dica { margin-top: 8px; max-width: 80ch; }
+.fora-lista { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; max-height: 360px; overflow-y: auto; }
+.prev-vazio { padding: 30px 28px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; max-width: 760px; }
+.prev-vazio h2 { font-family: var(--f-display); font-size: 20px; font-weight: 700; letter-spacing: -0.015em; }
+.prev-vazio p { color: var(--tinta-2); max-width: 64ch; }
+.prev-vazio-ic { width: 44px; height: 44px; border-radius: 12px; background: var(--acento-suave); color: var(--acento); display: grid; place-items: center; }
+.prev-ficha section { display: flex; flex-direction: column; gap: 8px; }
+.prev-ficha h3 { font-size: 13px; font-weight: 700; color: var(--tinta-2); }
+.prev-ficha p { max-width: 75ch; }
+.prev-dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin: 0; }
+.prev-dl > div { background: var(--fundo); border-radius: 10px; padding: 8px 11px; min-width: 0; }
+.prev-dl dt { font-size: 12px; color: var(--tinta-3); font-weight: 600; }
+.prev-dl dd { margin: 2px 0 0; font-weight: 700; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; gap: 1px; }
+.prev-dl dd .dica { font-weight: 500; }
+.prev-avisos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.prev-pos { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: 13.5px; }
+.prev-data { display: flex; flex-direction: column; gap: 6px; }
+.prev-data .campo { max-width: 220px; }
+.prev-painel-linha { --tom: var(--ok); --tom-suave: var(--ok-suave); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 3px 10px; align-items: center; padding: 11px 0; border-top: 1px solid var(--fio); color: var(--tinta); text-decoration: none; }
+.lista li:first-child .prev-painel-linha { border-top: 0; }
+.prev-painel-linha.alerta { --tom: var(--alerta); --tom-suave: var(--alerta-suave); }
+.prev-painel-linha.critico { --tom: var(--critico); --tom-suave: var(--critico-suave); }
+.prev-painel-linha:hover .barra-nome { color: var(--acento); }
+.prev-painel-ic { grid-row: span 2; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--tom-suave); color: var(--tom); }
+.prev-painel-linha b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.prev-painel-linha .barra-sub { grid-column: 2 / -1; }
+.prev-painel-pe { padding: 4px 0 6px; }
+@media (max-width: 960px) {
+  .prev-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .prev-cartao { padding: 11px 12px; }
+  .prev-cartao b { font-size: 24px; }
+  .tabela-estoque.tabela-empilha { min-width: 0; }
+  .tabela-estoque.tabela-empilha td.t-produto { grid-column: 1 / -1; max-width: none; min-width: 0; }
+  .tabela-estoque.tabela-empilha td.prev-embarque { grid-column: 1 / -1; }
+  .tabela-estoque.tabela-empilha td.num { text-align: left; }
+  .tabela-estoque.tabela-empilha .par-linha { justify-content: flex-start; }
+  .prev-vazio { padding: 22px 18px; }
+}
+/* Sete abas (com a Previsão de estoque, 20/11/2026): no computador, abas justas e só as iniciais no menu
+   em qualquer largura, e sem a frase embaixo do nome até 1.400 px, para o topo seguir numa linha só; no
+   celular, quatro colunas em vez de três, com o ícone em cima do nome. */
+@media (min-width: 601px) {
+  .topo:has(.aba:nth-child(7)) .aba { padding-inline: 11px; }
+  .topo:has(.aba:nth-child(7)) .menu-botao .nome { display: none; }
+  .topo:has(.aba:nth-child(7)) .menu-botao .nome-celular { display: inline; }
+  .topo:has(.aba:nth-child(7)) .menu-botao { padding-right: 3px; }
+}
+@media (min-width: 601px) and (max-width: 1400px) {
+  .topo:has(.aba:nth-child(7)) .marca small { display: none; }
+}
+@media (max-width: 600px) {
+  .abas:has(.aba:nth-child(7)) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .abas:has(.aba:nth-child(7)) .aba { flex-direction: column; gap: 3px; font-size: 11.5px; min-height: 50px; padding: 6px 2px; }
+  .abas:has(.aba:nth-child(7)) .aba .ic { width: 17px; height: 17px; }
+}
+@media (min-width: 601px) and (max-width: 1000px) {
+  /* Em tablet, as sete abas ganham uma linha só delas, que rola de lado se precisar. */
+  .topo:has(.aba:nth-child(7)) .abas { order: 3; width: 100%; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .topo:has(.aba:nth-child(7)) .abas::-webkit-scrollbar { display: none; }
+  .topo:has(.aba:nth-child(7)) .aba { flex: 1 0 auto; justify-content: center; }
+}
+@media (min-width: 601px) and (max-width: 900px) {
+  .topo:has(.aba:nth-child(7)) .aba .ic { display: none; }
+}
