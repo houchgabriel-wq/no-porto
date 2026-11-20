@@ -58,3 +58,7 @@ Na tela **Produção**, o **Baixar .xlsx** gera a lista dos itens com a coluna *
 Todo dia às 6h40 (Brasília), o No Porto busca no No Prelo a "Data de aprovação" da gráfica e preenche a **Aprovação do arquivo** dos itens com o mesmo ISBN e a mesma PO (a "ordem de impressão" no No Prelo). Enquanto vem do No Prelo, a data só muda lá. O admin pode buscar fora do horário, pelo menu, em **Buscar aprovações no No Prelo**.
 
 Os dois Workers falam por uma ligação interna da Cloudflare (service binding), sem senha nem token: não há nada para cadastrar no painel. Na primeira publicação, o No Prelo precisa ir ao ar antes do No Porto, porque é ele que tem a porta (`NoPortoApi`).
+
+## Previsão de estoque
+
+Toda semana, o admin ou o editor carrega a curva ABC do sistema de vendas na aba **Estoque**, em **Carregar curva ABC**, do jeito que ela sai (.xlsx ou .xls). A tela mostra o que foi lido e pede a data do estoque, que vem do nome do arquivo quando ele traz o dia ("curva_abc_19-11.xlsx"). Cada carga substitui a anterior. A previsão é calculada na hora, com o que está embarcado e em produção no No Porto; as regras estão no `SPEC.md` (seções 2 e 6).
