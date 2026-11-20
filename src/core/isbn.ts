@@ -20,6 +20,19 @@ function valid10(d: string): boolean {
   return sum % 11 === 0;
 }
 
+/**
+ * O mesmo livro em ISBN-13: o ISBN-10 válido vira 978 + os nove primeiros dígitos + o novo dígito
+ * verificador; qualquer outro texto volta só com os dígitos. Serve para casar o ISBN antigo de um
+ * produto com o código de barras da curva ABC, que tem 13 dígitos.
+ */
+export function toIsbn13(value: string): string {
+  const d = isbnDigits(value);
+  if (d.length !== 10 || !valid10(d)) return d;
+  const core = `978${d.slice(0, 9)}`;
+  const sum = [...core].reduce((acc, c, i) => acc + Number(c) * (i % 2 === 0 ? 1 : 3), 0);
+  return core + String((10 - (sum % 10)) % 10);
+}
+
 /** Devolve a mensagem de erro, ou null se o ISBN serve (vazio também serve: o campo é opcional). */
 export function isbnProblem(value: string): string | null {
   const text = value.trim();

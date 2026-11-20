@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isbnDigits, isbnProblem } from './isbn';
+import { isbnDigits, isbnProblem, toIsbn13 } from './isbn';
 
 describe('ISBN', () => {
   it('aceita ISBN-13 com ou sem hífens, e vazio', () => {
@@ -25,5 +25,13 @@ describe('ISBN', () => {
 
   it('tira hífens e espaços para comparar', () => {
     expect(isbnDigits('978-85 359')).toBe('97885359');
+  });
+
+  it('passa o ISBN-10 para ISBN-13, com o novo dígito verificador; o resto volta só com os dígitos', () => {
+    expect(toIsbn13('85-359-0277-5')).toBe('9788535902778');
+    expect(isbnProblem(toIsbn13('0-8044-2957-X'))).toBeNull();
+    expect(toIsbn13('0-8044-2957-X')).toBe('9780804429573');
+    expect(toIsbn13('978-85-359-0277-8')).toBe('9788535902778');
+    expect(toIsbn13('85-359-0277-4')).toBe('8535902774');
   });
 });
