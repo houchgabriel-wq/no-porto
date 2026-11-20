@@ -29,7 +29,9 @@ export type Action =
   | 'full_copy' // baixar a cópia completa (admin; Editor e Consulta pedidos pelo Gabriel em 19/11/2026)
   | 'view_bookings' // ver todas as solicitações de embarque, com os valores (só admin e editor: decidido em 19/11/2026)
   | 'request_bookings' // pedir containers e cancelar as próprias solicitações (só o Agente, que só vê as dele)
-  | 'decide_bookings'; // aprovar e recusar: além do perfil, só quem tem a marca de aprovador (o Gabriel)
+  | 'decide_bookings' // aprovar e recusar: além do perfil, só quem tem a marca de aprovador (o Gabriel)
+  | 'view_stock' // a aba Previsão de estoque e o cartão dela no painel (decidido em 20/11/2026)
+  | 'load_stock'; // carregar a curva ABC da semana (admin e editor: decidido em 20/11/2026)
 
 const TEAM = ['admin', 'editor', 'consulta', 'leitor', 'embarques', 'vendas'] as const;
 
@@ -49,6 +51,8 @@ const PERMISSIONS: Record<Action, readonly Role[]> = {
   view_bookings: ['admin', 'editor'],
   request_bookings: ['agente'],
   decide_bookings: ['admin'],
+  view_stock: ['admin', 'editor', 'consulta', 'leitor'],
+  load_stock: ['admin', 'editor'],
 };
 
 export function can(role: Role, action: Action): boolean {

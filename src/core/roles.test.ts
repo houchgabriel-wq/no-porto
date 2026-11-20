@@ -78,6 +78,15 @@ describe('solicitações de embarque', () => {
   });
 });
 
+describe('previsão de estoque', () => {
+  it('veem admin, editor, consulta e leitor; carregam a curva admin e editor (decidido em 20/11/2026); o Agente, nada', () => {
+    for (const role of ['admin', 'editor', 'consulta', 'leitor'] as const) expect(can(role, 'view_stock'), role).toBe(true);
+    for (const role of ['embarques', 'vendas', 'agente'] as const) expect(can(role, 'view_stock'), role).toBe(false);
+    for (const role of ['admin', 'editor'] as const) expect(can(role, 'load_stock'), role).toBe(true);
+    for (const role of ['consulta', 'leitor', 'embarques', 'vendas', 'agente'] as const) expect(can(role, 'load_stock'), role).toBe(false);
+  });
+});
+
 describe('perfis', () => {
   it('aceita só os sete perfis', () => {
     expect(ROLES).toEqual(['admin', 'editor', 'consulta', 'leitor', 'embarques', 'vendas', 'agente']);
