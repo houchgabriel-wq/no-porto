@@ -32,6 +32,17 @@ export interface CurveRow {
   sales: CurveSales;
 }
 
+/** De quando é a curva carregada e quem carregou. */
+export interface CurveInfo {
+  /** Data do estoque (AAAA-MM-DD), informada na carga. */
+  stockDate: string;
+  fileName: string;
+  rowCount: number;
+  /** Quando foi carregada (ISO). */
+  uploadedAt: string;
+  uploadedBy: string;
+}
+
 export interface CurveRead {
   rows: CurveRow[];
   /** Linhas descartadas, com o motivo. */

@@ -71,7 +71,7 @@ describe('previsão de estoque', () => {
     expect(res.data.curve).toMatchObject({ stockDate: '2026-11-16', rowCount: 2 });
     // Pela média de 3 meses, reimprimir os dois: 365 Hábitos (3.000 < 500 × 7) e Alice (1.000 + 5.000 < 1.000 × 7).
     // Pela de 6, nenhum. A Alice precisa embarcar já, e a PO só fica pronta em 30/11: pode faltar.
-    expect(res.data.summary).toEqual({ titles: 2, reprint3: 2, reprint6: 0, shipSoon: 1, late: 1, gaps: 0 });
+    expect(res.data.summary).toEqual({ titles: 2, action: 2, reprint: 2, reprint3: 2, reprint6: 0, ship: 1, shipSoon: 1, late: 1, gaps: 0 });
   });
 
   it('recusa data inválida ou futura, código repetido ou inválido e curva vazia', async () => {
