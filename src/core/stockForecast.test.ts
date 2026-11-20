@@ -165,6 +165,12 @@ describe('previsão de estoque', () => {
 
   it('o resumo do painel', () => {
     const { rows } = forecast();
-    expect(forecastSummary(rows, TODAY)).toEqual({ titles: 5, reprint3: 1, reprint6: 0, shipSoon: 1, late: 1, gaps: 1 });
+    // B: o envio programado é depois do prazo e o estoque acaba antes de o embarcado chegar; C: embarcar já, e pode faltar.
+    expect(forecastSummary(rows, TODAY)).toEqual({ titles: 5, action: 3, reprint: 1, reprint3: 1, reprint6: 0, ship: 1, shipSoon: 1, late: 1, gaps: 1 });
+    // A PO recente que fica pronta depois do prazo pede atenção mesmo com o prazo longe: conta em "embarque", não em "30 dias".
+    // 3.500 ÷ 1.000 por mês = 105 dias: acaba em 04/03, embarcar até 03/01 (44 dias); a PO de 19/11 só fica pronta em 18/01.
+    const late = run([curveRow('9786583970527', 'Alice', 3500, 3000, 6000)], [item({ quantity: 5000, orderedAt: '2026-11-19' })]);
+    expect(late.rows[0]!.ship).toMatchObject({ shipBy: '2027-01-03', readyAt: '2027-01-18', late: true, overdue: false });
+    expect(forecastSummary(late.rows, TODAY)).toMatchObject({ ship: 1, shipSoon: 0, late: 1 });
   });
 });

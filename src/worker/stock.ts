@@ -9,7 +9,7 @@ import type { ItemStatus } from '../core/items';
 import { can } from '../core/roles';
 import { readStoredPlan } from '../core/shipPlan';
 import { parseDate, spDate } from '../core/shipments';
-import { CURVE_MAX_ROWS, type CurveRow } from '../core/stockCurve';
+import { CURVE_MAX_ROWS, type CurveInfo, type CurveRow } from '../core/stockCurve';
 import { forecastSummary, holdingsFor, stockForecast, titleHoldings, type TitleHolding } from '../core/stockForecast';
 import type { Session } from './auth';
 import type { Env } from './env';
@@ -55,15 +55,6 @@ type StoredRow = [string, string, string, string, number, number | null, number,
 
 const encode = (r: CurveRow): StoredRow => [r.isbn, r.title, r.code, r.abcClass, r.stock, r.sales.m1, r.sales.m3, r.sales.m6, r.sales.m9, r.sales.m12];
 const decode = (s: StoredRow): CurveRow => ({ isbn: s[0], title: s[1], code: s[2], abcClass: s[3], stock: s[4], sales: { m1: s[5], m3: s[6], m6: s[7], m9: s[8], m12: s[9] } });
-
-/** De quando é a curva carregada e quem carregou. */
-export interface CurveInfo {
-  stockDate: string;
-  fileName: string;
-  rowCount: number;
-  uploadedAt: string;
-  uploadedBy: string;
-}
 
 async function readCurve(env: Env): Promise<{ info: CurveInfo; rows: CurveRow[] } | null> {
   const row = await env.DB.prepare(

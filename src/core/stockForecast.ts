@@ -265,11 +265,7 @@ export function stockForecast(curve: { stockDate: string; rows: readonly CurveRo
 
     const reprint3 = reprintAdvice(m3, 3, have);
     const reprint6 = reprintAdvice(m6, 6, have);
-    const needsAction =
-      reprint3.kind === 'reprint' ||
-      reprint6.kind === 'reprint' ||
-      gapBeforeArrival ||
-      (ship !== null && (ship.overdue || ship.late || ship.planLate || daysBetween(today, ship.shipBy) <= FORECAST.soonDays));
+    const needsAction = needsReprint({ reprint3, reprint6 }) || gapBeforeArrival || shipNeedsAttention(ship, today) || !!ship?.planLate;
 
     return {
       ...row,
@@ -337,26 +333,49 @@ export function forecastAlerts(row: ForecastRow): string[] {
   return out;
 }
 
+/** O prazo para embarcar vence nos próximos 30 dias (ou já venceu). */
+export function shipDueSoon(ship: ShipAdvice | null, today: string): boolean {
+  return !!ship && (ship.overdue || daysBetween(today, ship.shipBy) <= FORECAST.soonDays);
+}
+
+/** O embarque pede atenção: o prazo vence em até 30 dias (ou venceu), ou a PO fica pronta depois dele. */
+export function shipNeedsAttention(ship: ShipAdvice | null, today: string): boolean {
+  return shipDueSoon(ship, today) || !!ship?.late;
+}
+
+/** Tem sugestão de reimpressão por alguma das médias. */
+export function needsReprint(row: Pick<ForecastRow, 'reprint3' | 'reprint6'>): boolean {
+  return row.reprint3.kind === 'reprint' || row.reprint6.kind === 'reprint';
+}
+
 export interface ForecastSummary {
   titles: number;
-  /** Títulos com sugestão de reimpressão pela média de 3 e pela de 6 meses. */
+  /** Títulos que precisam de alguma coisa (reimpressão, embarque ou aviso). */
+  action: number;
+  /** Títulos com sugestão de reimpressão por alguma das médias, pela de 3 e pela de 6 meses. */
+  reprint: number;
   reprint3: number;
   reprint6: number;
-  /** Títulos que precisam embarcar nos próximos 30 dias (ou já deveriam ter embarcado). */
+  /** Títulos em que o embarque pede atenção: os dois casos abaixo, juntos. */
+  ship: number;
+  /** Títulos com o prazo para embarcar nos próximos 30 dias (ou vencido). */
   shipSoon: number;
-  /** Títulos em que a PO fica pronta depois do "embarcar até". */
+  /** Títulos em que a PO fica pronta depois do "embarcar até": pode faltar. */
   late: number;
   /** Títulos em que o estoque acaba antes de o embarcado chegar. */
   gaps: number;
 }
 
-/** Os números do cartão do painel. */
+/** Os números dos cartões, na aba e no painel. */
 export function forecastSummary(rows: readonly ForecastRow[], today: string): ForecastSummary {
-  const s: ForecastSummary = { titles: rows.length, reprint3: 0, reprint6: 0, shipSoon: 0, late: 0, gaps: 0 };
+  const s: ForecastSummary = { titles: rows.length, action: 0, reprint: 0, reprint3: 0, reprint6: 0, ship: 0, shipSoon: 0, late: 0, gaps: 0 };
   for (const r of rows) {
+    if (r.needsAction) s.action++;
+    if (needsReprint(r)) s.reprint++;
     if (r.reprint3.kind === 'reprint') s.reprint3++;
     if (r.reprint6.kind === 'reprint') s.reprint6++;
-    if (r.ship && (r.ship.overdue || daysBetween(today, r.ship.shipBy) <= FORECAST.soonDays)) s.shipSoon++;
+    if (shipNeedsAttention(r.ship, today)) s.ship++;
+    if (shipDueSoon(r.ship, today)) s.shipSoon++;
     if (r.ship?.late) s.late++;
     if (r.gapBeforeArrival) s.gaps++;
   }
