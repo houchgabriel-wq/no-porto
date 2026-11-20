@@ -6,7 +6,7 @@ import { copySheets, DELIVERED_HEADER, PRODUCTION_HEADER, SHIPMENTS_HEADER } fro
 import type { Amount, SupplierSummary } from '../core/suppliers';
 import { EMPTY_FILTERS, filterItems, sortItems, type ItemFilters, type ItemSort } from '../core/items';
 import { can, ROLE_LABELS } from '../core/roles';
-import { api, ApiError, setUnauthorizedHandler, type Me } from './api';
+import { api, ApiError, setUnauthorizedHandler, type Me, type StockData } from './api';
 import { Avatar, Brand, Dialog, FormError, hueStyle, setSupplierHues, STATUS_PREVIEW, useToast } from './components';
 import { Dashboard } from './Dashboard';
 import { downloadXlsx } from './download';
@@ -28,6 +28,7 @@ import { SupplierDialog, SuppliersView, type SuppliersData } from './Suppliers';
 import { ShipmentDialog } from './ShipmentDialog';
 import { ShipmentsView } from './Shipments';
 import { ShipmentItemsView } from './ShipmentItems';
+import { CurveDialog, StockView } from './StockForecast';
 import { SalesView } from './Sales';
 import { UpdateNotice } from './update';
 import { UsersScreen } from './Users';
@@ -113,7 +114,7 @@ function applyTheme(theme: Theme) {
   }
 }
 
-const VIEWS = ['painel', 'solicitacoes', 'producao', 'embarques', 'historico', 'fornecedores', 'usuarios'] as const;
+const VIEWS = ['painel', 'solicitacoes', 'producao', 'estoque', 'embarques', 'historico', 'fornecedores', 'usuarios'] as const;
 type View = (typeof VIEWS)[number];
 
 function viewFromHash(): View {
@@ -386,6 +387,8 @@ const TABS: { view: View; label: string; icon: IconName }[] = [
   { view: 'solicitacoes', label: 'Solicitações', icon: 'container' },
   { view: 'embarques', label: 'Embarques', icon: 'navio' },
   { view: 'producao', label: 'Produção', icon: 'caixa' },
+  // "Previsão de estoque" não cabe no topo dos notebooks com sete abas: na aba, "Estoque".
+  { view: 'estoque', label: 'Estoque', icon: 'tendencia' },
   { view: 'historico', label: 'Histórico', icon: 'arquivo' },
   { view: 'fornecedores', label: 'Fornecedores', icon: 'pessoas' },
 ];
@@ -532,6 +535,9 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [suppliersData, setSuppliersData] = useState<SuppliersData | null>(null);
   const [supplier, setSupplier] = useState<SupplierSummary | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [stock, setStock] = useState<StockData | null>(null);
+  const [stockError, setStockError] = useState<string | null>(null);
+  const [curveOpen, setCurveOpen] = useState(false);
   const [booking, setBooking] = useState<string | null>(null);
   const production = useProduction();
   // Solicitações de embarque: carregadas desde a entrada, para o painel e a aba avisarem das que aguardam.
@@ -562,8 +568,17 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   // Fornecedores e Solicitações são só de admin e editor (decidido em 19/11/2026); o perfil Embarques tem
   // só as telas de embarques e do histórico.
   const seesSuppliers = can(user.role, 'view_suppliers');
+  // Previsão de estoque: admin, editor, Consulta e leitor veem; admin e editor carregam a curva (20/11/2026).
+  const seesStock = can(user.role, 'view_stock');
+  const loadsStock = can(user.role, 'load_stock');
   const allowed = (v: View) =>
-    v === 'solicitacoes' ? seesBookings : v === 'fornecedores' ? seesSuppliers : seesAll || v === 'embarques' || (v === 'historico' && can(user.role, 'view_history'));
+    v === 'solicitacoes'
+      ? seesBookings
+      : v === 'fornecedores'
+        ? seesSuppliers
+        : v === 'estoque'
+          ? seesStock
+          : seesAll || v === 'embarques' || (v === 'historico' && can(user.role, 'view_history'));
   const current: View = !allowed(view) ? (seesAll ? 'painel' : 'embarques') : view === 'usuarios' && !isAdmin ? 'painel' : view;
   const tabs = TABS.filter((t) => allowed(t.view));
   // No celular, as abas rolam de lado: a aba atual fica à vista.
@@ -583,6 +598,33 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   useEffect(() => {
     if (current === 'historico') void loadHistory();
   }, [current, loadHistory]);
+
+  // A previsão de estoque: a curva e o que o No Porto tem de cada título, ao abrir a aba.
+  const loadStock = useCallback(async () => {
+    setStockError(null);
+    try {
+      setStock(await api.stock());
+    } catch (e) {
+      setStockError(e instanceof ApiError ? e.message : 'Não foi possível carregar a previsão de estoque.');
+    }
+  }, []);
+  useEffect(() => {
+    if (current === 'estoque') void loadStock();
+  }, [current, loadStock]);
+  // O cartão do painel: só os números; some se não carregar.
+  const [stockCard, setStockCard] = useState<{ today: string; curve: StockData['curve']; summary: Awaited<ReturnType<typeof api.stockSummary>>['summary'] } | null | undefined>(
+    seesStock ? null : undefined,
+  );
+  const loadStockCard = useCallback(async () => {
+    try {
+      setStockCard(await api.stockSummary());
+    } catch {
+      setStockCard(undefined);
+    }
+  }, []);
+  useEffect(() => {
+    if (seesStock && current === 'painel') void loadStockCard();
+  }, [seesStock, current, loadStockCard, data?.items.length]);
 
   // Resumo por fornecedor (somado no banco), para admin e editor: na tela Fornecedores e na situação do
   // fornecedor, na ficha da solicitação de embarque.
@@ -935,6 +977,21 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                   Carregando o histórico…
                 </p>
               )
+            ) : current === 'estoque' ? (
+              stock ? (
+                <StockView data={stock} onLoad={loadsStock ? () => setCurveOpen(true) : undefined} onProduct={seesAll ? setProduct : undefined} onToast={showToast} />
+              ) : stockError ? (
+                <div className="erro-carga">
+                  <FormError message={stockError} />
+                  <button className="btn" onClick={() => void loadStock()}>
+                    Tentar de novo
+                  </button>
+                </div>
+              ) : (
+                <p className="carregando" role="status">
+                  Carregando a previsão de estoque…
+                </p>
+              )
             ) : seesAll && data.items.length === 0 && data.invoices.length === 0 ? (
               <Welcome user={user} onImport={canImport ? () => setFullImport(true) : undefined} onNew={canEdit ? () => setDialog({ mode: 'new' }) : undefined} />
             ) : current === 'painel' ? (
@@ -959,6 +1016,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                 onShipment={setShipment}
                 onProduct={setProduct}
                 received={received}
+                stock={stockCard}
               />
               </>
             ) : current === 'embarques' ? (
@@ -1026,6 +1084,19 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
         />
       )}
       {canEdit && <UpdateSheetDialog open={updatingSheet} production={production} onClose={() => setUpdatingSheet(false)} onToast={showToast} />}
+      {loadsStock && (
+        <CurveDialog
+          open={curveOpen}
+          today={stock?.today ?? data?.today ?? new Date().toISOString().slice(0, 10)}
+          onClose={() => setCurveOpen(false)}
+          onLoaded={(r) => {
+            setCurveOpen(false);
+            showToast(`Curva com o estoque de ${r.stockDate.split('-').reverse().join('/')} carregada: ${r.rowCount.toLocaleString('pt-BR')} títulos.`);
+            void loadStock();
+            void loadStockCard();
+          }}
+        />
+      )}
       {canImport && data && (
         <FullImportDialog
           open={fullImport}
