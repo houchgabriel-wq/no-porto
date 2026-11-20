@@ -40,10 +40,11 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
   *Teste do Gabriel:* criar a conta do agente em Usuários (perfil Agente de cargas), pedir que ele cadastre a próxima solicitação real, aprovar ou recusar pelo No Porto e conferir com o agente que ele viu a resposta.
   *Pronto para o teste em 19/11/2026:* perfil Agente de cargas, que vê só as próprias solicitações (o servidor recusa todo o resto); aba Solicitações para admin, editor e Consulta, com o contador das que aguardam; aviso no topo do painel; ficha com os containers e a situação do fornecedor (produção, mar, última chegada e outras solicitações); aprovar, podendo aprovar menos que o pedido, ou recusar com o motivo, só pela conta do Gabriel (migração `0009`); o agente cancela enquanto aguarda. Auditoria de acessibilidade sem violações em 40 telas e janelas, nos dois temas, no computador e no celular.
 
-- [ ] **Marco 8: previsão de estoque.**
+- [x] **Marco 8: previsão de estoque.**
   Carga semanal da curva ABC; cobertura, sugestão de reimpressão e aviso de embarque de cada título, cruzando a curva com o que está embarcado e em produção; cartão no painel.
   *Teste do Gabriel:* carregar a curva da semana, conferir alguns títulos que ele conhece (cobertura, sugestão e prazo de embarque) e baixar a planilha.
   *Pronto para o teste em 20/11/2026:* aba Estoque (admin, editor, Consulta e leitor) com os quatro cartões que filtram, busca, classe, só importados, ordem, tabela com as colunas de 3 e de 6 meses, ficha de cada título com o porquê de cada número, lista do que está no No Porto e não está na curva e Baixar .xlsx; carga da curva por admin e editor, com a data do estoque lida do nome do arquivo (migração `0012`); cartão no painel. Com a curva de 19/11/2026: 2.457 títulos, um de fora (conteúdo digital) e dois códigos somados. Auditoria de acessibilidade sem violações na aba, na ficha, na carga e no painel, nos dois temas, no computador e no celular.
+  *Fechado em 20/11/2026:* no ar; o Gabriel carregou a curva e conferiu os títulos.
 
 ## Depois
 
