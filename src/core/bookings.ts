@@ -29,6 +29,8 @@ export const MAX_CONTAINERS = 99;
 export const MAX_PRICE_CENTS = 10_000_000;
 /** Piso do valor de um container (US$ 100,00): abaixo disso, é "2,85" digitado no lugar de "2.850". */
 export const MIN_PRICE_CENTS = 10_000;
+/** Tamanho máximo do número de referência que o agente dá à solicitação. */
+export const REFERENCE_MAX = 40;
 /** A saída pode ter passado há no máximo 90 dias (pedido registrado atrasado) e estar a no máximo um ano. */
 const MAX_DAYS_BEFORE = 90;
 const MAX_DAYS_AFTER = 366;
@@ -50,6 +52,11 @@ export interface Person {
 
 export interface BookingRequest {
   id: string;
+  /**
+   * Número de referência, dado pelo agente de cargas (obrigatório nas novas, decidido em 23/11/2026);
+   * vazio nas solicitações anteriores, até alguém preencher.
+   */
+  reference: string;
   /** null só quando o fornecedor deixou de existir (o admin apagou tudo para começar do zero). */
   supplierId: string | null;
   supplierName: string;
@@ -74,8 +81,26 @@ export interface NewBookingLine {
   priceCents: number;
 }
 
+/** O número de referência como fica gravado: sem espaços sobrando. */
+export function normalizeReference(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/** O que impede o número de referência de ser gravado, ou null. */
+export function referenceProblem(text: string): string | null {
+  const reference = normalizeReference(text);
+  if (!reference) return 'Informe o número de referência.';
+  if (reference.length > REFERENCE_MAX) return `O número de referência pode ter no máximo ${REFERENCE_MAX} caracteres.`;
+  return null;
+}
+
 /** O que impede a solicitação de ser gravada, ou null. `today` é o dia em São Paulo (AAAA-MM-DD). */
-export function bookingProblem(input: { departurePort: string; departureDate: string; lines: readonly NewBookingLine[] }, today: string): string | null {
+export function bookingProblem(
+  input: { reference: string; departurePort: string; departureDate: string; lines: readonly NewBookingLine[] },
+  today: string,
+): string | null {
+  const reference = referenceProblem(input.reference);
+  if (reference) return reference;
   if (!input.departurePort.trim()) return 'Informe o porto de saída.';
   if (parseDate(input.departureDate) !== input.departureDate) return 'Informe a data de saída.';
   const days = daysBetween(today, input.departureDate);
@@ -179,6 +204,15 @@ export function canCancelBooking(request: Pick<BookingRequest, 'status' | 'creat
   return can(user.role, 'request_bookings') && request.createdBy.id === user.id && request.status === 'aguardando';
 }
 
+/**
+ * Quem corrige o número de referência (decidido em 23/11/2026): o agente, nas próprias solicitações, e
+ * admin e editor, em qualquer uma, em qualquer situação (as antigas não têm número).
+ */
+export function canEditBookingReference(request: Pick<BookingRequest, 'createdBy'>, user: { id: string; role: Role }): boolean {
+  if (can(user.role, 'request_bookings')) return request.createdBy.id === user.id;
+  return can(user.role, 'view_bookings');
+}
+
 export function pendingCount(requests: readonly Pick<BookingRequest, 'status'>[]): number {
   return requests.filter((r) => r.status === 'aguardando').length;
 }
@@ -208,7 +242,7 @@ export function matchesBooking(request: BookingRequest, query: string): boolean 
   const words = searchKey(query).split(' ').filter(Boolean);
   if (!words.length) return true;
   const hay = searchKey(
-    [request.supplierName, request.departurePort, containersText(request.lines), request.createdBy.name, request.notes, request.decisionNote, BOOKING_STATUS_LABELS[request.status]].join(' '),
+    [request.reference, request.supplierName, request.departurePort, containersText(request.lines), request.createdBy.name, request.notes, request.decisionNote, BOOKING_STATUS_LABELS[request.status]].join(' '),
   );
   return words.every((w) => hay.includes(w));
 }

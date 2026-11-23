@@ -8,8 +8,11 @@ import {
   BOOKING_STATUS_LABELS,
   bookingProblem,
   canDecideBookings,
+  canEditBookingReference,
   CONTAINER_TYPES,
   MAX_CONTAINERS,
+  normalizeReference,
+  referenceProblem,
   type BookingRequest,
   type BookingStatus,
   type ContainerType,
@@ -28,7 +31,10 @@ const note = (max: number) =>
     .max(max, `O texto pode ter no máximo ${max.toLocaleString('pt-BR')} caracteres.`)
     .transform((s) => s.trim());
 
+const reference = z.string({ error: 'Informe o número de referência.' }).max(400, 'O número de referência pode ter no máximo 40 caracteres.').transform(normalizeReference);
+
 const createBody = z.object({
+  reference,
   supplierId: z.string({ error: 'Escolha o fornecedor.' }).min(1, 'Escolha o fornecedor.').max(100, 'Fornecedor inválido.'),
   departurePort: z
     .string({ error: 'Informe o porto de saída.' })
@@ -53,6 +59,8 @@ const approveBody = z.object({
   note: note(1000).default(''),
 });
 
+const referenceBody = z.object({ reference });
+
 const refuseBody = z.object({
   note: z
     .string({ error: 'Informe o motivo da recusa.' })
@@ -65,6 +73,7 @@ const refuseBody = z.object({
 
 interface RequestRow {
   id: string;
+  reference: string;
   supplier_id: string | null;
   supplier_name: string;
   current_supplier_name: string | null;
@@ -98,6 +107,7 @@ const SELECT_REQUESTS = `SELECT r.*, s.name AS current_supplier_name, cu.name AS
 function toRequest(row: RequestRow, lines: readonly LineRow[]): BookingRequest {
   return {
     id: row.id,
+    reference: row.reference,
     supplierId: row.supplier_id,
     // O nome atual do fornecedor (pode ter sido corrigido); sem fornecedor, o nome do pedido.
     supplierName: row.current_supplier_name ?? row.supplier_name,
@@ -160,14 +170,28 @@ async function createRequest(request: Request, env: Env, session: Session, now: 
   const at = now.toISOString();
   await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO booking_requests (id, supplier_id, supplier_name, departure_port, departure_date, notes, status, created_at, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, 'aguardando', ?, ?)`,
-    ).bind(id, supplier.id, supplier.name, body.departurePort, body.departureDate, body.notes, at, session.user.id),
+      `INSERT INTO booking_requests (id, reference, supplier_id, supplier_name, departure_port, departure_date, notes, status, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'aguardando', ?, ?)`,
+    ).bind(id, body.reference, supplier.id, supplier.name, body.departurePort, body.departureDate, body.notes, at, session.user.id),
     ...body.lines.map((l) =>
       env.DB.prepare('INSERT INTO booking_request_lines (request_id, container_type, quantity, price_cents) VALUES (?, ?, ?, ?)').bind(id, l.containerType, l.quantity, l.priceCents),
     ),
   ]);
   return json({ request: await loadRequest(env, id) }, 201);
+}
+
+/** Corrige o número de referência: o agente nas próprias solicitações, admin e editor em qualquer uma. */
+async function updateReference(request: Request, env: Env, session: Session, id: string): Promise<Response> {
+  checkMutation(request);
+  const body = await readBody(request, referenceBody);
+  const current = await loadRequest(env, id);
+  // A de outra pessoa nem aparece para o Agente: responde como se não existisse.
+  if (!current || (can(session.user.role, 'request_bookings') && current.createdBy.id !== session.user.id)) return error(404, 'Solicitação não encontrada.');
+  if (!canEditBookingReference(current, session.user)) return error(403, 'Você não corrige o número de referência desta solicitação.');
+  const problem = referenceProblem(body.reference);
+  if (problem) return error(400, problem);
+  await env.DB.prepare('UPDATE booking_requests SET reference = ? WHERE id = ?').bind(body.reference, id).run();
+  return json({ request: await loadRequest(env, id) });
 }
 
 /** Recusa decidir o que já foi decidido, dizendo como está. */
@@ -241,6 +265,11 @@ export async function routeBookings(request: Request, env: Env, session: Session
   if (key === 'POST /api/bookings') {
     if (!requester) return error(403, 'Só o agente de cargas cadastra solicitações de embarque.');
     return createRequest(request, env, session, now);
+  }
+  const one = /^\/api\/bookings\/([^/]+)$/.exec(path);
+  if (one && request.method === 'PATCH') {
+    if (!requester && !can(role, 'view_bookings')) return error(403, 'Seu perfil não vê as solicitações de embarque.');
+    return updateReference(request, env, session, decodeURIComponent(one[1]!));
   }
   const m = /^\/api\/bookings\/([^/]+)\/(cancel|approve|refuse)$/.exec(path);
   if (m && request.method === 'POST') {

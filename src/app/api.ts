@@ -60,6 +60,8 @@ export interface BookingsData {
 }
 
 export interface NewBooking {
+  /** Número de referência, dado pelo agente (obrigatório: 23/11/2026). */
+  reference: string;
   supplierId: string;
   departurePort: string;
   departureDate: string;
@@ -223,6 +225,8 @@ export const api = {
   bookings: () => request<BookingsData>('GET', '/api/bookings'),
   createBooking: (body: NewBooking) => request<{ request: BookingRequest }>('POST', '/api/bookings', body),
   cancelBooking: (id: string) => request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/cancel`),
+  /** Corrige o número de referência (o agente nas dele, admin e editor em qualquer uma). */
+  updateBookingReference: (id: string, reference: string) => request<{ request: BookingRequest }>('PATCH', `/api/bookings/${encodeURIComponent(id)}`, { reference }),
   approveBooking: (id: string, body: { lines: { containerType: ContainerType; approvedQuantity: number }[]; note: string }) =>
     request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/approve`, body),
   refuseBooking: (id: string, note: string) => request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/refuse`, { note }),

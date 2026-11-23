@@ -6,11 +6,13 @@ import {
   bookingTotalCents,
   canCancelBooking,
   canDecideBookings,
+  canEditBookingReference,
   containerCount,
   containersText,
   departureText,
   groupBookings,
   matchesBooking,
+  normalizeReference,
   otherBookingsOfSupplier,
   parseContainerPrice,
   pendingCount,
@@ -22,11 +24,12 @@ import {
 } from './bookings';
 
 const TODAY = '2026-11-19';
-const valid = { departurePort: 'Shenzhen', departureDate: '2026-12-05', lines: [{ containerType: '40HC' as const, quantity: 3, priceCents: 285_000 }] };
+const valid = { reference: 'SZX-2026-118', departurePort: 'Shenzhen', departureDate: '2026-12-05', lines: [{ containerType: '40HC' as const, quantity: 3, priceCents: 285_000 }] };
 
 function request(over: Partial<BookingRequest> = {}): BookingRequest {
   return {
     id: 'r1',
+    reference: 'SZX-2026-118',
     supplierId: 'claire',
     supplierName: 'Claire',
     departurePort: 'Shenzhen',
@@ -47,6 +50,13 @@ describe('nova solicitação', () => {
   it('aceita o pedido completo', () => {
     expect(bookingProblem(valid, TODAY)).toBeNull();
     expect(bookingProblem({ ...valid, lines: [...valid.lines, { containerType: '20', quantity: 1, priceCents: 180_000 }] }, TODAY)).toBeNull();
+  });
+
+  it('pede o número de referência (23/11/2026), com até 40 caracteres e sem espaços sobrando', () => {
+    expect(bookingProblem({ ...valid, reference: '   ' }, TODAY)).toBe('Informe o número de referência.');
+    expect(bookingProblem({ ...valid, reference: 'X'.repeat(41) }, TODAY)).toBe('O número de referência pode ter no máximo 40 caracteres.');
+    expect(bookingProblem({ ...valid, reference: ` ${'X'.repeat(40)} ` }, TODAY)).toBeNull();
+    expect(normalizeReference('  SZX  2026 118 ')).toBe('SZX 2026 118');
   });
 
   it('pede porto, data e pelo menos um tipo de container', () => {
@@ -209,6 +219,7 @@ describe('lista', () => {
     expect(matchesBooking(r, 'ana')).toBe(true);
     expect(matchesBooking(r, 'cosco')).toBe(true);
     expect(matchesBooking(r, 'sara')).toBe(false);
+    expect(matchesBooking(r, 'szx-2026')).toBe(true);
     expect(matchesBooking(r, '')).toBe(true);
   });
 
@@ -234,5 +245,16 @@ describe('lista', () => {
     const current = request({ id: 'atual' });
     expect(otherBookingsOfSupplier([current, ...others], current).map((r) => r.id)).toEqual(['y', 'x']);
     expect(otherBookingsOfSupplier([current, ...others], { ...current, supplierId: null })).toEqual([]);
+  });
+});
+
+describe('número de referência', () => {
+  it('o agente corrige o das próprias solicitações, em qualquer situação; admin e editor, o de qualquer uma; os outros perfis, não', () => {
+    const own = request();
+    const agent = { id: 'agente', role: 'agente' as const };
+    for (const status of ['aguardando', 'aprovada', 'recusada', 'cancelada'] as const) expect(canEditBookingReference(request({ status }), agent)).toBe(true);
+    expect(canEditBookingReference(own, { id: 'outro-agente', role: 'agente' })).toBe(false);
+    for (const role of ['admin', 'editor'] as const) expect(canEditBookingReference(own, { id: 'x', role }), role).toBe(true);
+    for (const role of ['consulta', 'leitor', 'embarques', 'vendas'] as const) expect(canEditBookingReference(own, { id: 'x', role }), role).toBe(false);
   });
 });
