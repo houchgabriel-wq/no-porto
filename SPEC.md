@@ -62,6 +62,7 @@ O que a planilha mostra sobre a relação entre os dados (conferido em 17/11/202
 | Quem aprova | Só o Gabriel (19/11/2026). A marca de aprovador fica na conta dele, a do primeiro acesso (migração `0009`); outro admin não aprova |
 | Aviso de solicitação nova | No painel, por enquanto (19/11/2026): um aviso no topo e o contador na aba Solicitações. Sem e-mail |
 | Agentes | Um agente só (19/11/2026), com login próprio no perfil Agente de cargas |
+| Número de referência da solicitação | O agente de cargas informa um número de referência em cada solicitação, obrigatório ao pedir (23/11/2026). Ele aparece no destaque do cartão, no lugar dos containers, que descem para a linha de baixo. O agente corrige o número nas dele, em qualquer situação, e admin e editor corrigem em qualquer uma; as solicitações anteriores ficam "Sem referência" até alguém preencher na ficha |
 
 ## 3. Fluxo (proposta)
 
@@ -98,7 +99,7 @@ Pagamento é registrado na invoice, à parte da situação dos itens: data, valo
 
 Solicitações de embarque (feitas em 19/11/2026; as decisões estão na seção 2, o resto é proposta):
 
-- **O agente pede.** Escolhe o fornecedor na lista (não cadastra fornecedor novo), informa o porto de saída (com sugestão dos que já usou), a saída prevista e uma linha por tipo de container, com a quantidade e o valor de cada container em dólar; observações são opcionais (navio, número da reserva). A saída pode ter passado há no máximo 90 dias (pedido registrado atrasado) e estar a no máximo um ano, contra erro de ano; cada tipo entra uma vez, com até 99 containers, e o valor de um container fica entre US$ 100,00 e US$ 100.000,00 (fora disso, é erro de digitação). No valor, ponto ou vírgula seguidos de três dígitos separam os milhares: "2.850" é US$ 2.850,00 (a mesma regra do valor do pagamento, acima). A solicitação entra "Aguardando aprovação". Enquanto aguarda, o agente pode cancelar; para mudar, cancela e cadastra outra.
+- **O agente pede.** Informa o número de referência (obrigatório desde 23/11/2026; até 40 caracteres), escolhe o fornecedor na lista (não cadastra fornecedor novo), informa o porto de saída (com sugestão dos que já usou), a saída prevista e uma linha por tipo de container, com a quantidade e o valor de cada container em dólar; observações são opcionais (navio, número da reserva). A saída pode ter passado há no máximo 90 dias (pedido registrado atrasado) e estar a no máximo um ano, contra erro de ano; cada tipo entra uma vez, com até 99 containers, e o valor de um container fica entre US$ 100,00 e US$ 100.000,00 (fora disso, é erro de digitação). No valor, ponto ou vírgula seguidos de três dígitos separam os milhares: "2.850" é US$ 2.850,00 (a mesma regra do valor do pagamento, acima). A solicitação entra "Aguardando aprovação". Enquanto aguarda, o agente pode cancelar; para mudar, cancela e cadastra outra.
 - **O Gabriel decide.** O painel avisa das que aguardam e a aba Solicitações mostra o contador. A ficha traz os containers com o valor de cada um e o total, e a situação do fornecedor naquele momento: em produção (valor, exemplares e POs abertas), no mar (embarques a caminho e a próxima chegada), a última chegada e as outras solicitações dele. Ele aprova, podendo aprovar menos containers de cada tipo que o pedido (nunca mais), com uma observação opcional; ou recusa, com o motivo, que é obrigatório. O agente vê a decisão, quem decidiu, quando e o que foi escrito. Decidida, a solicitação não muda mais; a confirmação antes de gravar mostra o que vai ser aprovado ou recusado.
 - **Registro.** Cada solicitação guarda quem pediu e quando, quem decidiu (ou cancelou) e quando, a observação ou o motivo, e o pedido e o aprovado de cada tipo. Total = containers × valor de cada um, em centavos de dólar. O nome do fornecedor fica guardado como estava no pedido; a tela mostra o nome atual, e "começar do zero" mantém as solicitações, só sem a ligação com o fornecedor.
 - **Combinado com o agente.** O app não impede uma reserva feita por fora: ele dá o canal e o registro. O combinado é que só se reserva o que está aprovado no No Porto. O próximo passo (seção 11) é ligar o embarque (BL) à solicitação aprovada e avisar quando chegar embarque sem aprovação ou com mais containers que o aprovado.
@@ -122,6 +123,7 @@ Sete perfis. Consulta e Embarques foram pedidos pelo Gabriel em 17/11/2026, para
 | Baixar a cópia completa | sim | sim (decidido em 19/11/2026) | sim (decidido em 19/11/2026) | não | não | não | não |
 | Ver as solicitações de embarque, com os valores | sim | sim | **não** (decidido em 19/11/2026) | não | não | não | só as próprias |
 | Cadastrar e cancelar solicitações de embarque | não | não | não | não | não | não | sim (cancelar, só enquanto aguarda) |
+| Corrigir o número de referência da solicitação | sim (decidido em 23/11/2026) | sim (decidido em 23/11/2026) | não | não | não | não | só nas próprias (decidido) |
 | Aprovar e recusar solicitações de embarque | só o Gabriel (decidido) | não | não | não | não | não | não |
 | Ver a previsão de estoque (aba e cartão do painel) | sim | sim | sim (decidido em 20/11/2026) | sim (decidido em 20/11/2026) | **não** (decidido) | **não** (decidido) | **não** |
 | Carregar a curva ABC | sim | sim (decidido em 20/11/2026) | não | não | não | não | não |
@@ -174,7 +176,7 @@ Em `src/core`, com teste, como no No Prelo:
 - Nos números em destaque (painel, "No mar" e totais por fornecedor), dólares inteiros, como US$ 3.042.056, para dar para comparar com a planilha; na tabela e na ficha, com centavos. Na tela Embarques, o que é pagamento sai com centavos (pedido do Gabriel em 18/11/2026): o "a pagar" do topo, o total de cada embarque, o total de cada grupo e a soma filtrada da visão por item.
 - Permissões, inclusive o que o leitor não pode ver.
 - Previsão de estoque (`src/core/stockForecast.ts`, decisões de 20/11/2026 na seção 2): o que o No Porto tem de cada título, pelo ISBN (o ISBN-10 vira ISBN-13 para casar com o código de barras da curva): embarcado (o que está a caminho **mais o que chegou depois da data do estoque da curva**, que a planilha ainda não conta), em produção, as POs com a data e o primeiro envio programado. Contas com a venda mensal com fração e arredondamento só na tela; a sugestão de reimpressão é feita em números inteiros, para a média com fração não errar o múltiplo de 1.000. Título sem venda: cobertura "sem venda", sem sugestão nem aviso. Com mais de uma PO em produção, vale a mais antiga para "pronta em"; PO sem data: o aviso mostra o prazo, mas não confere se fica pronta. Um mês vale 30 dias nas contas de data. Também avisa quando o envio programado é num mês depois do prazo e quando o estoque físico acaba antes da chegada prevista do embarcado.
-- Solicitações de embarque (`src/core/bookings.ts`): o que impede a solicitação de ser gravada, a aprovação (menos que o pedido, nunca mais, e pelo menos um container), os totais em centavos, o texto dos containers ("1 × 20' + 3 × 40' HC"), a ordem e os grupos da lista, quem decide (admin com a marca de aprovador) e quem cancela (o agente, a própria, enquanto aguarda).
+- Solicitações de embarque (`src/core/bookings.ts`): o que impede a solicitação de ser gravada, a aprovação (menos que o pedido, nunca mais, e pelo menos um container), os totais em centavos, o texto dos containers ("1 × 20' + 3 × 40' HC"), a ordem e os grupos da lista, quem decide (admin com a marca de aprovador), quem cancela (o agente, a própria, enquanto aguarda) e o número de referência (obrigatório ao pedir, até 40 caracteres, sem espaços sobrando; quem corrige: o agente nas dele, admin e editor em qualquer uma).
 
 ## 7. Carga da planilha (proposta)
 
@@ -247,7 +249,8 @@ bill_document_parts  document_id, seq, data (o arquivo em base64, em partes de 1
 users, sessions, login_attempts   como no No Prelo; users.approves_bookings marca quem aprova as solicitações (migração 0009)
 booking_requests   id, supplier_id, supplier_name (como estava no pedido), departure_port, departure_date,
                    notes, status (aguardando | aprovada | recusada | cancelada), created_at, created_by,
-                   decided_at, decided_by, decision_note   (migração 0009)
+                   decided_at, decided_by, decision_note   (migração 0009);
+                   reference (número de referência dado pelo agente; vazio nas anteriores; migração 0013)
 booking_request_lines  request_id, container_type (20 | 40 | 40HC), quantity, approved_quantity,
                    price_cents (valor de cada container)   (migração 0009)
 stock_curves     id, stock_date, file_name, row_count, rows_json (os títulos da curva ABC: código de barras,
