@@ -1577,3 +1577,10 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 .sol-ref-form .campo { flex: 1 1 180px; max-width: 280px; }
 .sol-ref-form .form-erro, .sol-ref-form [role="alert"] { flex-basis: 100%; }
 .sol-ref-campo { max-width: 340px; display: flex; flex-direction: column; gap: 6px; }
+/* Prontidão do container e previsão de chegada (23/11/2026): no formulário, as três datas lado a lado. */
+.grade-campos.sol-campos.sol-campos-dois { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
+.grade-campos.sol-campos.sol-datas { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.sol-datas-linha { color: var(--tinta-2); }
+@media (max-width: 600px) {
+  .grade-campos.sol-campos.sol-campos-dois, .grade-campos.sol-campos.sol-datas { grid-template-columns: minmax(0, 1fr); }
+}
