@@ -7,11 +7,12 @@ import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from
 import {
   approvalProblem,
   approvedLess,
+  arrivalDateProblem,
   BOOKING_STATUS_LABELS,
   bookingProblem,
   bookingTotalCents,
   canCancelBooking,
-  canEditBookingReference,
+  canEditBookingDetails,
   CONTAINER_LABELS,
   CONTAINER_TYPES,
   containerCount,
@@ -24,6 +25,7 @@ import {
   parseContainerPrice,
   pendingCount,
   portSuggestions,
+  readyDateProblem,
   REFERENCE_MAX,
   referenceProblem,
   sortedLines,
@@ -336,6 +338,11 @@ function BookingCard({ request: r, today, agent, onOpen }: { request: BookingReq
           </>
         )}
       </span>
+      {(r.readyDate || r.arrivalDate) && (
+        <span className="emb-meta sol-datas-linha">
+          {[r.readyDate && `prontidão ${formatDay(r.readyDate, true)}`, r.arrivalDate && `chegada ${formatDay(r.arrivalDate, true)}`].filter(Boolean).join(' · ')}
+        </span>
+      )}
       <span className="emb-pe">
         <span>
           {agent ? 'Pedido' : `${r.createdBy.name.split(' ')[0]} pediu`} em {formatDay(dayOf(r.createdAt), true)}
@@ -353,24 +360,37 @@ export interface BookingContext {
   suppliers: SupplierSummary[] | null;
 }
 
-/** O número de referência na ficha: quem pode (o agente nas dele, admin e editor) preenche e corrige ali. */
-function ReferenceValue({ request: r, editable, onSaved }: { request: BookingRequest; editable: boolean; onSaved: (request: BookingRequest, message: string) => void }) {
+type Detail = 'reference' | 'readyDate' | 'arrivalDate';
+
+const DETAIL_TEXTS: Record<Detail, { label: string; empty: string; saved: string }> = {
+  reference: { label: 'Número de referência', empty: 'Sem referência', saved: 'Número de referência salvo.' },
+  readyDate: { label: 'Prontidão do container', empty: 'Não informada', saved: 'Prontidão do container salva.' },
+  arrivalDate: { label: 'Previsão de chegada', empty: 'Não informada', saved: 'Previsão de chegada salva.' },
+};
+
+/**
+ * Um dado que se corrige na ficha (decidido em 23/11/2026): o número de referência, a prontidão do
+ * container ou a previsão de chegada. Quem pode (o agente nas dele, admin e editor) preenche e corrige ali.
+ */
+function DetailValue({ request: r, field, editable, onSaved }: { request: BookingRequest; field: Detail; editable: boolean; onSaved: (request: BookingRequest, message: string) => void }) {
+  const current = field === 'reference' ? r.reference : (r[field] ?? '');
+  const texts = DETAIL_TEXTS[field];
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(r.reference);
+  const [value, setValue] = useState(current);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const inputId = useId();
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    const problem = referenceProblem(value);
+    const problem = field === 'reference' ? referenceProblem(value) : field === 'readyDate' ? readyDateProblem(r.departureDate, value) : arrivalDateProblem(r.departureDate, value);
     if (problem) return setError(problem);
     setBusy(true);
     setError(null);
     try {
-      const res = await api.updateBookingReference(r.id, normalizeReference(value));
+      const res = await api.updateBookingDetails(r.id, { [field]: field === 'reference' ? normalizeReference(value) : value });
       setEditing(false);
-      onSaved(res.request, 'Número de referência salvo.');
+      onSaved(res.request, texts.saved);
     } catch (err) {
       setError(message(err));
     } finally {
@@ -382,14 +402,15 @@ function ReferenceValue({ request: r, editable, onSaved }: { request: BookingReq
     return (
       <form className="sol-ref-form" onSubmit={save} noValidate>
         <label className="so-leitor" htmlFor={inputId}>
-          Número de referência
+          {texts.label}
         </label>
         <input
           id={inputId}
           className="campo"
+          type={field === 'reference' ? 'text' : 'date'}
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          maxLength={REFERENCE_MAX}
+          maxLength={field === 'reference' ? REFERENCE_MAX : undefined}
           autoComplete="off"
           autoFocus
           aria-invalid={error ? true : undefined}
@@ -402,7 +423,7 @@ function ReferenceValue({ request: r, editable, onSaved }: { request: BookingReq
           className="btn"
           onClick={() => {
             setEditing(false);
-            setValue(r.reference);
+            setValue(current);
             setError(null);
           }}
         >
@@ -414,17 +435,18 @@ function ReferenceValue({ request: r, editable, onSaved }: { request: BookingReq
   }
   return (
     <span className="sol-ref">
-      {r.reference ? <b>{r.reference}</b> : <span className="sol-sem-ref">Sem referência</span>}
+      {current ? <b>{field === 'reference' ? current : formatDay(current, true)}</b> : <span className="sol-sem-ref">{texts.empty}</span>}
       {editable && (
         <button
           type="button"
           className="btn-texto"
+          aria-label={`${current ? 'Corrigir' : 'Preencher'}: ${texts.label.toLowerCase()}`}
           onClick={() => {
-            setValue(r.reference);
+            setValue(current);
             setEditing(true);
           }}
         >
-          {r.reference ? 'Corrigir' : 'Preencher'}
+          {current ? 'Corrigir' : 'Preencher'}
         </button>
       )}
     </span>
@@ -617,11 +639,15 @@ export function BookingDialog({ request, data, me, context, onClose, onSaved, on
             <dl className="sol-dados">
               <dt>Número de referência</dt>
               <dd>
-                <ReferenceValue key={r.id} request={r} editable={canEditBookingReference(r, me)} onSaved={onSaved} />
+                <DetailValue key={r.id} request={r} field="reference" editable={canEditBookingDetails(r, me)} onSaved={onSaved} />
               </dd>
               <dt>Fornecedor</dt>
               <dd>
                 <SupplierName request={r} />
+              </dd>
+              <dt>Prontidão do container</dt>
+              <dd>
+                <DetailValue key={r.id} request={r} field="readyDate" editable={canEditBookingDetails(r, me)} onSaved={onSaved} />
               </dd>
               <dt>Saída</dt>
               <dd>
@@ -632,6 +658,10 @@ export function BookingDialog({ request, data, me, context, onClose, onSaved, on
                     <DepartureHint date={r.departureDate} today={data.today} />
                   </>
                 )}
+              </dd>
+              <dt>Previsão de chegada</dt>
+              <dd>
+                <DetailValue key={r.id} request={r} field="arrivalDate" editable={canEditBookingDetails(r, me)} onSaved={onSaved} />
               </dd>
               <dt>Pedido por</dt>
               <dd>
@@ -898,11 +928,13 @@ export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boo
   const [supplierId, setSupplierId] = useState('');
   const [port, setPort] = useState('');
   const [date, setDate] = useState('');
+  const [readyDate, setReadyDate] = useState('');
+  const [arrivalDate, setArrivalDate] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<LineDraft[]>(() => [draft('40HC')]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const ids = { reference: useId(), supplier: useId(), port: useId(), ports: useId(), date: useId(), notes: useId() };
+  const ids = { reference: useId(), supplier: useId(), port: useId(), ports: useId(), date: useId(), ready: useId(), arrival: useId(), notes: useId() };
   const ports = useMemo(() => portSuggestions(data.requests), [data.requests]);
 
   useEffect(() => {
@@ -911,6 +943,8 @@ export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boo
     setSupplierId('');
     setPort('');
     setDate('');
+    setReadyDate('');
+    setArrivalDate('');
     setNotes('');
     setLines([draft('40HC')]);
     setError(null);
@@ -938,7 +972,7 @@ export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boo
     if (!supplierId) return setError('Escolha o fornecedor.');
     const unreadable = lines.find((l, i) => l.price.trim() && Number.isNaN(parsed[i]!.priceCents));
     if (unreadable) return setError(`O valor de cada container de ${CONTAINER_LABELS[unreadable.containerType]} não é um número. Escreva, por exemplo, 2.850,00.`);
-    const input = { reference: normalizeReference(reference), departurePort: port.replace(/\s+/g, ' ').trim(), departureDate: date, lines: parsed.map((l) => ({ ...l, quantity: Number.isNaN(l.quantity) ? 0 : l.quantity, priceCents: Number.isNaN(l.priceCents) ? 0 : l.priceCents })) };
+    const input = { reference: normalizeReference(reference), departurePort: port.replace(/\s+/g, ' ').trim(), departureDate: date, readyDate, arrivalDate, lines: parsed.map((l) => ({ ...l, quantity: Number.isNaN(l.quantity) ? 0 : l.quantity, priceCents: Number.isNaN(l.priceCents) ? 0 : l.priceCents })) };
     const problem = bookingProblem(input, data.today);
     if (problem) return setError(problem);
     setBusy(true);
@@ -977,7 +1011,7 @@ export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boo
               O número que você dá a este embarque. Aparece no lugar de destaque da solicitação; dá para corrigir depois.
             </span>
           </div>
-          <div className="grade-campos sol-campos">
+          <div className="grade-campos sol-campos sol-campos-dois">
             <div className="grupo">
               <label className="rotulo" htmlFor={ids.supplier}>
                 Fornecedor
@@ -1002,11 +1036,25 @@ export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boo
                 ))}
               </datalist>
             </div>
+          </div>
+          <div className="grade-campos sol-campos sol-datas">
+            <div className="grupo">
+              <label className="rotulo" htmlFor={ids.ready}>
+                Prontidão do container
+              </label>
+              <input id={ids.ready} className="campo" type="date" value={readyDate} onChange={(e) => setReadyDate(e.target.value)} required />
+            </div>
             <div className="grupo">
               <label className="rotulo" htmlFor={ids.date}>
                 Saída prevista
               </label>
               <input id={ids.date} className="campo" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+            </div>
+            <div className="grupo">
+              <label className="rotulo" htmlFor={ids.arrival}>
+                Previsão de chegada
+              </label>
+              <input id={ids.arrival} className="campo" type="date" value={arrivalDate} onChange={(e) => setArrivalDate(e.target.value)} required />
             </div>
           </div>
 

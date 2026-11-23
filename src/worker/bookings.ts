@@ -8,10 +8,12 @@ import {
   BOOKING_STATUS_LABELS,
   bookingProblem,
   canDecideBookings,
-  canEditBookingReference,
+  canEditBookingDetails,
   CONTAINER_TYPES,
+  arrivalDateProblem,
   MAX_CONTAINERS,
   normalizeReference,
+  readyDateProblem,
   referenceProblem,
   type BookingRequest,
   type BookingStatus,
@@ -33,8 +35,12 @@ const note = (max: number) =>
 
 const reference = z.string({ error: 'Informe o número de referência.' }).max(400, 'O número de referência pode ter no máximo 40 caracteres.').transform(normalizeReference);
 
+const day = (message: string) => z.string({ error: message }).max(20, message);
+
 const createBody = z.object({
   reference,
+  readyDate: day('Informe a prontidão do container.'),
+  arrivalDate: day('Informe a previsão de chegada.'),
   supplierId: z.string({ error: 'Escolha o fornecedor.' }).min(1, 'Escolha o fornecedor.').max(100, 'Fornecedor inválido.'),
   departurePort: z
     .string({ error: 'Informe o porto de saída.' })
@@ -59,7 +65,12 @@ const approveBody = z.object({
   note: note(1000).default(''),
 });
 
-const referenceBody = z.object({ reference });
+/** O que se corrige depois: o número de referência e as duas datas, um de cada vez ou juntos. */
+const detailsBody = z.object({
+  reference: reference.optional(),
+  readyDate: day('Informe a prontidão do container.').optional(),
+  arrivalDate: day('Informe a previsão de chegada.').optional(),
+});
 
 const refuseBody = z.object({
   note: z
@@ -74,6 +85,8 @@ const refuseBody = z.object({
 interface RequestRow {
   id: string;
   reference: string;
+  ready_date: string | null;
+  arrival_date: string | null;
   supplier_id: string | null;
   supplier_name: string;
   current_supplier_name: string | null;
@@ -108,6 +121,8 @@ function toRequest(row: RequestRow, lines: readonly LineRow[]): BookingRequest {
   return {
     id: row.id,
     reference: row.reference,
+    readyDate: row.ready_date,
+    arrivalDate: row.arrival_date,
     supplierId: row.supplier_id,
     // O nome atual do fornecedor (pode ter sido corrigido); sem fornecedor, o nome do pedido.
     supplierName: row.current_supplier_name ?? row.supplier_name,
@@ -170,9 +185,9 @@ async function createRequest(request: Request, env: Env, session: Session, now: 
   const at = now.toISOString();
   await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO booking_requests (id, reference, supplier_id, supplier_name, departure_port, departure_date, notes, status, created_at, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'aguardando', ?, ?)`,
-    ).bind(id, body.reference, supplier.id, supplier.name, body.departurePort, body.departureDate, body.notes, at, session.user.id),
+      `INSERT INTO booking_requests (id, reference, supplier_id, supplier_name, departure_port, departure_date, ready_date, arrival_date, notes, status, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'aguardando', ?, ?)`,
+    ).bind(id, body.reference, supplier.id, supplier.name, body.departurePort, body.departureDate, body.readyDate, body.arrivalDate, body.notes, at, session.user.id),
     ...body.lines.map((l) =>
       env.DB.prepare('INSERT INTO booking_request_lines (request_id, container_type, quantity, price_cents) VALUES (?, ?, ?, ?)').bind(id, l.containerType, l.quantity, l.priceCents),
     ),
@@ -180,17 +195,41 @@ async function createRequest(request: Request, env: Env, session: Session, now: 
   return json({ request: await loadRequest(env, id) }, 201);
 }
 
-/** Corrige o número de referência: o agente nas próprias solicitações, admin e editor em qualquer uma. */
-async function updateReference(request: Request, env: Env, session: Session, id: string): Promise<Response> {
+/**
+ * Corrige o número de referência, a prontidão do container e a previsão de chegada: o agente nas
+ * próprias solicitações, admin e editor em qualquer uma. As datas são conferidas com a saída prevista.
+ */
+async function updateDetails(request: Request, env: Env, session: Session, id: string): Promise<Response> {
   checkMutation(request);
-  const body = await readBody(request, referenceBody);
+  const body = await readBody(request, detailsBody);
   const current = await loadRequest(env, id);
   // A de outra pessoa nem aparece para o Agente: responde como se não existisse.
   if (!current || (can(session.user.role, 'request_bookings') && current.createdBy.id !== session.user.id)) return error(404, 'Solicitação não encontrada.');
-  if (!canEditBookingReference(current, session.user)) return error(403, 'Você não corrige o número de referência desta solicitação.');
-  const problem = referenceProblem(body.reference);
-  if (problem) return error(400, problem);
-  await env.DB.prepare('UPDATE booking_requests SET reference = ? WHERE id = ?').bind(body.reference, id).run();
+  if (!canEditBookingDetails(current, session.user)) return error(403, 'Você não corrige os dados desta solicitação.');
+  const sets: string[] = [];
+  const values: string[] = [];
+  if (body.reference !== undefined) {
+    const problem = referenceProblem(body.reference);
+    if (problem) return error(400, problem);
+    sets.push('reference = ?');
+    values.push(body.reference);
+  }
+  if (body.readyDate !== undefined) {
+    const problem = readyDateProblem(current.departureDate, body.readyDate);
+    if (problem) return error(400, problem);
+    sets.push('ready_date = ?');
+    values.push(body.readyDate);
+  }
+  if (body.arrivalDate !== undefined) {
+    const problem = arrivalDateProblem(current.departureDate, body.arrivalDate);
+    if (problem) return error(400, problem);
+    sets.push('arrival_date = ?');
+    values.push(body.arrivalDate);
+  }
+  if (!sets.length) return error(400, 'Informe o que corrigir.');
+  await env.DB.prepare(`UPDATE booking_requests SET ${sets.join(', ')} WHERE id = ?`)
+    .bind(...values, id)
+    .run();
   return json({ request: await loadRequest(env, id) });
 }
 
@@ -269,7 +308,7 @@ export async function routeBookings(request: Request, env: Env, session: Session
   const one = /^\/api\/bookings\/([^/]+)$/.exec(path);
   if (one && request.method === 'PATCH') {
     if (!requester && !can(role, 'view_bookings')) return error(403, 'Seu perfil não vê as solicitações de embarque.');
-    return updateReference(request, env, session, decodeURIComponent(one[1]!));
+    return updateDetails(request, env, session, decodeURIComponent(one[1]!));
   }
   const m = /^\/api\/bookings\/([^/]+)\/(cancel|approve|refuse)$/.exec(path);
   if (m && request.method === 'POST') {

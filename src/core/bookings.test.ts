@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   approvalProblem,
   approvedLess,
+  bookingDatesProblem,
   bookingProblem,
   bookingTotalCents,
   canCancelBooking,
   canDecideBookings,
-  canEditBookingReference,
+  canEditBookingDetails,
   containerCount,
   containersText,
   departureText,
@@ -24,12 +25,21 @@ import {
 } from './bookings';
 
 const TODAY = '2026-11-19';
-const valid = { reference: 'SZX-2026-118', departurePort: 'Shenzhen', departureDate: '2026-12-05', lines: [{ containerType: '40HC' as const, quantity: 3, priceCents: 285_000 }] };
+const valid = {
+  reference: 'SZX-2026-118',
+  departurePort: 'Shenzhen',
+  departureDate: '2026-12-05',
+  readyDate: '2026-12-01',
+  arrivalDate: '2027-01-15',
+  lines: [{ containerType: '40HC' as const, quantity: 3, priceCents: 285_000 }],
+};
 
 function request(over: Partial<BookingRequest> = {}): BookingRequest {
   return {
     id: 'r1',
     reference: 'SZX-2026-118',
+    readyDate: '2026-12-01',
+    arrivalDate: '2027-01-15',
     supplierId: 'claire',
     supplierName: 'Claire',
     departurePort: 'Shenzhen',
@@ -59,6 +69,17 @@ describe('nova solicitação', () => {
     expect(normalizeReference('  SZX  2026 118 ')).toBe('SZX 2026 118');
   });
 
+  it('pede a prontidão do container e a previsão de chegada (23/11/2026): pronta até a saída, chegada depois dela', () => {
+    expect(bookingProblem({ ...valid, readyDate: '' }, TODAY)).toBe('Informe a prontidão do container.');
+    expect(bookingProblem({ ...valid, arrivalDate: '15/01/2027' }, TODAY)).toBe('Informe a previsão de chegada.');
+    expect(bookingProblem({ ...valid, readyDate: '2026-12-06' }, TODAY)).toBe('A prontidão do container passa da saída prevista. Confira as datas.');
+    expect(bookingProblem({ ...valid, readyDate: '2026-12-05' }, TODAY)).toBeNull();
+    expect(bookingProblem({ ...valid, readyDate: '2025-12-01' }, TODAY)).toBe('A prontidão do container está muito antes da saída. Confira o dia e o ano.');
+    expect(bookingProblem({ ...valid, arrivalDate: '2026-12-05' }, TODAY)).toBe('A previsão de chegada deve ser depois da saída prevista.');
+    expect(bookingProblem({ ...valid, arrivalDate: '2028-01-15' }, TODAY)).toBe('A previsão de chegada está muito longe da saída. Confira o dia e o ano.');
+    expect(bookingDatesProblem({ departureDate: '2026-12-05', readyDate: '2026-06-08', arrivalDate: '2027-04-04' })).toBeNull();
+  });
+
   it('pede porto, data e pelo menos um tipo de container', () => {
     expect(bookingProblem({ ...valid, departurePort: '  ' }, TODAY)).toBe('Informe o porto de saída.');
     expect(bookingProblem({ ...valid, departureDate: '' }, TODAY)).toBe('Informe a data de saída.');
@@ -68,10 +89,13 @@ describe('nova solicitação', () => {
   });
 
   it('desconfia de data muito longe (ano errado), mas aceita saída recente já passada', () => {
-    expect(bookingProblem({ ...valid, departureDate: '2026-10-01' }, TODAY)).toBeNull();
-    expect(bookingProblem({ ...valid, departureDate: '2026-08-01' }, TODAY)).toBe('A data de saída parece errada. Confira o dia e o ano.');
-    expect(bookingProblem({ ...valid, departureDate: '2027-11-19' }, TODAY)).toBeNull();
-    expect(bookingProblem({ ...valid, departureDate: '2028-01-05' }, TODAY)).toBe('A data de saída parece errada. Confira o dia e o ano.');
+    // A saída em outro dia, com a prontidão 4 dias antes e a chegada 41 dias depois.
+    const shift = (iso: string, days: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+    const leaving = (departureDate: string) => ({ ...valid, departureDate, readyDate: shift(departureDate, -4), arrivalDate: shift(departureDate, 41) });
+    expect(bookingProblem(leaving('2026-10-01'), TODAY)).toBeNull();
+    expect(bookingProblem(leaving('2026-08-01'), TODAY)).toBe('A data de saída parece errada. Confira o dia e o ano.');
+    expect(bookingProblem(leaving('2027-11-19'), TODAY)).toBeNull();
+    expect(bookingProblem(leaving('2028-01-05'), TODAY)).toBe('A data de saída parece errada. Confira o dia e o ano.');
   });
 
   it('cada tipo uma vez, com quantidade e valor', () => {
@@ -249,12 +273,12 @@ describe('lista', () => {
 });
 
 describe('número de referência', () => {
-  it('o agente corrige o das próprias solicitações, em qualquer situação; admin e editor, o de qualquer uma; os outros perfis, não', () => {
+  it('o agente corrige o número e as datas das próprias solicitações, em qualquer situação; admin e editor, de qualquer uma; os outros perfis, não', () => {
     const own = request();
     const agent = { id: 'agente', role: 'agente' as const };
-    for (const status of ['aguardando', 'aprovada', 'recusada', 'cancelada'] as const) expect(canEditBookingReference(request({ status }), agent)).toBe(true);
-    expect(canEditBookingReference(own, { id: 'outro-agente', role: 'agente' })).toBe(false);
-    for (const role of ['admin', 'editor'] as const) expect(canEditBookingReference(own, { id: 'x', role }), role).toBe(true);
-    for (const role of ['consulta', 'leitor', 'embarques', 'vendas'] as const) expect(canEditBookingReference(own, { id: 'x', role }), role).toBe(false);
+    for (const status of ['aguardando', 'aprovada', 'recusada', 'cancelada'] as const) expect(canEditBookingDetails(request({ status }), agent)).toBe(true);
+    expect(canEditBookingDetails(own, { id: 'outro-agente', role: 'agente' })).toBe(false);
+    for (const role of ['admin', 'editor'] as const) expect(canEditBookingDetails(own, { id: 'x', role }), role).toBe(true);
+    for (const role of ['consulta', 'leitor', 'embarques', 'vendas'] as const) expect(canEditBookingDetails(own, { id: 'x', role }), role).toBe(false);
   });
 });

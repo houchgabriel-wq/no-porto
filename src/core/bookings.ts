@@ -34,6 +34,10 @@ export const REFERENCE_MAX = 40;
 /** A saída pode ter passado há no máximo 90 dias (pedido registrado atrasado) e estar a no máximo um ano. */
 const MAX_DAYS_BEFORE = 90;
 const MAX_DAYS_AFTER = 366;
+/** A carga pode ficar pronta até 180 dias antes da saída; mais que isso é erro de ano. */
+const MAX_READY_BEFORE_DEPARTURE = 180;
+/** A viagem leva no máximo 120 dias; mais que isso é erro de ano. */
+const MAX_VOYAGE_DAYS = 120;
 
 export interface BookingLine {
   containerType: ContainerType;
@@ -57,6 +61,13 @@ export interface BookingRequest {
    * vazio nas solicitações anteriores, até alguém preencher.
    */
   reference: string;
+  /**
+   * Prontidão do container: o dia em que a carga fica pronta no fornecedor (AAAA-MM-DD). Obrigatória nas
+   * novas, decidido em 23/11/2026; null nas solicitações anteriores, até alguém preencher.
+   */
+  readyDate: string | null;
+  /** Previsão de chegada (AAAA-MM-DD), como a prontidão. */
+  arrivalDate: string | null;
   /** null só quando o fornecedor deixou de existir (o admin apagou tudo para começar do zero). */
   supplierId: string | null;
   supplierName: string;
@@ -94,9 +105,35 @@ export function referenceProblem(text: string): string | null {
   return null;
 }
 
+/** O que impede a prontidão do container de ser gravada, ou null: obrigatória e até a saída prevista. */
+export function readyDateProblem(departureDate: string, readyDate: string): string | null {
+  if (parseDate(readyDate) !== readyDate) return 'Informe a prontidão do container.';
+  const days = daysBetween(readyDate, departureDate);
+  if (days < 0) return 'A prontidão do container passa da saída prevista. Confira as datas.';
+  if (days > MAX_READY_BEFORE_DEPARTURE) return 'A prontidão do container está muito antes da saída. Confira o dia e o ano.';
+  return null;
+}
+
+/** O que impede a previsão de chegada de ser gravada, ou null: obrigatória e depois da saída prevista. */
+export function arrivalDateProblem(departureDate: string, arrivalDate: string): string | null {
+  if (parseDate(arrivalDate) !== arrivalDate) return 'Informe a previsão de chegada.';
+  const days = daysBetween(departureDate, arrivalDate);
+  if (days <= 0) return 'A previsão de chegada deve ser depois da saída prevista.';
+  if (days > MAX_VOYAGE_DAYS) return 'A previsão de chegada está muito longe da saída. Confira o dia e o ano.';
+  return null;
+}
+
+/**
+ * O que impede a prontidão do container e a previsão de chegada de serem gravadas, ou null: as duas
+ * são obrigatórias, a carga fica pronta até a saída e o navio chega depois dela.
+ */
+export function bookingDatesProblem(dates: { departureDate: string; readyDate: string; arrivalDate: string }): string | null {
+  return readyDateProblem(dates.departureDate, dates.readyDate) ?? arrivalDateProblem(dates.departureDate, dates.arrivalDate);
+}
+
 /** O que impede a solicitação de ser gravada, ou null. `today` é o dia em São Paulo (AAAA-MM-DD). */
 export function bookingProblem(
-  input: { reference: string; departurePort: string; departureDate: string; lines: readonly NewBookingLine[] },
+  input: { reference: string; departurePort: string; departureDate: string; readyDate: string; arrivalDate: string; lines: readonly NewBookingLine[] },
   today: string,
 ): string | null {
   const reference = referenceProblem(input.reference);
@@ -105,6 +142,8 @@ export function bookingProblem(
   if (parseDate(input.departureDate) !== input.departureDate) return 'Informe a data de saída.';
   const days = daysBetween(today, input.departureDate);
   if (days < -MAX_DAYS_BEFORE || days > MAX_DAYS_AFTER) return 'A data de saída parece errada. Confira o dia e o ano.';
+  const dates = bookingDatesProblem(input);
+  if (dates) return dates;
   if (input.lines.length === 0) return 'Informe pelo menos um tipo de container.';
   const seen = new Set<ContainerType>();
   for (const line of input.lines) {
@@ -205,10 +244,11 @@ export function canCancelBooking(request: Pick<BookingRequest, 'status' | 'creat
 }
 
 /**
- * Quem corrige o número de referência (decidido em 23/11/2026): o agente, nas próprias solicitações, e
- * admin e editor, em qualquer uma, em qualquer situação (as antigas não têm número).
+ * Quem corrige o número de referência, a prontidão do container e a previsão de chegada (decidido em
+ * 23/11/2026): o agente, nas próprias solicitações, e admin e editor, em qualquer uma, em qualquer
+ * situação (as antigas não têm esses dados).
  */
-export function canEditBookingReference(request: Pick<BookingRequest, 'createdBy'>, user: { id: string; role: Role }): boolean {
+export function canEditBookingDetails(request: Pick<BookingRequest, 'createdBy'>, user: { id: string; role: Role }): boolean {
   if (can(user.role, 'request_bookings')) return request.createdBy.id === user.id;
   return can(user.role, 'view_bookings');
 }

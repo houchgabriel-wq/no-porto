@@ -14,6 +14,8 @@ const novo = (over: object = {}) => ({
   supplierId: claire,
   departurePort: 'Shenzhen',
   departureDate: '2026-12-05',
+  readyDate: '2026-12-01',
+  arrivalDate: '2027-01-15',
   notes: 'Navio da COSCO',
   lines: [
     { containerType: '40HC', quantity: 3, priceCents: 285_000 },
@@ -47,6 +49,8 @@ describe('o agente pede', () => {
       supplierName: 'Claire',
       departurePort: 'Shenzhen',
       departureDate: '2026-12-05',
+      readyDate: '2026-12-01',
+      arrivalDate: '2027-01-15',
       notes: 'Navio da COSCO',
       status: 'aguardando',
       createdBy: { id: who.agente.id, name: 'Ana Agente' },
@@ -90,6 +94,10 @@ describe('o agente pede', () => {
       [{ departurePort: '   ' }, 'Informe o porto de saída.'],
       [{ departureDate: '05/12/2026' }, 'Informe a data de saída.'],
       [{ departureDate: '2062-12-05' }, 'A data de saída parece errada. Confira o dia e o ano.'],
+      [{ readyDate: undefined }, 'Informe a prontidão do container.'],
+      [{ readyDate: '2026-12-06' }, 'A prontidão do container passa da saída prevista. Confira as datas.'],
+      [{ arrivalDate: '' }, 'Informe a previsão de chegada.'],
+      [{ arrivalDate: '2026-12-04' }, 'A previsão de chegada deve ser depois da saída prevista.'],
       [{ lines: [] }, 'Informe pelo menos um tipo de container.'],
       [{ lines: [{ containerType: '45', quantity: 1, priceCents: 1 }] }, 'Tipo de container inválido.'],
       [{ lines: [{ containerType: '40', quantity: 2, priceCents: 250_000 }, { containerType: '40', quantity: 1, priceCents: 250_000 }] }, "O container 40' aparece duas vezes. Junte as quantidades numa linha só."],
@@ -274,8 +282,31 @@ describe('começar do zero', () => {
   });
 });
 
-describe('número de referência (23/11/2026)', () => {
+describe('número de referência, prontidão e previsão de chegada (23/11/2026)', () => {
   const corrigir = (id: string, reference: unknown, cookie: string) => app.call('PATCH', `/api/bookings/${id}`, { cookie, body: { reference } });
+  const datas = (id: string, body: object, cookie: string) => app.call('PATCH', `/api/bookings/${id}`, { cookie, body });
+
+  it('a solicitação antiga, sem as datas, recebe uma de cada vez; as datas são conferidas com a saída', async () => {
+    const id = (await pedir()).data.request.id;
+    await app.env.DB.prepare("UPDATE booking_requests SET reference = '', ready_date = NULL, arrival_date = NULL WHERE id = ?").bind(id).run();
+    expect((await app.call('GET', '/api/bookings', { cookie: who.agente.cookie })).data.requests[0]).toMatchObject({ readyDate: null, arrivalDate: null });
+
+    expect((await datas(id, { readyDate: '2026-11-30' }, who.agente.cookie)).data.request).toMatchObject({ readyDate: '2026-11-30', arrivalDate: null });
+    expect((await datas(id, { arrivalDate: '2027-01-20' }, who.editor.cookie)).data.request).toMatchObject({ readyDate: '2026-11-30', arrivalDate: '2027-01-20' });
+    expect((await datas(id, { reference: 'SZX-1', arrivalDate: '2027-01-22' }, who.admin.cookie)).data.request).toMatchObject({ reference: 'SZX-1', arrivalDate: '2027-01-22' });
+
+    for (const [body, message] of [
+      [{ readyDate: '2026-12-09' }, 'A prontidão do container passa da saída prevista. Confira as datas.'],
+      [{ arrivalDate: '2026-12-01' }, 'A previsão de chegada deve ser depois da saída prevista.'],
+      [{ arrivalDate: '2027-12-01' }, 'A previsão de chegada está muito longe da saída. Confira o dia e o ano.'],
+      [{ readyDate: '' }, 'Informe a prontidão do container.'],
+      [{}, 'Informe o que corrigir.'],
+    ] as const) {
+      const res = await datas(id, body, who.agente.cookie);
+      expect([res.status, res.data.error]).toEqual([400, message]);
+    }
+    for (const w of [who.consulta, who.leitor, who.embarques, who.vendas]) expect((await datas(id, { arrivalDate: '2027-01-25' }, w.cookie)).status).toBe(403);
+  });
 
   it('o agente preenche o número na solicitação antiga, mesmo aprovada, e corrige depois', async () => {
     const id = (await pedir()).data.request.id;
@@ -316,7 +347,6 @@ describe('número de referência (23/11/2026)', () => {
     for (const [reference, message] of [
       ['  ', 'Informe o número de referência.'],
       ['X'.repeat(41), 'O número de referência pode ter no máximo 40 caracteres.'],
-      [undefined, 'Informe o número de referência.'],
     ] as const) {
       const res = await corrigir(id, reference, who.agente.cookie);
       expect([res.status, res.data.error]).toEqual([400, message]);

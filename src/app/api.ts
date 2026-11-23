@@ -62,6 +62,9 @@ export interface BookingsData {
 export interface NewBooking {
   /** Número de referência, dado pelo agente (obrigatório: 23/11/2026). */
   reference: string;
+  /** Prontidão do container e previsão de chegada (AAAA-MM-DD), obrigatórias desde 23/11/2026. */
+  readyDate: string;
+  arrivalDate: string;
   supplierId: string;
   departurePort: string;
   departureDate: string;
@@ -225,8 +228,9 @@ export const api = {
   bookings: () => request<BookingsData>('GET', '/api/bookings'),
   createBooking: (body: NewBooking) => request<{ request: BookingRequest }>('POST', '/api/bookings', body),
   cancelBooking: (id: string) => request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/cancel`),
-  /** Corrige o número de referência (o agente nas dele, admin e editor em qualquer uma). */
-  updateBookingReference: (id: string, reference: string) => request<{ request: BookingRequest }>('PATCH', `/api/bookings/${encodeURIComponent(id)}`, { reference }),
+  /** Corrige o número de referência e as datas (o agente nas dele, admin e editor em qualquer uma). */
+  updateBookingDetails: (id: string, body: Partial<{ reference: string; readyDate: string; arrivalDate: string }>) =>
+    request<{ request: BookingRequest }>('PATCH', `/api/bookings/${encodeURIComponent(id)}`, body),
   approveBooking: (id: string, body: { lines: { containerType: ContainerType; approvedQuantity: number }[]; note: string }) =>
     request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/approve`, body),
   refuseBooking: (id: string, note: string) => request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/refuse`, { note }),
