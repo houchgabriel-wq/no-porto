@@ -228,7 +228,7 @@ function StockCard({ stock }: { stock: NonNullable<Props['stock']> | null }) {
         <>
           <ul className="lista">
             <li>
-              <a className={`prev-painel-linha ${s.late > 0 ? 'critico' : s.ship > 0 ? 'alerta' : 'ok'}`} href="#estoque">
+              <a className={`prev-painel-linha ${s.late > 0 ? 'critico' : s.ship > 0 ? 'alerta' : 'ok'}`} href="#estoque/embarcar">
                 <span className="prev-painel-ic" aria-hidden="true">
                   <Icon name={s.ship > 0 ? 'alerta' : 'check'} />
                 </span>
@@ -241,7 +241,7 @@ function StockCard({ stock }: { stock: NonNullable<Props['stock']> | null }) {
               </a>
             </li>
             <li>
-              <a className={`prev-painel-linha ${s.reprint > 0 ? 'alerta' : 'ok'}`} href="#estoque">
+              <a className={`prev-painel-linha ${s.reprint > 0 ? 'alerta' : 'ok'}`} href="#estoque/reimprimir">
                 <span className="prev-painel-ic" aria-hidden="true">
                   <Icon name="livro" />
                 </span>
@@ -254,7 +254,7 @@ function StockCard({ stock }: { stock: NonNullable<Props['stock']> | null }) {
             </li>
             {s.gaps > 0 && (
               <li>
-                <a className="prev-painel-linha critico" href="#estoque">
+                <a className="prev-painel-linha critico" href="#estoque/acao">
                   <span className="prev-painel-ic" aria-hidden="true">
                     <Icon name="navio" />
                   </span>
