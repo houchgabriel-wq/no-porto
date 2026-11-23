@@ -11,7 +11,8 @@ import { daysBetween, parseDate } from './shipments';
 export const CONTAINER_TYPES = ['20', '40', '40HC'] as const;
 export type ContainerType = (typeof CONTAINER_TYPES)[number];
 
-export const CONTAINER_LABELS: Record<ContainerType, string> = { '20': "20'", '40': "40'", '40HC': "40' HC" };
+/** Os três tipos; o 40' é o 40' NOR (trocado a pedido do Gabriel em 23/11/2026). */
+export const CONTAINER_LABELS: Record<ContainerType, string> = { '20': "20'", '40': "40' NOR", '40HC': "40' HC" };
 
 export const BOOKING_STATUSES = ['aguardando', 'aprovada', 'recusada', 'cancelada'] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];

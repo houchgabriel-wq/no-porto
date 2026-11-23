@@ -169,6 +169,8 @@ describe('containers e valores', () => {
   it('ordem dos tipos e texto do pedido e do aprovado', () => {
     expect(sortedLines(lines).map((l) => l.containerType)).toEqual(['20', '40HC']);
     expect(containersText(lines)).toBe("1 × 20' + 2 × 40' HC");
+    // O 40' agora é o 40' NOR (23/11/2026).
+    expect(containersText([{ containerType: '40', quantity: 3, approvedQuantity: null }])).toBe("3 × 40' NOR");
     expect(containersText(lines, 'aprovado')).toBe("1 × 20' + 1 × 40' HC");
     expect(containersText([{ containerType: '40', quantity: 2, approvedQuantity: 0 }], 'aprovado')).toBe('Nenhum container');
     expect(containersText([{ containerType: '40', quantity: 2, approvedQuantity: null }], 'aprovado')).toBe('Nenhum container');

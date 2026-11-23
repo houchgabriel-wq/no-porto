@@ -100,10 +100,10 @@ describe('o agente pede', () => {
       [{ arrivalDate: '2026-12-04' }, 'A previsão de chegada deve ser depois da saída prevista.'],
       [{ lines: [] }, 'Informe pelo menos um tipo de container.'],
       [{ lines: [{ containerType: '45', quantity: 1, priceCents: 1 }] }, 'Tipo de container inválido.'],
-      [{ lines: [{ containerType: '40', quantity: 2, priceCents: 250_000 }, { containerType: '40', quantity: 1, priceCents: 250_000 }] }, "O container 40' aparece duas vezes. Junte as quantidades numa linha só."],
-      [{ lines: [{ containerType: '40', quantity: 1, priceCents: 285 }] }, "O valor de cada container de 40' está abaixo de US$ 100,00. Confira."],
-      [{ lines: [{ containerType: '40', quantity: 0, priceCents: 250_000 }] }, "Informe quantos containers de 40'."],
-      [{ lines: [{ containerType: '40', quantity: 1, priceCents: 0 }] }, "Informe o valor de cada container de 40'."],
+      [{ lines: [{ containerType: '40', quantity: 2, priceCents: 250_000 }, { containerType: '40', quantity: 1, priceCents: 250_000 }] }, "O container 40' NOR aparece duas vezes. Junte as quantidades numa linha só."],
+      [{ lines: [{ containerType: '40', quantity: 1, priceCents: 285 }] }, "O valor de cada container de 40' NOR está abaixo de US$ 100,00. Confira."],
+      [{ lines: [{ containerType: '40', quantity: 0, priceCents: 250_000 }] }, "Informe quantos containers de 40' NOR."],
+      [{ lines: [{ containerType: '40', quantity: 1, priceCents: 0 }] }, "Informe o valor de cada container de 40' NOR."],
       [{ lines: [{ containerType: '40', quantity: 1, priceCents: 2500.5 }] }, 'Valor do container inválido.'],
     ];
     for (const [over, message] of cases) {
