@@ -1179,6 +1179,11 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
             bookings.put(request);
             showToast(msg);
           }}
+          onDeleted={(id, msg) => {
+            setBooking(null);
+            bookings.drop(id);
+            showToast(msg);
+          }}
           onProduction={
             seesAll
               ? (id) => {

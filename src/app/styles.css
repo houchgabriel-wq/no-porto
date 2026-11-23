@@ -1590,3 +1590,7 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 .sol-embarcadas .emb-grupo-topo h2 .ic { color: hsl(200 var(--c-s) var(--c-l)); }
 .visao-troca .num { color: var(--tinta-3); font-weight: 600; font-variant-numeric: tabular-nums; }
 .visao-troca button[aria-pressed="true"] .num { color: inherit; opacity: 0.75; }
+/* Excluir solicitação (só o administrador, para tirar as de teste: 23/11/2026). */
+.sol-excluir { display: inline-flex; align-items: center; gap: 5px; }
+.sol-excluir .ic { width: 15px; height: 15px; }
+.dlg-solicitacao .confirma-exclusao p + p { color: var(--tinta-2); }
