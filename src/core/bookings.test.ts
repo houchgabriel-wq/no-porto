@@ -4,14 +4,18 @@ import {
   approvedLess,
   bookingDatesProblem,
   bookingProblem,
+  bookingReportRows,
+  bookingStage,
   bookingTotalCents,
   canCancelBooking,
   canDecideBookings,
   canEditBookingDetails,
+  canMarkShipped,
   containerCount,
   containersText,
   departureText,
   groupBookings,
+  ibcReferenceProblem,
   matchesBooking,
   normalizeReference,
   otherBookingsOfSupplier,
@@ -19,7 +23,9 @@ import {
   pendingCount,
   portSuggestions,
   sortBookings,
+  shippedDateProblem,
   sortedLines,
+  stageCounts,
   type BookingLine,
   type BookingRequest,
 } from './bookings';
@@ -40,6 +46,9 @@ function request(over: Partial<BookingRequest> = {}): BookingRequest {
     reference: 'SZX-2026-118',
     readyDate: '2026-12-01',
     arrivalDate: '2027-01-15',
+    ibcReference: '',
+    shippedAt: null,
+    shippedBy: null,
     supplierId: 'claire',
     supplierName: 'Claire',
     departurePort: 'Shenzhen',
@@ -246,6 +255,7 @@ describe('lista', () => {
     expect(matchesBooking(r, 'cosco')).toBe(true);
     expect(matchesBooking(r, 'sara')).toBe(false);
     expect(matchesBooking(r, 'szx-2026')).toBe(true);
+    expect(matchesBooking({ ...r, ibcReference: 'IBC 7781' }, 'ibc 7781')).toBe(true);
     expect(matchesBooking(r, '')).toBe(true);
   });
 
@@ -282,5 +292,69 @@ describe('número de referência', () => {
     expect(canEditBookingDetails(own, { id: 'outro-agente', role: 'agente' })).toBe(false);
     for (const role of ['admin', 'editor'] as const) expect(canEditBookingDetails(own, { id: 'x', role }), role).toBe(true);
     for (const role of ['consulta', 'leitor', 'embarques', 'vendas'] as const) expect(canEditBookingDetails(own, { id: 'x', role }), role).toBe(false);
+  });
+});
+
+describe('referência IBC, pré e pós-embarque e relatório (23/11/2026)', () => {
+  it('a referência IBC é opcional, com até 40 caracteres', () => {
+    expect(ibcReferenceProblem('')).toBeNull();
+    expect(ibcReferenceProblem('IBC-7781')).toBeNull();
+    expect(ibcReferenceProblem('X'.repeat(41))).toBe('A referência IBC pode ter no máximo 40 caracteres.');
+  });
+
+  it('pós-embarque é o que embarcou; só a aprovada é marcada, por quem corrige os dados dela', () => {
+    expect(bookingStage(request())).toBe('pre');
+    expect(bookingStage(request({ status: 'aprovada', shippedAt: '2026-12-06' }))).toBe('pos');
+    const agent = { id: 'agente', role: 'agente' as const };
+    expect(canMarkShipped(request({ status: 'aprovada' }), agent)).toBe(true);
+    expect(canMarkShipped(request({ status: 'aprovada' }), { id: 'x', role: 'editor' })).toBe(true);
+    expect(canMarkShipped(request({ status: 'aprovada' }), { id: 'x', role: 'consulta' })).toBe(false);
+    expect(canMarkShipped(request({ status: 'aprovada' }), { id: 'outro', role: 'agente' })).toBe(false);
+    for (const status of ['aguardando', 'recusada', 'cancelada'] as const) expect(canMarkShipped(request({ status }), agent)).toBe(false);
+  });
+
+  it('a contagem do Pré-embarque deixa de fora as recusadas e as canceladas', () => {
+    const list = [
+      request({ status: 'aguardando' }),
+      request({ status: 'aprovada' }),
+      request({ status: 'aprovada', shippedAt: '2026-11-20' }),
+      request({ status: 'recusada' }),
+      request({ status: 'cancelada' }),
+    ];
+    expect(stageCounts(list)).toEqual({ pre: 2, pos: 1 });
+    expect(stageCounts([])).toEqual({ pre: 0, pos: 0 });
+  });
+
+  it('o dia em que embarcou vai até hoje e não fica muito antes da saída prevista', () => {
+    expect(shippedDateProblem('2026-11-18', '2026-12-05', TODAY)).toBeNull();
+    expect(shippedDateProblem('', '2026-12-05', TODAY)).toBe('Informe o dia em que embarcou.');
+    expect(shippedDateProblem('2026-11-20', '2026-12-05', TODAY)).toBe('O dia em que embarcou não pode ser depois de hoje.');
+    expect(shippedDateProblem('2025-11-18', '2026-12-05', TODAY)).toBe('O dia em que embarcou está muito antes da saída prevista. Confira o dia e o ano.');
+  });
+
+  it('o relatório traz só as aprovadas, pela saída, com os containers aprovados por tipo e o total aprovado', () => {
+    const rows = bookingReportRows([
+      request({ id: 'a', status: 'aguardando' }),
+      request({
+        id: 'b',
+        reference: 'NGB-1',
+        ibcReference: 'IBC-7781',
+        status: 'aprovada',
+        departureDate: '2026-12-20',
+        decidedAt: '2026-11-19T15:00:00.000Z',
+        decisionNote: 'Ok',
+        lines: [
+          { containerType: '40', quantity: 2, approvedQuantity: 1, priceCents: 250_000 },
+          { containerType: '40HC', quantity: 3, approvedQuantity: 3, priceCents: 285_000 },
+        ],
+      }),
+      request({ id: 'c', reference: 'SZX-2', status: 'aprovada', shippedAt: '2026-12-04', decidedAt: '2026-11-10T12:00:00.000Z', lines: [{ containerType: '20', quantity: 1, approvedQuantity: 1, priceCents: 180_000 }] }),
+      request({ id: 'd', status: 'recusada' }),
+    ]);
+    expect(rows.map((r) => [r.reference, r.stage, r.approved, r.containers, r.totalCents, r.approvedAt])).toEqual([
+      ['SZX-2', 'pos', { '20': 1, '40': 0, '40HC': 0 }, "1 × 20'", 180_000, '2026-11-10'],
+      ['NGB-1', 'pre', { '20': 0, '40': 1, '40HC': 3 }, "1 × 40' NOR + 3 × 40' HC", 1_105_000, '2026-11-19'],
+    ]);
+    expect(rows[1]).toMatchObject({ ibcReference: 'IBC-7781', approvalNote: 'Ok', departureDate: '2026-12-20' });
   });
 });

@@ -9,12 +9,15 @@ import {
   bookingProblem,
   canDecideBookings,
   canEditBookingDetails,
+  canMarkShipped,
   CONTAINER_TYPES,
   arrivalDateProblem,
+  ibcReferenceProblem,
   MAX_CONTAINERS,
   normalizeReference,
   readyDateProblem,
   referenceProblem,
+  shippedDateProblem,
   type BookingRequest,
   type BookingStatus,
   type ContainerType,
@@ -37,8 +40,14 @@ const reference = z.string({ error: 'Informe o número de referência.' }).max(4
 
 const day = (message: string) => z.string({ error: message }).max(20, message);
 
+const ibcReference = z
+  .string({ error: 'Referência IBC inválida.' })
+  .max(400, 'A referência IBC pode ter no máximo 40 caracteres.')
+  .transform(normalizeReference);
+
 const createBody = z.object({
   reference,
+  ibcReference: ibcReference.default(''),
   readyDate: day('Informe a prontidão do container.'),
   arrivalDate: day('Informe a previsão de chegada.'),
   supplierId: z.string({ error: 'Escolha o fornecedor.' }).min(1, 'Escolha o fornecedor.').max(100, 'Fornecedor inválido.'),
@@ -68,9 +77,12 @@ const approveBody = z.object({
 /** O que se corrige depois: o número de referência e as duas datas, um de cada vez ou juntos. */
 const detailsBody = z.object({
   reference: reference.optional(),
+  ibcReference: ibcReference.optional(),
   readyDate: day('Informe a prontidão do container.').optional(),
   arrivalDate: day('Informe a previsão de chegada.').optional(),
 });
+
+const shippedBody = z.object({ shippedAt: day('Informe o dia em que embarcou.') });
 
 const refuseBody = z.object({
   note: z
@@ -87,6 +99,10 @@ interface RequestRow {
   reference: string;
   ready_date: string | null;
   arrival_date: string | null;
+  ibc_reference: string;
+  shipped_at: string | null;
+  shipped_by: string | null;
+  shipped_by_name: string | null;
   supplier_id: string | null;
   supplier_name: string;
   current_supplier_name: string | null;
@@ -111,10 +127,11 @@ interface LineRow {
   price_cents: number;
 }
 
-const SELECT_REQUESTS = `SELECT r.*, s.name AS current_supplier_name, cu.name AS created_by_name, du.name AS decided_by_name
+const SELECT_REQUESTS = `SELECT r.*, s.name AS current_supplier_name, cu.name AS created_by_name, du.name AS decided_by_name, su.name AS shipped_by_name
   FROM booking_requests r
   JOIN users cu ON cu.id = r.created_by
   LEFT JOIN users du ON du.id = r.decided_by
+  LEFT JOIN users su ON su.id = r.shipped_by
   LEFT JOIN suppliers s ON s.id = r.supplier_id`;
 
 function toRequest(row: RequestRow, lines: readonly LineRow[]): BookingRequest {
@@ -123,6 +140,9 @@ function toRequest(row: RequestRow, lines: readonly LineRow[]): BookingRequest {
     reference: row.reference,
     readyDate: row.ready_date,
     arrivalDate: row.arrival_date,
+    ibcReference: row.ibc_reference,
+    shippedAt: row.shipped_at,
+    shippedBy: row.shipped_by ? { id: row.shipped_by, name: row.shipped_by_name ?? '' } : null,
     supplierId: row.supplier_id,
     // O nome atual do fornecedor (pode ter sido corrigido); sem fornecedor, o nome do pedido.
     supplierName: row.current_supplier_name ?? row.supplier_name,
@@ -176,7 +196,7 @@ async function listRequests(env: Env, session: Session, now: Date): Promise<Resp
 async function createRequest(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
   checkMutation(request);
   const body = await readBody(request, createBody);
-  const problem = bookingProblem(body, spDate(now));
+  const problem = bookingProblem(body, spDate(now)) ?? ibcReferenceProblem(body.ibcReference);
   if (problem) return error(400, problem);
   const supplier = await env.DB.prepare('SELECT id, name FROM suppliers WHERE id = ?').bind(body.supplierId).first<{ id: string; name: string }>();
   if (!supplier) return error(400, 'Fornecedor não encontrado. Escolha um da lista.');
@@ -185,9 +205,9 @@ async function createRequest(request: Request, env: Env, session: Session, now: 
   const at = now.toISOString();
   await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO booking_requests (id, reference, supplier_id, supplier_name, departure_port, departure_date, ready_date, arrival_date, notes, status, created_at, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'aguardando', ?, ?)`,
-    ).bind(id, body.reference, supplier.id, supplier.name, body.departurePort, body.departureDate, body.readyDate, body.arrivalDate, body.notes, at, session.user.id),
+      `INSERT INTO booking_requests (id, reference, ibc_reference, supplier_id, supplier_name, departure_port, departure_date, ready_date, arrival_date, notes, status, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aguardando', ?, ?)`,
+    ).bind(id, body.reference, body.ibcReference, supplier.id, supplier.name, body.departurePort, body.departureDate, body.readyDate, body.arrivalDate, body.notes, at, session.user.id),
     ...body.lines.map((l) =>
       env.DB.prepare('INSERT INTO booking_request_lines (request_id, container_type, quantity, price_cents) VALUES (?, ?, ?, ?)').bind(id, l.containerType, l.quantity, l.priceCents),
     ),
@@ -214,6 +234,12 @@ async function updateDetails(request: Request, env: Env, session: Session, id: s
     sets.push('reference = ?');
     values.push(body.reference);
   }
+  if (body.ibcReference !== undefined) {
+    const problem = ibcReferenceProblem(body.ibcReference);
+    if (problem) return error(400, problem);
+    sets.push('ibc_reference = ?');
+    values.push(body.ibcReference);
+  }
   if (body.readyDate !== undefined) {
     const problem = readyDateProblem(current.departureDate, body.readyDate);
     if (problem) return error(400, problem);
@@ -230,6 +256,37 @@ async function updateDetails(request: Request, env: Env, session: Session, id: s
   await env.DB.prepare(`UPDATE booking_requests SET ${sets.join(', ')} WHERE id = ?`)
     .bind(...values, id)
     .run();
+  return json({ request: await loadRequest(env, id) });
+}
+
+/** A solicitação para marcar ou desfazer o embarque, ou a resposta de erro (as mesmas regras de quem corrige). */
+async function shippable(env: Env, session: Session, id: string): Promise<BookingRequest | Response> {
+  const current = await loadRequest(env, id);
+  if (!current || (can(session.user.role, 'request_bookings') && current.createdBy.id !== session.user.id)) return error(404, 'Solicitação não encontrada.');
+  if (current.status !== 'aprovada') return error(409, 'Só a solicitação aprovada pode ser marcada como embarcada.');
+  if (!canMarkShipped(current, session.user)) return error(403, 'Você não marca o embarque desta solicitação.');
+  return current;
+}
+
+/** Marca que a solicitação aprovada embarcou: ela passa para a aba Pós-embarque. */
+async function markShipped(request: Request, env: Env, session: Session, id: string, now: Date): Promise<Response> {
+  checkMutation(request);
+  const body = await readBody(request, shippedBody);
+  const current = await shippable(env, session, id);
+  if (current instanceof Response) return current;
+  const problem = shippedDateProblem(body.shippedAt, current.departureDate, spDate(now));
+  if (problem) return error(400, problem);
+  await env.DB.prepare('UPDATE booking_requests SET shipped_at = ?, shipped_by = ? WHERE id = ?').bind(body.shippedAt, session.user.id, id).run();
+  return json({ request: await loadRequest(env, id) });
+}
+
+/** Desfaz a marca de embarque: a solicitação volta para a aba Pré-embarque. */
+async function unmarkShipped(request: Request, env: Env, session: Session, id: string): Promise<Response> {
+  checkMutation(request);
+  const current = await shippable(env, session, id);
+  if (current instanceof Response) return current;
+  if (!current.shippedAt) return error(409, 'Esta solicitação não está marcada como embarcada.');
+  await env.DB.prepare('UPDATE booking_requests SET shipped_at = NULL, shipped_by = NULL WHERE id = ?').bind(id).run();
   return json({ request: await loadRequest(env, id) });
 }
 
@@ -309,6 +366,12 @@ export async function routeBookings(request: Request, env: Env, session: Session
   if (one && request.method === 'PATCH') {
     if (!requester && !can(role, 'view_bookings')) return error(403, 'Seu perfil não vê as solicitações de embarque.');
     return updateDetails(request, env, session, decodeURIComponent(one[1]!));
+  }
+  const shipped = /^\/api\/bookings\/([^/]+)\/(shipped|unship)$/.exec(path);
+  if (shipped && request.method === 'POST') {
+    if (!requester && !can(role, 'view_bookings')) return error(403, 'Seu perfil não vê as solicitações de embarque.');
+    const id = decodeURIComponent(shipped[1]!);
+    return shipped[2] === 'shipped' ? markShipped(request, env, session, id, now) : unmarkShipped(request, env, session, id);
   }
   const m = /^\/api\/bookings\/([^/]+)\/(cancel|approve|refuse)$/.exec(path);
   if (m && request.method === 'POST') {

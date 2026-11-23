@@ -51,6 +51,9 @@ describe('o agente pede', () => {
       departureDate: '2026-12-05',
       readyDate: '2026-12-01',
       arrivalDate: '2027-01-15',
+      ibcReference: '',
+      shippedAt: null,
+      shippedBy: null,
       notes: 'Navio da COSCO',
       status: 'aguardando',
       createdBy: { id: who.agente.id, name: 'Ana Agente' },
@@ -352,5 +355,62 @@ describe('número de referência, prontidão e previsão de chegada (23/11/2026)
       expect([res.status, res.data.error]).toEqual([400, message]);
     }
     expect((await corrigir('nao-existe', 'X-1', who.admin.cookie)).status).toBe(404);
+  });
+});
+
+describe('referência IBC e pré e pós-embarque (23/11/2026)', () => {
+  const aprovar = (id: string) =>
+    app.call('POST', `/api/bookings/${id}/approve`, {
+      cookie: who.admin.cookie,
+      body: { lines: [{ containerType: '40HC', approvedQuantity: 3 }, { containerType: '20', approvedQuantity: 1 }], note: '' },
+    });
+  const embarcou = (id: string, shippedAt: unknown, cookie: string, at?: Date) => app.call('POST', `/api/bookings/${id}/shipped`, { cookie, body: { shippedAt }, at });
+  const desfazer = (id: string, cookie: string) => app.call('POST', `/api/bookings/${id}/unship`, { cookie, body: {} });
+
+  it('a referência IBC é opcional ao pedir e se corrige depois', async () => {
+    const sem = await pedir();
+    expect(sem.data.request.ibcReference).toBe('');
+    const com = await pedir({ ibcReference: '  IBC  7781 ' });
+    expect(com.data.request.ibcReference).toBe('IBC 7781');
+    const longa = await pedir({ ibcReference: 'X'.repeat(41) });
+    expect([longa.status, longa.data.error]).toEqual([400, 'A referência IBC pode ter no máximo 40 caracteres.']);
+    const id = sem.data.request.id;
+    expect((await app.call('PATCH', `/api/bookings/${id}`, { cookie: who.agente.cookie, body: { ibcReference: 'IBC-9' } })).data.request.ibcReference).toBe('IBC-9');
+    expect((await app.call('PATCH', `/api/bookings/${id}`, { cookie: who.editor.cookie, body: { ibcReference: '' } })).data.request.ibcReference).toBe('');
+  });
+
+  it('o agente marca que a aprovada embarcou, com o dia; admin e editor também; dá para desfazer', async () => {
+    const id = (await pedir()).data.request.id;
+    const antes = await embarcou(id, '2026-11-16', who.agente.cookie);
+    expect([antes.status, antes.data.error]).toEqual([409, 'Só a solicitação aprovada pode ser marcada como embarcada.']);
+    await aprovar(id);
+    const ok = await embarcou(id, '2026-11-16', who.agente.cookie);
+    expect(ok.status).toBe(200);
+    expect(ok.data.request).toMatchObject({ status: 'aprovada', shippedAt: '2026-11-16', shippedBy: { id: who.agente.id, name: 'Ana Agente' } });
+    expect((await desfazer(id, who.editor.cookie)).data.request).toMatchObject({ shippedAt: null, shippedBy: null });
+    const outra = await desfazer(id, who.editor.cookie);
+    expect([outra.status, outra.data.error]).toEqual([409, 'Esta solicitação não está marcada como embarcada.']);
+    expect((await embarcou(id, '2026-11-17', who.admin.cookie)).data.request).toMatchObject({ shippedAt: '2026-11-17', shippedBy: { id: who.admin.id } });
+  });
+
+  it('confere o dia; os outros perfis não marcam; o outro agente nem acha', async () => {
+    const id = (await pedir()).data.request.id;
+    await aprovar(id);
+    for (const [shippedAt, message] of [
+      ['2026-11-18', 'O dia em que embarcou não pode ser depois de hoje.'],
+      ['2025-11-18', 'O dia em que embarcou está muito antes da saída prevista. Confira o dia e o ano.'],
+      [undefined, 'Informe o dia em que embarcou.'],
+    ] as const) {
+      const res = await embarcou(id, shippedAt, who.agente.cookie);
+      expect([res.status, res.data.error]).toEqual([400, message]);
+    }
+    for (const w of [who.consulta, who.leitor, who.embarques, who.vendas]) {
+      const res = await embarcou(id, '2026-11-16', w.cookie);
+      expect([res.status, res.data.error]).toEqual([403, 'Seu perfil não vê as solicitações de embarque.']);
+    }
+    const outro = await app.call('POST', '/api/users', { cookie: who.admin.cookie, body: { name: 'Outro Agente', email: 'outro@agente.exemplo', role: 'agente' } });
+    const login = await app.call('POST', '/api/login', { body: { email: 'outro@agente.exemplo', password: outro.data.tempPassword } });
+    await app.call('POST', '/api/password', { cookie: login.cookie, body: { password: 'senha-outro-agente' } });
+    expect((await embarcou(id, '2026-11-16', login.cookie!)).status).toBe(404);
   });
 });
