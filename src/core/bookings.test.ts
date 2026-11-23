@@ -9,6 +9,7 @@ import {
   bookingTotalCents,
   canCancelBooking,
   canDecideBookings,
+  canDeleteBooking,
   canEditBookingDetails,
   canMarkShipped,
   containerCount,
@@ -224,6 +225,11 @@ describe('quem pode o quê', () => {
     expect(canCancelBooking(r, { id: 'outro', role: 'agente' })).toBe(false);
     expect(canCancelBooking({ ...r, status: 'aprovada' }, { id: 'agente', role: 'agente' })).toBe(false);
     expect(canCancelBooking(r, { id: 'agente', role: 'admin' })).toBe(false);
+  });
+
+  it('só o administrador exclui (23/11/2026)', () => {
+    expect(canDeleteBooking({ role: 'admin' })).toBe(true);
+    for (const role of ['editor', 'consulta', 'leitor', 'embarques', 'vendas', 'agente'] as const) expect(canDeleteBooking({ role }), role).toBe(false);
   });
 });
 

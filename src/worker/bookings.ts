@@ -8,6 +8,7 @@ import {
   BOOKING_STATUS_LABELS,
   bookingProblem,
   canDecideBookings,
+  canDeleteBooking,
   canEditBookingDetails,
   canMarkShipped,
   CONTAINER_TYPES,
@@ -290,6 +291,28 @@ async function unmarkShipped(request: Request, env: Env, session: Session, id: s
   return json({ request: await loadRequest(env, id) });
 }
 
+/**
+ * Exclui a solicitação de vez, em qualquer situação (pedido do Gabriel em 23/11/2026, para tirar as de
+ * teste). Fica em events o que ela era, com os containers, caso alguém exclua uma de verdade por engano.
+ */
+async function deleteRequest(request: Request, env: Env, session: Session, id: string, now: Date): Promise<Response> {
+  checkMutation(request);
+  const current = await loadRequest(env, id);
+  if (!current) return error(404, 'Solicitação não encontrada.');
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM booking_request_lines WHERE request_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM booking_requests WHERE id = ?').bind(id),
+    env.DB.prepare("INSERT INTO events (id, entity, entity_id, user_id, type, detail, created_at) VALUES (?, 'booking_request', ?, ?, 'deleted', ?, ?)").bind(
+      crypto.randomUUID(),
+      id,
+      session.user.id,
+      JSON.stringify(current),
+      now.toISOString(),
+    ),
+  ]);
+  return json({ ok: true });
+}
+
 /** Recusa decidir o que já foi decidido, dizendo como está. */
 function alreadyDecided(current: BookingRequest): Response {
   return error(409, `Esta solicitação já está ${BOOKING_STATUS_LABELS[current.status].toLowerCase()}.`);
@@ -363,6 +386,10 @@ export async function routeBookings(request: Request, env: Env, session: Session
     return createRequest(request, env, session, now);
   }
   const one = /^\/api\/bookings\/([^/]+)$/.exec(path);
+  if (one && request.method === 'DELETE') {
+    if (!canDeleteBooking(session.user)) return error(403, 'Só o administrador exclui solicitações de embarque.');
+    return deleteRequest(request, env, session, decodeURIComponent(one[1]!), now);
+  }
   if (one && request.method === 'PATCH') {
     if (!requester && !can(role, 'view_bookings')) return error(403, 'Seu perfil não vê as solicitações de embarque.');
     return updateDetails(request, env, session, decodeURIComponent(one[1]!));

@@ -233,6 +233,8 @@ export const api = {
   /** Corrige o número de referência e as datas (o agente nas dele, admin e editor em qualquer uma). */
   updateBookingDetails: (id: string, body: Partial<{ reference: string; ibcReference: string; readyDate: string; arrivalDate: string }>) =>
     request<{ request: BookingRequest }>('PATCH', `/api/bookings/${encodeURIComponent(id)}`, body),
+  /** Exclui a solicitação de vez (só o administrador; para tirar as de teste). */
+  deleteBooking: (id: string) => request<{ ok: true }>('DELETE', `/api/bookings/${encodeURIComponent(id)}`),
   /** Marca que a solicitação aprovada embarcou (ou desfaz): ela muda de aba, entre Pré e Pós-embarque. */
   markBookingShipped: (id: string, shippedAt: string) => request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/shipped`, { shippedAt }),
   unmarkBookingShipped: (id: string) => request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/unship`, {}),

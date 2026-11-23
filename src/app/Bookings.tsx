@@ -14,6 +14,7 @@ import {
   bookingStage,
   bookingTotalCents,
   canCancelBooking,
+  canDeleteBooking,
   canEditBookingDetails,
   canMarkShipped,
   CONTAINER_LABELS,
@@ -102,7 +103,12 @@ export function useBookings(enabled: boolean) {
     );
   }, []);
 
-  return { data, loadError, reload, put };
+  /** Tira na hora a solicitação que a própria pessoa excluiu. */
+  const drop = useCallback((id: string) => {
+    setData((d) => (d ? { ...d, requests: d.requests.filter((r) => r.id !== id) } : d));
+  }, []);
+
+  return { data, loadError, reload, put, drop };
 }
 
 // ---------- Peças ----------
@@ -686,11 +692,13 @@ interface DialogProps {
   onSaved: (request: BookingRequest, message: string) => void;
   /** Leva à produção do fornecedor (só para a equipe). */
   onProduction?: (supplierId: string) => void;
+  /** Depois que o administrador exclui a solicitação (só na tela da equipe). */
+  onDeleted?: (id: string, message: string) => void;
 }
 
-type Mode = 'ver' | 'aprovar' | 'recusar' | 'cancelar';
+type Mode = 'ver' | 'aprovar' | 'recusar' | 'cancelar' | 'excluir';
 
-export function BookingDialog({ request, data, me, context, onClose, onSaved, onProduction }: DialogProps) {
+export function BookingDialog({ request, data, me, context, onClose, onSaved, onProduction, onDeleted }: DialogProps) {
   const [mode, setMode] = useState<Mode>('ver');
   const [approved, setApproved] = useState<Record<string, string>>({});
   const [note, setNote] = useState('');
@@ -710,6 +718,7 @@ export function BookingDialog({ request, data, me, context, onClose, onSaved, on
   const r = request;
   const decider = data.canDecide && r.status === 'aguardando';
   const cancellable = canCancelBooking(r, me);
+  const deletable = Boolean(onDeleted) && canDeleteBooking(me);
   const agentView = me.role === 'agente';
 
   function startApproval() {
@@ -763,6 +772,19 @@ export function BookingDialog({ request, data, me, context, onClose, onSaved, on
     void run(() => api.cancelBooking(r.id), 'Solicitação cancelada.');
   }
 
+  async function remove() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteBooking(r.id);
+      onDeleted?.(r.id, r.reference ? `Solicitação ${r.reference} excluída.` : 'Solicitação excluída.');
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const title =
     mode === 'aprovar'
       ? 'Aprovar solicitação'
@@ -770,7 +792,9 @@ export function BookingDialog({ request, data, me, context, onClose, onSaved, on
         ? 'Recusar solicitação'
         : mode === 'cancelar'
           ? 'Cancelar solicitação'
-          : `${r.reference || 'Solicitação'} · ${r.supplierName}`;
+          : mode === 'excluir'
+            ? 'Excluir solicitação'
+            : `${r.reference || 'Solicitação'} · ${r.supplierName}`;
 
   return (
     <Dialog title={title} open onClose={onClose} wide className="dlg-solicitacao">
@@ -855,6 +879,30 @@ export function BookingDialog({ request, data, me, context, onClose, onSaved, on
             </button>
           </div>
         </>
+      ) : mode === 'excluir' ? (
+        <>
+          <div className="dlg-corpo">
+            <div className="confirma-exclusao">
+              <p>
+                <b>
+                  {r.reference || 'Sem referência'} · {r.supplierName}
+                </b>{' '}
+                · {containersText(r.lines)} · {r.shippedAt ? 'Embarcada' : BOOKING_STATUS_LABELS[r.status]}
+              </p>
+              <p>A solicitação some de vez, para todos, inclusive para o agente, e não dá para desfazer. Use para tirar as solicitações de teste ou cadastradas por engano.</p>
+            </div>
+            <FormError message={error} />
+          </div>
+          <div className="dlg-pe">
+            <button type="button" className="btn" onClick={() => go('ver')} disabled={busy} autoFocus>
+              Voltar
+            </button>
+            <button type="button" className="btn perigo" onClick={() => void remove()} disabled={busy}>
+              <Icon name="lixeira" />
+              {busy ? 'Excluindo…' : 'Excluir solicitação'}
+            </button>
+          </div>
+        </>
       ) : (
         <>
           <div className="dlg-corpo">
@@ -921,6 +969,7 @@ export function BookingDialog({ request, data, me, context, onClose, onSaved, on
                     <Icon name="fechar" />
                     Recusar
                   </button>
+                  {deletable && <DeleteButton onClick={() => go('excluir')} />}
                 </div>
                 <button type="button" className="btn primario" onClick={startApproval}>
                   <Icon name="check" />
@@ -929,11 +978,14 @@ export function BookingDialog({ request, data, me, context, onClose, onSaved, on
               </>
             ) : (
               <>
-                {cancellable && (
+                {(cancellable || deletable) && (
                   <div className="esq">
-                    <button type="button" className="btn perigo" onClick={() => go('cancelar')}>
-                      Cancelar solicitação
-                    </button>
+                    {cancellable && (
+                      <button type="button" className="btn perigo" onClick={() => go('cancelar')}>
+                        Cancelar solicitação
+                      </button>
+                    )}
+                    {deletable && <DeleteButton onClick={() => go('excluir')} />}
                   </div>
                 )}
                 <button type="button" className="btn" onClick={onClose}>
@@ -945,6 +997,16 @@ export function BookingDialog({ request, data, me, context, onClose, onSaved, on
         </>
       )}
     </Dialog>
+  );
+}
+
+/** Excluir, discreto ao lado de Recusar: é para tirar as de teste, não para decidir. */
+function DeleteButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" className="btn-texto perigo sol-excluir" onClick={onClick}>
+      <Icon name="lixeira" />
+      Excluir
+    </button>
   );
 }
 

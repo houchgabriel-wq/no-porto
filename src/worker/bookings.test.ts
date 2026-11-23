@@ -414,3 +414,52 @@ describe('referência IBC e pré e pós-embarque (23/11/2026)', () => {
     expect((await embarcou(id, '2026-11-16', login.cookie!)).status).toBe(404);
   });
 });
+
+describe('excluir (23/11/2026)', () => {
+  const excluir = (id: string, cookie: string) => app.call('DELETE', `/api/bookings/${id}`, { cookie });
+  const ids = async (cookie: string) => ((await app.call('GET', '/api/bookings', { cookie })).data.requests as { id: string }[]).map((r) => r.id);
+
+  it('o admin exclui de vez, em qualquer situação, e fica o registro do que era', async () => {
+    const teste = (await pedir({ reference: 'TESTE-1' })).data.request.id;
+    const aprovada = (await pedir({ reference: 'TESTE-2' })).data.request.id;
+    await app.call('POST', `/api/bookings/${aprovada}/approve`, {
+      cookie: who.admin.cookie,
+      body: { lines: [{ containerType: '40HC', approvedQuantity: 3 }, { containerType: '20', approvedQuantity: 1 }], note: '' },
+    });
+    await app.call('POST', `/api/bookings/${aprovada}/shipped`, { cookie: who.agente.cookie, body: { shippedAt: '2026-11-16' } });
+    const fica = (await pedir({ reference: 'REAL-1' })).data.request.id;
+
+    for (const id of [teste, aprovada]) {
+      const res = await excluir(id, who.admin.cookie);
+      expect([res.status, res.data]).toEqual([200, { ok: true }]);
+    }
+    // Some para todos, inclusive para o agente, e as linhas de containers vão junto.
+    expect(await ids(who.admin.cookie)).toEqual([fica]);
+    expect(await ids(who.agente.cookie)).toEqual([fica]);
+    const lines = await app.env.DB.prepare('SELECT request_id FROM booking_request_lines').all<{ request_id: string }>();
+    expect(new Set(lines.results.map((l) => l.request_id))).toEqual(new Set([fica]));
+    const events = await app.env.DB.prepare("SELECT entity_id, user_id, type, detail FROM events WHERE entity = 'booking_request' ORDER BY created_at, rowid").all<{
+      entity_id: string;
+      user_id: string;
+      type: string;
+      detail: string;
+    }>();
+    expect(events.results.map((e) => [e.entity_id, e.user_id, e.type])).toEqual([
+      [teste, who.admin.id, 'deleted'],
+      [aprovada, who.admin.id, 'deleted'],
+    ]);
+    expect(JSON.parse(events.results[1]!.detail)).toMatchObject({ reference: 'TESTE-2', status: 'aprovada', shippedAt: '2026-11-16', lines: expect.any(Array) });
+
+    const de_novo = await excluir(teste, who.admin.cookie);
+    expect([de_novo.status, de_novo.data.error]).toEqual([404, 'Solicitação não encontrada.']);
+  });
+
+  it('os outros perfis não excluem, nem o agente a própria', async () => {
+    const id = (await pedir()).data.request.id;
+    for (const w of [who.editor, who.consulta, who.leitor, who.embarques, who.vendas, who.agente]) {
+      const res = await excluir(id, w.cookie);
+      expect([res.status, res.data.error]).toEqual([403, 'Só o administrador exclui solicitações de embarque.']);
+    }
+    expect(await ids(who.agente.cookie)).toEqual([id]);
+  });
+});

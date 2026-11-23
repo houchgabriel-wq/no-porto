@@ -256,6 +256,15 @@ export function canCancelBooking(request: Pick<BookingRequest, 'status' | 'creat
 }
 
 /**
+ * Excluir de vez (pedido do Gabriel em 23/11/2026, para tirar as solicitações de teste): só o
+ * administrador, como as outras exclusões, em qualquer situação. Para o agente, a saída continua
+ * sendo cancelar, enquanto aguarda.
+ */
+export function canDeleteBooking(user: { role: Role }): boolean {
+  return can(user.role, 'delete');
+}
+
+/**
  * Quem corrige o número de referência, a prontidão do container e a previsão de chegada (decidido em
  * 23/11/2026): o agente, nas próprias solicitações, e admin e editor, em qualquer uma, em qualquer
  * situação (as antigas não têm esses dados).
