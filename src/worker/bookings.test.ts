@@ -10,6 +10,7 @@ let sara: string;
 
 // "Hoje" dos testes: 17/11/2026 (test-api.ts).
 const novo = (over: object = {}) => ({
+  reference: 'SZX-2026-118',
   supplierId: claire,
   departurePort: 'Shenzhen',
   departureDate: '2026-12-05',
@@ -41,6 +42,7 @@ describe('o agente pede', () => {
     const res = await pedir();
     expect(res.status).toBe(201);
     expect(res.data.request).toMatchObject({
+      reference: 'SZX-2026-118',
       supplierId: claire,
       supplierName: 'Claire',
       departurePort: 'Shenzhen',
@@ -80,6 +82,9 @@ describe('o agente pede', () => {
 
   it('recusa pedido incompleto ou estranho, com a explicação', async () => {
     const cases: [object, string][] = [
+      [{ reference: undefined }, 'Informe o número de referência.'],
+      [{ reference: '   ' }, 'Informe o número de referência.'],
+      [{ reference: 'X'.repeat(41) }, 'O número de referência pode ter no máximo 40 caracteres.'],
       [{ supplierId: '' }, 'Escolha o fornecedor.'],
       [{ supplierId: 'nao-existe' }, 'Fornecedor não encontrado. Escolha um da lista.'],
       [{ departurePort: '   ' }, 'Informe o porto de saída.'],
@@ -266,5 +271,56 @@ describe('começar do zero', () => {
     await pedir();
     await app.call('PATCH', `/api/suppliers/${claire}`, { cookie: who.editor.cookie, body: { name: 'Claire (Miyi)' } });
     expect((await app.call('GET', '/api/bookings', { cookie: who.agente.cookie })).data.requests[0].supplierName).toBe('Claire (Miyi)');
+  });
+});
+
+describe('número de referência (23/11/2026)', () => {
+  const corrigir = (id: string, reference: unknown, cookie: string) => app.call('PATCH', `/api/bookings/${id}`, { cookie, body: { reference } });
+
+  it('o agente preenche o número na solicitação antiga, mesmo aprovada, e corrige depois', async () => {
+    const id = (await pedir()).data.request.id;
+    await app.call('POST', `/api/bookings/${id}/approve`, {
+      cookie: who.admin.cookie,
+      body: { lines: [{ containerType: '40HC', approvedQuantity: 3 }, { containerType: '20', approvedQuantity: 1 }], note: '' },
+    });
+    // As solicitações de antes da migração 0013 ficaram sem número.
+    await app.env.DB.prepare("UPDATE booking_requests SET reference = '' WHERE id = ?").bind(id).run();
+    expect((await app.call('GET', '/api/bookings', { cookie: who.agente.cookie })).data.requests[0]).toMatchObject({ reference: '', status: 'aprovada' });
+
+    const filled = await corrigir(id, '  SZX  2026-120 ', who.agente.cookie);
+    expect(filled.status).toBe(200);
+    expect(filled.data.request).toMatchObject({ reference: 'SZX 2026-120', status: 'aprovada' });
+    expect((await corrigir(id, 'SZX-2026-121', who.agente.cookie)).data.request.reference).toBe('SZX-2026-121');
+  });
+
+  it('admin e editor corrigem qualquer uma; o outro agente não acha a solicitação; os outros perfis não corrigem', async () => {
+    const id = (await pedir()).data.request.id;
+    expect((await corrigir(id, 'ADM-1', who.admin.cookie)).data.request.reference).toBe('ADM-1');
+    expect((await corrigir(id, 'EDT-1', who.editor.cookie)).data.request.reference).toBe('EDT-1');
+
+    const outro = await app.call('POST', '/api/users', { cookie: who.admin.cookie, body: { name: 'Outro Agente', email: 'outro@agente.exemplo', role: 'agente' } });
+    const login = await app.call('POST', '/api/login', { body: { email: 'outro@agente.exemplo', password: outro.data.tempPassword } });
+    await app.call('POST', '/api/password', { cookie: login.cookie, body: { password: 'senha-outro-agente' } });
+    const other = await corrigir(id, 'OUTRO-1', login.cookie!);
+    expect([other.status, other.data.error]).toEqual([404, 'Solicitação não encontrada.']);
+
+    for (const w of [who.consulta, who.leitor, who.embarques, who.vendas]) {
+      const res = await corrigir(id, 'X-1', w.cookie);
+      expect([res.status, res.data.error]).toEqual([403, 'Seu perfil não vê as solicitações de embarque.']);
+    }
+    expect((await app.call('GET', '/api/bookings', { cookie: who.admin.cookie })).data.requests[0].reference).toBe('EDT-1');
+  });
+
+  it('recusa número vazio ou comprido demais, e solicitação que não existe', async () => {
+    const id = (await pedir()).data.request.id;
+    for (const [reference, message] of [
+      ['  ', 'Informe o número de referência.'],
+      ['X'.repeat(41), 'O número de referência pode ter no máximo 40 caracteres.'],
+      [undefined, 'Informe o número de referência.'],
+    ] as const) {
+      const res = await corrigir(id, reference, who.agente.cookie);
+      expect([res.status, res.data.error]).toEqual([400, message]);
+    }
+    expect((await corrigir('nao-existe', 'X-1', who.admin.cookie)).status).toBe(404);
   });
 });

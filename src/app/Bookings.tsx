@@ -11,6 +11,7 @@ import {
   bookingProblem,
   bookingTotalCents,
   canCancelBooking,
+  canEditBookingReference,
   CONTAINER_LABELS,
   CONTAINER_TYPES,
   containerCount,
@@ -18,10 +19,13 @@ import {
   departureText,
   groupBookings,
   matchesBooking,
+  normalizeReference,
   otherBookingsOfSupplier,
   parseContainerPrice,
   pendingCount,
   portSuggestions,
+  REFERENCE_MAX,
+  referenceProblem,
   sortedLines,
   type BookingRequest,
   type BookingStatus,
@@ -318,8 +322,11 @@ function BookingCard({ request: r, today, agent, onOpen }: { request: BookingReq
         <SupplierName request={r} />
         <StatusPill status={r.status} />
       </span>
-      <span className="emb-titulo">{containersText(r.lines, which)}</span>
-      {approvedLess(r) && <span className="sol-nota">Pedido: {containersText(r.lines)}</span>}
+      <span className="emb-titulo">{r.reference || <span className="sol-sem-ref">Sem referência</span>}</span>
+      <span className="sol-conteineres">
+        {containersText(r.lines, which)}
+        {approvedLess(r) && <span className="sol-nota"> (pedido: {containersText(r.lines)})</span>}
+      </span>
       <span className="emb-meta">
         {r.departurePort} · saída {formatDay(r.departureDate, true)}
         {r.status === 'aguardando' && (
@@ -344,6 +351,84 @@ function BookingCard({ request: r, today, agent, onOpen }: { request: BookingReq
 export interface BookingContext {
   production: ProductionData | null;
   suppliers: SupplierSummary[] | null;
+}
+
+/** O número de referência na ficha: quem pode (o agente nas dele, admin e editor) preenche e corrige ali. */
+function ReferenceValue({ request: r, editable, onSaved }: { request: BookingRequest; editable: boolean; onSaved: (request: BookingRequest, message: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(r.reference);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const inputId = useId();
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    const problem = referenceProblem(value);
+    if (problem) return setError(problem);
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.updateBookingReference(r.id, normalizeReference(value));
+      setEditing(false);
+      onSaved(res.request, 'Número de referência salvo.');
+    } catch (err) {
+      setError(message(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <form className="sol-ref-form" onSubmit={save} noValidate>
+        <label className="so-leitor" htmlFor={inputId}>
+          Número de referência
+        </label>
+        <input
+          id={inputId}
+          className="campo"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          maxLength={REFERENCE_MAX}
+          autoComplete="off"
+          autoFocus
+          aria-invalid={error ? true : undefined}
+        />
+        <button type="submit" className="btn primario" disabled={busy}>
+          {busy ? 'Salvando…' : 'Salvar'}
+        </button>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => {
+            setEditing(false);
+            setValue(r.reference);
+            setError(null);
+          }}
+        >
+          Cancelar
+        </button>
+        <FormError message={error} />
+      </form>
+    );
+  }
+  return (
+    <span className="sol-ref">
+      {r.reference ? <b>{r.reference}</b> : <span className="sol-sem-ref">Sem referência</span>}
+      {editable && (
+        <button
+          type="button"
+          className="btn-texto"
+          onClick={() => {
+            setValue(r.reference);
+            setEditing(true);
+          }}
+        >
+          {r.reference ? 'Corrigir' : 'Preencher'}
+        </button>
+      )}
+    </span>
+  );
 }
 
 interface DialogProps {
@@ -433,7 +518,14 @@ export function BookingDialog({ request, data, me, context, onClose, onSaved, on
     void run(() => api.cancelBooking(r.id), 'Solicitação cancelada.');
   }
 
-  const title = mode === 'aprovar' ? 'Aprovar solicitação' : mode === 'recusar' ? 'Recusar solicitação' : mode === 'cancelar' ? 'Cancelar solicitação' : `Solicitação · ${r.supplierName}`;
+  const title =
+    mode === 'aprovar'
+      ? 'Aprovar solicitação'
+      : mode === 'recusar'
+        ? 'Recusar solicitação'
+        : mode === 'cancelar'
+          ? 'Cancelar solicitação'
+          : `${r.reference || 'Solicitação'} · ${r.supplierName}`;
 
   return (
     <Dialog title={title} open onClose={onClose} wide className="dlg-solicitacao">
@@ -523,6 +615,10 @@ export function BookingDialog({ request, data, me, context, onClose, onSaved, on
           <div className="dlg-corpo">
             <Decision request={r} agentView={agentView} />
             <dl className="sol-dados">
+              <dt>Número de referência</dt>
+              <dd>
+                <ReferenceValue key={r.id} request={r} editable={canEditBookingReference(r, me)} onSaved={onSaved} />
+              </dd>
               <dt>Fornecedor</dt>
               <dd>
                 <SupplierName request={r} />
@@ -770,6 +866,7 @@ function SupplierContext({ request: r, data, context, onProduction }: { request:
             {others.map((o) => (
               <li key={o.id}>
                 <span>
+                  {o.reference && `${o.reference} · `}
                   {formatDay(dayOf(o.createdAt), true)} · {containersText(o.lines, shownAmount(o))}
                 </span>
                 <StatusPill status={o.status} />
@@ -797,6 +894,7 @@ function draft(containerType: ContainerType): LineDraft {
 }
 
 export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boolean; data: BookingsData; onClose: () => void; onCreated: (request: BookingRequest) => void }) {
+  const [reference, setReference] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [port, setPort] = useState('');
   const [date, setDate] = useState('');
@@ -804,11 +902,12 @@ export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boo
   const [lines, setLines] = useState<LineDraft[]>(() => [draft('40HC')]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const ids = { supplier: useId(), port: useId(), ports: useId(), date: useId(), notes: useId() };
+  const ids = { reference: useId(), supplier: useId(), port: useId(), ports: useId(), date: useId(), notes: useId() };
   const ports = useMemo(() => portSuggestions(data.requests), [data.requests]);
 
   useEffect(() => {
     if (!open) return;
+    setReference('');
     setSupplierId('');
     setPort('');
     setDate('');
@@ -834,10 +933,12 @@ export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boo
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    const referenceError = referenceProblem(reference);
+    if (referenceError) return setError(referenceError);
     if (!supplierId) return setError('Escolha o fornecedor.');
     const unreadable = lines.find((l, i) => l.price.trim() && Number.isNaN(parsed[i]!.priceCents));
     if (unreadable) return setError(`O valor de cada container de ${CONTAINER_LABELS[unreadable.containerType]} não é um número. Escreva, por exemplo, 2.850,00.`);
-    const input = { departurePort: port.replace(/\s+/g, ' ').trim(), departureDate: date, lines: parsed.map((l) => ({ ...l, quantity: Number.isNaN(l.quantity) ? 0 : l.quantity, priceCents: Number.isNaN(l.priceCents) ? 0 : l.priceCents })) };
+    const input = { reference: normalizeReference(reference), departurePort: port.replace(/\s+/g, ' ').trim(), departureDate: date, lines: parsed.map((l) => ({ ...l, quantity: Number.isNaN(l.quantity) ? 0 : l.quantity, priceCents: Number.isNaN(l.priceCents) ? 0 : l.priceCents })) };
     const problem = bookingProblem(input, data.today);
     if (problem) return setError(problem);
     setBusy(true);
@@ -857,6 +958,25 @@ export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boo
       <form onSubmit={submit} noValidate>
         <div className="dlg-corpo">
           <p className="dica-texto">O que o fornecedor está pedindo para este embarque. A solicitação vai para aprovação; reserve os containers só depois da resposta, que aparece nesta tela.</p>
+          <div className="grupo sol-ref-campo">
+            <label className="rotulo" htmlFor={ids.reference}>
+              Número de referência
+            </label>
+            <input
+              id={ids.reference}
+              className="campo"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              maxLength={REFERENCE_MAX}
+              placeholder="Ex.: SZX-2026-118"
+              required
+              autoComplete="off"
+              aria-describedby={`${ids.reference}-dica`}
+            />
+            <span id={`${ids.reference}-dica`} className="dica">
+              O número que você dá a este embarque. Aparece no lugar de destaque da solicitação; dá para corrigir depois.
+            </span>
+          </div>
           <div className="grade-campos sol-campos">
             <div className="grupo">
               <label className="rotulo" htmlFor={ids.supplier}>
