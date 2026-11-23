@@ -1584,3 +1584,9 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 @media (max-width: 600px) {
   .grade-campos.sol-campos.sol-campos-dois, .grade-campos.sol-campos.sol-datas { grid-template-columns: minmax(0, 1fr); }
 }
+/* Referência IBC e Pré e Pós-embarque nas solicitações (23/11/2026). */
+.sol-ibc { font-size: 12.5px; font-weight: 600; color: var(--tinta-3); margin-top: -4px; overflow-wrap: anywhere; }
+.pilula.embarcada { background: hsl(200 var(--t-s) var(--t-l)); color: hsl(200 var(--x-s) var(--x-l)); }
+.sol-embarcadas .emb-grupo-topo h2 .ic { color: hsl(200 var(--c-s) var(--c-l)); }
+.visao-troca .num { color: var(--tinta-3); font-weight: 600; font-variant-numeric: tabular-nums; }
+.visao-troca button[aria-pressed="true"] .num { color: inherit; opacity: 0.75; }

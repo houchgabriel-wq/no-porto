@@ -10,15 +10,19 @@ import {
   arrivalDateProblem,
   BOOKING_STATUS_LABELS,
   bookingProblem,
+  bookingReportRows,
+  bookingStage,
   bookingTotalCents,
   canCancelBooking,
   canEditBookingDetails,
+  canMarkShipped,
   CONTAINER_LABELS,
   CONTAINER_TYPES,
   containerCount,
   containersText,
   departureText,
   groupBookings,
+  ibcReferenceProblem,
   matchesBooking,
   normalizeReference,
   otherBookingsOfSupplier,
@@ -28,8 +32,11 @@ import {
   readyDateProblem,
   REFERENCE_MAX,
   referenceProblem,
+  shippedDateProblem,
   sortedLines,
+  stageCounts,
   type BookingRequest,
+  type BookingStage,
   type BookingStatus,
   type ContainerType,
 } from '../core/bookings';
@@ -38,7 +45,9 @@ import { arrivalState, arrivalText, daysBetween, formatDay, shipmentUnits, spDat
 import type { SupplierSummary } from '../core/suppliers';
 import { api, ApiError, type BookingsData, type Me, type ProductionData } from './api';
 import { Dialog, FormError, formatDateTime, hueStyle, supplierHue } from './components';
+import { downloadXlsx } from './download';
 import { Icon, type IconName } from './icons';
+import type { ExportColumn } from './spreadsheet';
 
 /** De quanto em quanto tempo a tela aberta busca solicitações novas (o painel avisa das que chegam). */
 const REFRESH_MS = 30_000;
@@ -102,7 +111,15 @@ const STATUS_ICONS: Record<BookingStatus, IconName> = { aguardando: 'relogio', a
 const GROUP_TITLES: Record<Exclude<BookingStatus, 'aguardando'>, string> = { aprovada: 'Aprovadas', recusada: 'Recusadas', cancelada: 'Canceladas' };
 const STATUS_TONES: Record<BookingStatus, string> = { aguardando: 'alerta', aprovada: 'ok', recusada: 'critico', cancelada: '' };
 
-function StatusPill({ status }: { status: BookingStatus }) {
+function StatusPill({ status, shipped }: { status: BookingStatus; shipped?: boolean }) {
+  if (shipped) {
+    return (
+      <span className="pilula embarcada">
+        <Icon name="navio" />
+        Embarcada
+      </span>
+    );
+  }
   return (
     <span className={`pilula ${STATUS_TONES[status]}`.trim()}>
       <Icon name={STATUS_ICONS[status]} />
@@ -160,12 +177,42 @@ interface ViewProps {
   onOpen: (id: string) => void;
   /** Só para o agente: abre o formulário de nova solicitação. */
   onNew?: () => void;
+  onToast?: (msg: string) => void;
 }
 
-export function BookingsView({ data, onOpen, onNew }: ViewProps) {
+/** O relatório das aprovadas, em .xlsx (o agente baixa as dele; a equipe, todas). */
+async function downloadReport(requests: readonly BookingRequest[], today: string) {
+  const { buildExport } = await import('./spreadsheet');
+  const rows = bookingReportRows(requests);
+  const br = (iso: string | null) => (iso ? formatDay(iso, true) : '');
+  type Row = (typeof rows)[number];
+  const columns: ExportColumn<Row>[] = [
+    { header: 'Número de referência', width: 20, value: (r) => r.reference },
+    { header: 'Referência IBC', width: 18, value: (r) => r.ibcReference },
+    { header: 'Fornecedor', width: 16, value: (r) => r.supplierName },
+    { header: 'Porto de saída', width: 16, value: (r) => r.departurePort },
+    { header: 'Prontidão do container', width: 14, value: (r) => br(r.readyDate) },
+    { header: 'Saída prevista', width: 13, value: (r) => br(r.departureDate) },
+    { header: 'Previsão de chegada', width: 14, value: (r) => br(r.arrivalDate) },
+    { header: 'Embarcou em', width: 13, value: (r) => br(r.shippedAt) },
+    { header: 'Etapa', width: 13, value: (r) => (r.stage === 'pos' ? 'Pós-embarque' : 'Pré-embarque') },
+    ...CONTAINER_TYPES.map((t): ExportColumn<Row> => ({ header: CONTAINER_LABELS[t], width: 9, value: (r) => r.approved[t] || null, numFmt: '0' })),
+    { header: 'Containers aprovados', width: 26, value: (r) => r.containers },
+    { header: 'Total aprovado (US$)', width: 16, value: (r) => r.totalCents / 100, numFmt: '#,##0.00' },
+    { header: 'Aprovada em', width: 12, value: (r) => br(r.approvedAt) },
+    { header: 'Observação da aprovação', width: 40, value: (r) => r.approvalNote },
+  ];
+  downloadXlsx(await buildExport('Aprovadas', columns, rows), `solicitacoes-aprovadas-${today}.xlsx`);
+}
+
+export function BookingsView({ data, onOpen, onNew, onToast }: ViewProps) {
   const [query, setQuery] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [allApproved, setAllApproved] = useState(false);
+  const [allShipped, setAllShipped] = useState(false);
+  // Pré-embarque: o que ainda não embarcou; pós-embarque: o que o agente marcou que embarcou (23/11/2026).
+  const [stage, setStage] = useState<BookingStage>('pre');
+  const [exporting, setExporting] = useState(false);
   const agent = Boolean(onNew);
   const { today } = data;
 
@@ -175,8 +222,24 @@ export function BookingsView({ data, onOpen, onNew }: ViewProps) {
     for (const r of data.requests) if (r.supplierId) seen.set(r.supplierId, r.supplierName);
     return [...seen].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   }, [data.requests]);
-  const shown = data.requests.filter((r) => (!supplierId || r.supplierId === supplierId) && matchesBooking(r, query));
+  const shown = data.requests.filter((r) => bookingStage(r) === stage && (!supplierId || r.supplierId === supplierId) && matchesBooking(r, query));
   const groups = groupBookings(shown);
+  const shipped = [...shown].sort((a, b) => (b.shippedAt ?? '').localeCompare(a.shippedAt ?? '') || a.reference.localeCompare(b.reference));
+  const counts = stageCounts(data.requests);
+  const shippedLimited = !allShipped && shipped.length > APPROVED_SHOWN;
+  const approvedTotal = data.requests.filter((r) => r.status === 'aprovada').length;
+
+  async function report() {
+    if (approvedTotal === 0) return onToast?.('Ainda não há solicitação aprovada para o relatório.');
+    setExporting(true);
+    try {
+      await downloadReport(data.requests, today);
+    } catch {
+      onToast?.('Não foi possível gerar o relatório.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const pending = data.requests.filter((r) => r.status === 'aguardando');
   const cutoff = useMemo(() => {
@@ -244,11 +307,26 @@ export function BookingsView({ data, onOpen, onNew }: ViewProps) {
         </div>
       </section>
 
+      <div className="seg visao-troca" role="group" aria-label="Etapa do embarque">
+        {(
+          [
+            ['pre', 'Pré-embarque', 'relogio'],
+            ['pos', 'Pós-embarque', 'navio'],
+          ] as const
+        ).map(([value, label, icon]) => (
+          <button key={value} type="button" aria-pressed={stage === value} onClick={() => setStage(value)}>
+            <Icon name={icon} />
+            {label}
+            <span className="num">{counts[value]}</span>
+          </button>
+        ))}
+      </div>
+
       <div className="filtros">
         <label className="busca">
           <Icon name="busca" />
           <span className="so-leitor">Buscar</span>
-          <input className="campo" type="search" placeholder="Buscar fornecedor, porto ou container" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input className="campo" type="search" placeholder="Buscar referência, fornecedor ou porto" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
         {suppliers.length > 1 && (
           <select className="campo filtro-sel" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} aria-label="Fornecedor">
@@ -260,10 +338,49 @@ export function BookingsView({ data, onOpen, onNew }: ViewProps) {
             ))}
           </select>
         )}
-        {newButton && <div className="filtros-acoes">{newButton}</div>}
+        <div className="filtros-acoes">
+          <button type="button" className="btn" onClick={() => void report()} disabled={exporting}>
+            <Icon name="arquivo" />
+            {/* No celular, só "Relatório", para caber ao lado de "Nova solicitação". */}
+            <span className="rot">
+              {exporting ? (
+                'Gerando…'
+              ) : (
+                <>
+                  Relatório<span className="rot-longo"> das aprovadas</span>
+                </>
+              )}
+            </span>
+          </button>
+          {newButton}
+        </div>
       </div>
 
-      {groups.length === 0 ? (
+      {stage === 'pos' ? (
+        shipped.length === 0 ? (
+          <div className="bloco tabela-vazia">
+            {counts.pos === 0
+              ? 'Nenhuma solicitação embarcada ainda. Quando o navio sair, marque "Embarcou" na ficha da solicitação aprovada.'
+              : 'Nenhuma solicitação com esta busca.'}
+          </div>
+        ) : (
+          <section className="emb-grupo sol-embarcadas" aria-labelledby="sol-grupo-embarcadas">
+            <div className="emb-grupo-topo sol-grupo-topo">
+              <h2 id="sol-grupo-embarcadas">
+                <Icon name="navio" />
+                Embarcadas
+              </h2>
+              <span className="mudo">{shipped.length === 1 ? '1 solicitação' : `${shipped.length} solicitações`}</span>
+            </div>
+            <CardGrid requests={shippedLimited ? shipped.slice(0, APPROVED_SHOWN) : shipped} today={today} agent={agent} onOpen={onOpen} />
+            {shippedLimited && (
+              <button type="button" className="btn-texto sol-mais" onClick={() => setAllShipped(true)}>
+                Mostrar todas as {shipped.length} embarcadas
+              </button>
+            )}
+          </section>
+        )
+      ) : groups.length === 0 ? (
         <div className="bloco tabela-vazia">Nenhuma solicitação com esta busca.</div>
       ) : (
         groups.map(({ status, requests }) => {
@@ -322,9 +439,10 @@ function BookingCard({ request: r, today, agent, onOpen }: { request: BookingReq
     <button type="button" className={`emb-cartao sol-cartao estado-${r.status}`} onClick={() => onOpen(r.id)}>
       <span className="emb-topo">
         <SupplierName request={r} />
-        <StatusPill status={r.status} />
+        <StatusPill status={r.status} shipped={!!r.shippedAt} />
       </span>
       <span className="emb-titulo">{r.reference || <span className="sol-sem-ref">Sem referência</span>}</span>
+      {r.ibcReference && <span className="sol-ibc">Ref. IBC {r.ibcReference}</span>}
       <span className="sol-conteineres">
         {containersText(r.lines, which)}
         {approvedLess(r) && <span className="sol-nota"> (pedido: {containersText(r.lines)})</span>}
@@ -338,9 +456,17 @@ function BookingCard({ request: r, today, agent, onOpen }: { request: BookingReq
           </>
         )}
       </span>
-      {(r.readyDate || r.arrivalDate) && (
+      {(r.readyDate || r.arrivalDate || r.shippedAt) && (
         <span className="emb-meta sol-datas-linha">
-          {[r.readyDate && `prontidão ${formatDay(r.readyDate, true)}`, r.arrivalDate && `chegada ${formatDay(r.arrivalDate, true)}`].filter(Boolean).join(' · ')}
+          {/* Espaços que não quebram dentro de cada data: a linha só quebra depois de um "·". */}
+          {[
+            r.readyDate && `prontidão ${formatDay(r.readyDate, true)}`,
+            r.shippedAt && `embarcou ${formatDay(r.shippedAt, true)}`,
+            r.arrivalDate && `chegada ${formatDay(r.arrivalDate, true)}`,
+          ]
+            .filter((t): t is string => !!t)
+            .map((t) => t.replace(/ /g, '\u00a0'))
+            .join('\u00a0· ')}
         </span>
       )}
       <span className="emb-pe">
@@ -360,10 +486,11 @@ export interface BookingContext {
   suppliers: SupplierSummary[] | null;
 }
 
-type Detail = 'reference' | 'readyDate' | 'arrivalDate';
+type Detail = 'reference' | 'ibcReference' | 'readyDate' | 'arrivalDate';
 
 const DETAIL_TEXTS: Record<Detail, { label: string; empty: string; saved: string }> = {
   reference: { label: 'Número de referência', empty: 'Sem referência', saved: 'Número de referência salvo.' },
+  ibcReference: { label: 'Referência IBC', empty: 'Não informada', saved: 'Referência IBC salva.' },
   readyDate: { label: 'Prontidão do container', empty: 'Não informada', saved: 'Prontidão do container salva.' },
   arrivalDate: { label: 'Previsão de chegada', empty: 'Não informada', saved: 'Previsão de chegada salva.' },
 };
@@ -373,7 +500,8 @@ const DETAIL_TEXTS: Record<Detail, { label: string; empty: string; saved: string
  * container ou a previsão de chegada. Quem pode (o agente nas dele, admin e editor) preenche e corrige ali.
  */
 function DetailValue({ request: r, field, editable, onSaved }: { request: BookingRequest; field: Detail; editable: boolean; onSaved: (request: BookingRequest, message: string) => void }) {
-  const current = field === 'reference' ? r.reference : (r[field] ?? '');
+  const text = field === 'reference' || field === 'ibcReference';
+  const current = text ? r[field] : (r[field] ?? '');
   const texts = DETAIL_TEXTS[field];
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(current);
@@ -383,12 +511,19 @@ function DetailValue({ request: r, field, editable, onSaved }: { request: Bookin
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    const problem = field === 'reference' ? referenceProblem(value) : field === 'readyDate' ? readyDateProblem(r.departureDate, value) : arrivalDateProblem(r.departureDate, value);
+    const problem =
+      field === 'reference'
+        ? referenceProblem(value)
+        : field === 'ibcReference'
+          ? ibcReferenceProblem(value)
+          : field === 'readyDate'
+            ? readyDateProblem(r.departureDate, value)
+            : arrivalDateProblem(r.departureDate, value);
     if (problem) return setError(problem);
     setBusy(true);
     setError(null);
     try {
-      const res = await api.updateBookingDetails(r.id, { [field]: field === 'reference' ? normalizeReference(value) : value });
+      const res = await api.updateBookingDetails(r.id, { [field]: text ? normalizeReference(value) : value });
       setEditing(false);
       onSaved(res.request, texts.saved);
     } catch (err) {
@@ -407,10 +542,10 @@ function DetailValue({ request: r, field, editable, onSaved }: { request: Bookin
         <input
           id={inputId}
           className="campo"
-          type={field === 'reference' ? 'text' : 'date'}
+          type={text ? 'text' : 'date'}
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          maxLength={field === 'reference' ? REFERENCE_MAX : undefined}
+          maxLength={text ? REFERENCE_MAX : undefined}
           autoComplete="off"
           autoFocus
           aria-invalid={error ? true : undefined}
@@ -435,7 +570,7 @@ function DetailValue({ request: r, field, editable, onSaved }: { request: Bookin
   }
   return (
     <span className="sol-ref">
-      {current ? <b>{field === 'reference' ? current : formatDay(current, true)}</b> : <span className="sol-sem-ref">{texts.empty}</span>}
+      {current ? <b>{text ? current : formatDay(current, true)}</b> : <span className="sol-sem-ref">{texts.empty}</span>}
       {editable && (
         <button
           type="button"
@@ -449,6 +584,94 @@ function DetailValue({ request: r, field, editable, onSaved }: { request: Bookin
           {current ? 'Corrigir' : 'Preencher'}
         </button>
       )}
+    </span>
+  );
+}
+
+/**
+ * O embarque da solicitação aprovada (23/11/2026): quem corrige os dados dela (o agente nas dele, admin
+ * e editor) marca o dia em que o navio saiu, e ela passa para a aba Pós-embarque; dá para desfazer.
+ */
+function ShippedValue({ request: r, editable, today, onSaved }: { request: BookingRequest; editable: boolean; today: string; onSaved: (request: BookingRequest, message: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const inputId = useId();
+
+  async function act(action: () => Promise<{ request: BookingRequest }>, done: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await action();
+      setEditing(false);
+      onSaved(res.request, done);
+    } catch (err) {
+      setError(message(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function save(e: FormEvent) {
+    e.preventDefault();
+    const problem = shippedDateProblem(value, r.departureDate, today);
+    if (problem) return setError(problem);
+    void act(() => api.markBookingShipped(r.id, value), 'Marcada como embarcada: foi para a aba Pós-embarque.');
+  }
+
+  if (editing) {
+    return (
+      <form className="sol-ref-form" onSubmit={save} noValidate>
+        <label className="so-leitor" htmlFor={inputId}>
+          Dia em que embarcou
+        </label>
+        <input id={inputId} className="campo" type="date" value={value} max={today} onChange={(e) => setValue(e.target.value)} autoFocus aria-invalid={error ? true : undefined} />
+        <button type="submit" className="btn primario" disabled={busy}>
+          {busy ? 'Salvando…' : 'Salvar'}
+        </button>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => {
+            setEditing(false);
+            setError(null);
+          }}
+        >
+          Cancelar
+        </button>
+        <FormError message={error} />
+      </form>
+    );
+  }
+  return (
+    <span className="sol-ref">
+      {r.shippedAt ? (
+        <span>
+          <b>Embarcou em {formatDay(r.shippedAt, true)}</b>
+          {r.shippedBy && <span className="mudo"> · marcado por {r.shippedBy.name}</span>}
+        </span>
+      ) : (
+        <span className="sol-sem-ref">Ainda não embarcou</span>
+      )}
+      {editable &&
+        (r.shippedAt ? (
+          <button type="button" className="btn-texto" disabled={busy} onClick={() => void act(() => api.unmarkBookingShipped(r.id), 'Embarque desfeito: voltou para a aba Pré-embarque.')}>
+            Desfazer
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn-texto"
+            onClick={() => {
+              setValue(r.departureDate <= today ? r.departureDate : today);
+              setEditing(true);
+            }}
+          >
+            Marcar que embarcou
+          </button>
+        ))}
+      {!editing && error && <FormError message={error} />}
     </span>
   );
 }
@@ -641,6 +864,10 @@ export function BookingDialog({ request, data, me, context, onClose, onSaved, on
               <dd>
                 <DetailValue key={r.id} request={r} field="reference" editable={canEditBookingDetails(r, me)} onSaved={onSaved} />
               </dd>
+              <dt>Referência IBC</dt>
+              <dd>
+                <DetailValue key={r.id} request={r} field="ibcReference" editable={canEditBookingDetails(r, me)} onSaved={onSaved} />
+              </dd>
               <dt>Fornecedor</dt>
               <dd>
                 <SupplierName request={r} />
@@ -663,6 +890,14 @@ export function BookingDialog({ request, data, me, context, onClose, onSaved, on
               <dd>
                 <DetailValue key={r.id} request={r} field="arrivalDate" editable={canEditBookingDetails(r, me)} onSaved={onSaved} />
               </dd>
+              {r.status === 'aprovada' && (
+                <>
+                  <dt>Embarque</dt>
+                  <dd>
+                    <ShippedValue key={r.id} request={r} editable={canMarkShipped(r, me)} today={data.today} onSaved={onSaved} />
+                  </dd>
+                </>
+              )}
               <dt>Pedido por</dt>
               <dd>
                 {r.createdBy.name}, {formatDateTime(r.createdAt)}
@@ -899,7 +1134,7 @@ function SupplierContext({ request: r, data, context, onProduction }: { request:
                   {o.reference && `${o.reference} · `}
                   {formatDay(dayOf(o.createdAt), true)} · {containersText(o.lines, shownAmount(o))}
                 </span>
-                <StatusPill status={o.status} />
+                <StatusPill status={o.status} shipped={!!o.shippedAt} />
               </li>
             ))}
           </ul>
@@ -925,6 +1160,7 @@ function draft(containerType: ContainerType): LineDraft {
 
 export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boolean; data: BookingsData; onClose: () => void; onCreated: (request: BookingRequest) => void }) {
   const [reference, setReference] = useState('');
+  const [ibcReference, setIbcReference] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [port, setPort] = useState('');
   const [date, setDate] = useState('');
@@ -934,12 +1170,13 @@ export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boo
   const [lines, setLines] = useState<LineDraft[]>(() => [draft('40HC')]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const ids = { reference: useId(), supplier: useId(), port: useId(), ports: useId(), date: useId(), ready: useId(), arrival: useId(), notes: useId() };
+  const ids = { reference: useId(), ibc: useId(), supplier: useId(), port: useId(), ports: useId(), date: useId(), ready: useId(), arrival: useId(), notes: useId() };
   const ports = useMemo(() => portSuggestions(data.requests), [data.requests]);
 
   useEffect(() => {
     if (!open) return;
     setReference('');
+    setIbcReference('');
     setSupplierId('');
     setPort('');
     setDate('');
@@ -967,7 +1204,7 @@ export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boo
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const referenceError = referenceProblem(reference);
+    const referenceError = referenceProblem(reference) ?? ibcReferenceProblem(ibcReference);
     if (referenceError) return setError(referenceError);
     if (!supplierId) return setError('Escolha o fornecedor.');
     const unreadable = lines.find((l, i) => l.price.trim() && Number.isNaN(parsed[i]!.priceCents));
@@ -978,7 +1215,7 @@ export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boo
     setBusy(true);
     setError(null);
     try {
-      const res = await api.createBooking({ supplierId, notes: notes.trim(), ...input });
+      const res = await api.createBooking({ supplierId, notes: notes.trim(), ibcReference: normalizeReference(ibcReference), ...input });
       onCreated(res.request);
     } catch (err) {
       setError(message(err));
@@ -1010,6 +1247,12 @@ export function NewBookingDialog({ open, data, onClose, onCreated }: { open: boo
             <span id={`${ids.reference}-dica`} className="dica">
               O número que você dá a este embarque. Aparece no lugar de destaque da solicitação; dá para corrigir depois.
             </span>
+          </div>
+          <div className="grupo sol-ref-campo">
+            <label className="rotulo" htmlFor={ids.ibc}>
+              Referência IBC (opcional)
+            </label>
+            <input id={ids.ibc} className="campo" value={ibcReference} onChange={(e) => setIbcReference(e.target.value)} maxLength={REFERENCE_MAX} autoComplete="off" />
           </div>
           <div className="grade-campos sol-campos sol-campos-dois">
             <div className="grupo">

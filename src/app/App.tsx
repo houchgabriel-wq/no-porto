@@ -485,7 +485,7 @@ function AgentBookings({ user, onToast }: { user: Me; onToast: (msg: string) => 
           <span>Sem conexão com o servidor. A lista pode estar desatualizada.</span>
         </p>
       )}
-      <BookingsView data={bookings.data} onOpen={setOpen} onNew={() => setCreating(true)} />
+      <BookingsView data={bookings.data} onOpen={setOpen} onNew={() => setCreating(true)} onToast={onToast} />
       <NewBookingDialog
         open={creating}
         data={bookings.data}
@@ -901,7 +901,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                   <span>Sem conexão com o servidor. A lista pode estar desatualizada.</span>
                 </p>
               )}
-              <BookingsView data={bookings.data} onOpen={setBooking} />
+              <BookingsView data={bookings.data} onOpen={setBooking} onToast={showToast} />
             </>
           ) : bookings.loadError ? (
             <div className="erro-carga">

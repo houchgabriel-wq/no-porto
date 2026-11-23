@@ -69,6 +69,12 @@ export interface BookingRequest {
   readyDate: string | null;
   /** Previsão de chegada (AAAA-MM-DD), como a prontidão. */
   arrivalDate: string | null;
+  /** Referência IBC, opcional, embaixo do número de referência (23/11/2026); vazia quando não tem. */
+  ibcReference: string;
+  /** Dia em que a solicitação aprovada embarcou (AAAA-MM-DD), marcado depois; null enquanto não embarcou. */
+  shippedAt: string | null;
+  /** Quem marcou que embarcou. */
+  shippedBy: Person | null;
   /** null só quando o fornecedor deixou de existir (o admin apagou tudo para começar do zero). */
   supplierId: string | null;
   supplierName: string;
@@ -104,6 +110,11 @@ export function referenceProblem(text: string): string | null {
   if (!reference) return 'Informe o número de referência.';
   if (reference.length > REFERENCE_MAX) return `O número de referência pode ter no máximo ${REFERENCE_MAX} caracteres.`;
   return null;
+}
+
+/** O que impede a referência IBC de ser gravada, ou null: é opcional, com até 40 caracteres. */
+export function ibcReferenceProblem(text: string): string | null {
+  return normalizeReference(text).length > REFERENCE_MAX ? `A referência IBC pode ter no máximo ${REFERENCE_MAX} caracteres.` : null;
 }
 
 /** O que impede a prontidão do container de ser gravada, ou null: obrigatória e até a saída prevista. */
@@ -254,6 +265,86 @@ export function canEditBookingDetails(request: Pick<BookingRequest, 'createdBy'>
   return can(user.role, 'view_bookings');
 }
 
+/** Pré-embarque: o que ainda não embarcou (inclusive as que aguardam, recusadas e canceladas); pós: o que embarcou. */
+export type BookingStage = 'pre' | 'pos';
+
+export function bookingStage(request: Pick<BookingRequest, 'shippedAt'>): BookingStage {
+  return request.shippedAt ? 'pos' : 'pre';
+}
+
+/**
+ * Contagem das abas. No Pré-embarque conta só o que ainda vai embarcar (aguardando e aprovada): as
+ * recusadas e as canceladas ficam na aba, recolhidas, mas não somam, senão o número só cresceria. No
+ * Pós-embarque, as que embarcaram.
+ */
+export function stageCounts(requests: readonly Pick<BookingRequest, 'status' | 'shippedAt'>[]): Record<BookingStage, number> {
+  const counts: Record<BookingStage, number> = { pre: 0, pos: 0 };
+  for (const r of requests) {
+    if (bookingStage(r) === 'pos') counts.pos++;
+    else if (r.status === 'aguardando' || r.status === 'aprovada') counts.pre++;
+  }
+  return counts;
+}
+
+/** Marca que embarcou (ou desfaz): só na solicitação aprovada, por quem corrige os dados dela. */
+export function canMarkShipped(request: Pick<BookingRequest, 'status' | 'createdBy'>, user: { id: string; role: Role }): boolean {
+  return request.status === 'aprovada' && canEditBookingDetails(request, user);
+}
+
+/** O que impede a data em que embarcou de ser gravada, ou null: até hoje, e não muito antes da saída prevista. */
+export function shippedDateProblem(date: string, departureDate: string, today: string): string | null {
+  if (parseDate(date) !== date) return 'Informe o dia em que embarcou.';
+  if (date > today) return 'O dia em que embarcou não pode ser depois de hoje.';
+  if (daysBetween(date, departureDate) > MAX_READY_BEFORE_DEPARTURE) return 'O dia em que embarcou está muito antes da saída prevista. Confira o dia e o ano.';
+  return null;
+}
+
+/** Uma linha do relatório das aprovadas (o agente baixa as dele; a equipe, todas). */
+export interface BookingReportRow {
+  reference: string;
+  ibcReference: string;
+  supplierName: string;
+  departurePort: string;
+  readyDate: string | null;
+  departureDate: string;
+  arrivalDate: string | null;
+  shippedAt: string | null;
+  stage: BookingStage;
+  /** Containers aprovados, por tipo. */
+  approved: Record<ContainerType, number>;
+  containers: string;
+  totalCents: number;
+  approvedAt: string | null;
+  approvalNote: string;
+}
+
+/** O relatório das solicitações aprovadas, embarcadas ou não, pela saída prevista. */
+export function bookingReportRows(requests: readonly BookingRequest[]): BookingReportRow[] {
+  return requests
+    .filter((r) => r.status === 'aprovada')
+    .sort((a, b) => a.departureDate.localeCompare(b.departureDate) || a.createdAt.localeCompare(b.createdAt))
+    .map((r) => {
+      const approved = { '20': 0, '40': 0, '40HC': 0 } as Record<ContainerType, number>;
+      for (const l of r.lines) approved[l.containerType] = l.approvedQuantity ?? 0;
+      return {
+        reference: r.reference,
+        ibcReference: r.ibcReference,
+        supplierName: r.supplierName,
+        departurePort: r.departurePort,
+        readyDate: r.readyDate,
+        departureDate: r.departureDate,
+        arrivalDate: r.arrivalDate,
+        shippedAt: r.shippedAt,
+        stage: bookingStage(r),
+        approved,
+        containers: containersText(r.lines, 'aprovado'),
+        totalCents: bookingTotalCents(r.lines, 'aprovado'),
+        approvedAt: r.decidedAt ? r.decidedAt.slice(0, 10) : null,
+        approvalNote: r.decisionNote,
+      };
+    });
+}
+
 export function pendingCount(requests: readonly Pick<BookingRequest, 'status'>[]): number {
   return requests.filter((r) => r.status === 'aguardando').length;
 }
@@ -283,7 +374,7 @@ export function matchesBooking(request: BookingRequest, query: string): boolean 
   const words = searchKey(query).split(' ').filter(Boolean);
   if (!words.length) return true;
   const hay = searchKey(
-    [request.reference, request.supplierName, request.departurePort, containersText(request.lines), request.createdBy.name, request.notes, request.decisionNote, BOOKING_STATUS_LABELS[request.status]].join(' '),
+    [request.reference, request.ibcReference, request.supplierName, request.departurePort, containersText(request.lines), request.createdBy.name, request.notes, request.decisionNote, BOOKING_STATUS_LABELS[request.status]].join(' '),
   );
   return words.every((w) => hay.includes(w));
 }
