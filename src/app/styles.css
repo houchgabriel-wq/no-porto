@@ -1594,3 +1594,7 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 .sol-excluir { display: inline-flex; align-items: center; gap: 5px; }
 .sol-excluir .ic { width: 15px; height: 15px; }
 .dlg-solicitacao .confirma-exclusao p + p { color: var(--tinta-2); }
+/* Estoque no celular: a ordem ("Maior venda primeiro", a padrão desde 23/11/2026) ganha a linha inteira. */
+@media (max-width: 720px) {
+  .filtros .filtro-sel.prev-ordem { flex-basis: 100%; }
+}

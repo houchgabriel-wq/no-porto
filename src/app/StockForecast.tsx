@@ -33,7 +33,8 @@ const PAGE = 200;
 /** A curva é semanal: depois destes dias, a aba lembra de carregar a nova. */
 const OLD_CURVE_DAYS = 8;
 
-type Show = 'acao' | 'reimprimir' | 'embarcar' | 'todos';
+type Show = 'todos' | 'acao' | 'reimprimir' | 'embarcar';
+const SHOWS: readonly string[] = ['todos', 'acao', 'reimprimir', 'embarcar'] satisfies Show[];
 type Sort = 'urgencia' | 'venda' | 'cobertura' | 'titulo';
 
 interface Filters {
@@ -44,7 +45,8 @@ interface Filters {
   sort: Sort;
 }
 
-const EMPTY_FILTERS: Filters = { query: '', show: 'acao', abc: '', imported: false, sort: 'urgencia' };
+// A aba abre em todos os títulos, do que mais vende para o que menos vende (pedido do Gabriel em 23/11/2026).
+const EMPTY_FILTERS: Filters = { query: '', show: 'todos', abc: '', imported: false, sort: 'venda' };
 
 const titulos = (n: number) => `${n.toLocaleString('pt-BR')} ${n === 1 ? 'título' : 'títulos'}`;
 const oneDecimal = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -91,11 +93,13 @@ interface Props {
   /** Abre a ficha do produto no No Porto. */
   onProduct?: (productId: string) => void;
   onToast: (msg: string) => void;
+  /** O cartão já escolhido quando a aba abre por uma linha do painel (#estoque/embarcar). */
+  initialShow?: string;
 }
 
-export function StockView({ data, onLoad, onProduct, onToast }: Props) {
+export function StockView({ data, onLoad, onProduct, onToast, initialShow }: Props) {
   const ids = useId();
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<Filters>(() => ({ ...EMPTY_FILTERS, show: initialShow && SHOWS.includes(initialShow) ? (initialShow as Show) : EMPTY_FILTERS.show }));
   const [shownCount, setShownCount] = useState(PAGE);
   const [open, setOpen] = useState<ForecastRow | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -105,7 +109,7 @@ export function StockView({ data, onLoad, onProduct, onToast }: Props) {
   const summary = useMemo(() => forecastSummary(rows, today), [rows, today]);
   const shown = useMemo(() => sortRows(rows.filter((r) => matches(r, filters, today)), filters.sort), [rows, filters, today]);
   const classes = useMemo(() => [...new Set(rows.map((r) => r.abcClass).filter(Boolean))].sort(), [rows]);
-  const filtered = filters.query.trim() !== '' || filters.abc !== '' || filters.imported || filters.sort !== 'urgencia' || filters.show !== EMPTY_FILTERS.show;
+  const filtered = filters.query.trim() !== '' || filters.abc !== '' || filters.imported || filters.sort !== EMPTY_FILTERS.sort || filters.show !== EMPTY_FILTERS.show;
 
   function change(f: Filters) {
     setFilters(f);
@@ -157,6 +161,7 @@ export function StockView({ data, onLoad, onProduct, onToast }: Props) {
 
   const age = daysBetween(curve.stockDate, today);
   const cards: { show: Show; label: string; value: number; sub: ReactNode; tone: string; icon: 'alerta' | 'livro' | 'navio' | 'tabela' }[] = [
+    { show: 'todos', label: 'Todos os títulos', value: summary.titles, sub: `${titulos(rows.filter((r) => r.imported).length)} no No Porto`, tone: 'neutro', icon: 'tabela' },
     { show: 'acao', label: 'Precisam de ação', value: summary.action, sub: 'reimprimir, embarcar ou avisos', tone: 'acento', icon: 'alerta' },
     {
       show: 'reimprimir',
@@ -174,7 +179,6 @@ export function StockView({ data, onLoad, onProduct, onToast }: Props) {
       tone: summary.late > 0 ? 'critico' : 'navio',
       icon: 'navio',
     },
-    { show: 'todos', label: 'Todos os títulos', value: summary.titles, sub: `${titulos(rows.filter((r) => r.imported).length)} no No Porto`, tone: 'neutro', icon: 'tabela' },
   ];
 
   return (
@@ -217,19 +221,19 @@ export function StockView({ data, onLoad, onProduct, onToast }: Props) {
             </option>
           ))}
         </select>
-        <label className="so-leitor" htmlFor={`${ids}-ordem`}>
-          Ordem
-        </label>
-        <select id={`${ids}-ordem`} className="campo filtro-sel" value={filters.sort} onChange={(e) => change({ ...filters, sort: e.target.value as Sort })}>
-          <option value="urgencia">Mais urgentes primeiro</option>
-          <option value="venda">Maior venda primeiro</option>
-          <option value="cobertura">Menor cobertura primeiro</option>
-          <option value="titulo">Título (A–Z)</option>
-        </select>
         <label className="marcar prev-importados">
           <input type="checkbox" checked={filters.imported} onChange={(e) => change({ ...filters, imported: e.target.checked })} />
           Só importados
         </label>
+        <label className="so-leitor" htmlFor={`${ids}-ordem`}>
+          Ordem
+        </label>
+        <select id={`${ids}-ordem`} className="campo filtro-sel prev-ordem" value={filters.sort} onChange={(e) => change({ ...filters, sort: e.target.value as Sort })}>
+          <option value="venda">Maior venda primeiro</option>
+          <option value="urgencia">Mais urgentes primeiro</option>
+          <option value="cobertura">Menor cobertura primeiro</option>
+          <option value="titulo">Título (A–Z)</option>
+        </select>
         <div className="filtros-acoes">
           <button type="button" className="btn" onClick={() => void exportRows()} disabled={exporting || shown.length === 0}>
             <Icon name="arquivo" />
@@ -244,7 +248,7 @@ export function StockView({ data, onLoad, onProduct, onToast }: Props) {
         {filtered && (
           <>
             {' '}
-            <button type="button" className="btn-texto" onClick={() => change({ ...EMPTY_FILTERS, show: 'todos' })}>
+            <button type="button" className="btn-texto" onClick={() => change(EMPTY_FILTERS)}>
               Ver todos, sem filtros
             </button>
           </>

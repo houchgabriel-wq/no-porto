@@ -118,8 +118,13 @@ const VIEWS = ['painel', 'solicitacoes', 'producao', 'estoque', 'embarques', 'hi
 type View = (typeof VIEWS)[number];
 
 function viewFromHash(): View {
-  const v = location.hash.slice(1);
+  const v = location.hash.slice(1).split('/')[0]!;
   return (VIEWS as readonly string[]).includes(v) ? (v as View) : 'painel';
+}
+
+/** O que vem depois da aba no endereço ("#estoque/embarcar" → "embarcar"): o painel abre a aba já filtrada. */
+function subFromHash(): string | undefined {
+  return location.hash.slice(1).split('/')[1] || undefined;
 }
 
 type State =
@@ -512,6 +517,7 @@ function AgentBookings({ user, onToast }: { user: Me; onToast: (msg: string) => 
 
 function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [view, setView] = useState<View>(viewFromHash);
+  const [viewSub, setViewSub] = useState(subFromHash);
   const [changingPassword, setChangingPassword] = useState(false);
   const [toast, showToast] = useToast();
   const [filters, setFilters] = useState<ItemFilters>(EMPTY_FILTERS);
@@ -559,7 +565,10 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const canImport = can(user.role, 'import');
 
   useEffect(() => {
-    const onHash = () => setView(viewFromHash());
+    const onHash = () => {
+      setView(viewFromHash());
+      setViewSub(subFromHash());
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -979,7 +988,14 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
               )
             ) : current === 'estoque' ? (
               stock ? (
-                <StockView data={stock} onLoad={loadsStock ? () => setCurveOpen(true) : undefined} onProduct={seesAll ? setProduct : undefined} onToast={showToast} />
+                <StockView
+                  key={viewSub ?? ''}
+                  data={stock}
+                  initialShow={viewSub}
+                  onLoad={loadsStock ? () => setCurveOpen(true) : undefined}
+                  onProduct={seesAll ? setProduct : undefined}
+                  onToast={showToast}
+                />
               ) : stockError ? (
                 <div className="erro-carga">
                   <FormError message={stockError} />
