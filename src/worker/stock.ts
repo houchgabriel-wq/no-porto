@@ -56,7 +56,8 @@ type StoredRow = [string, string, string, string, number, number | null, number,
 const encode = (r: CurveRow): StoredRow => [r.isbn, r.title, r.code, r.abcClass, r.stock, r.sales.m1, r.sales.m3, r.sales.m6, r.sales.m9, r.sales.m12];
 const decode = (s: StoredRow): CurveRow => ({ isbn: s[0], title: s[1], code: s[2], abcClass: s[3], stock: s[4], sales: { m1: s[5], m3: s[6], m6: s[7], m9: s[8], m12: s[9] } });
 
-async function readCurve(env: Env): Promise<{ info: CurveInfo; rows: CurveRow[] } | null> {
+/** A última curva carregada (também para o catálogo da Nova PO). */
+export async function readCurve(env: Env): Promise<{ info: CurveInfo; rows: CurveRow[] } | null> {
   const row = await env.DB.prepare(
     `SELECT c.stock_date, c.file_name, c.row_count, c.rows_json, c.created_at, u.name AS user_name
        FROM stock_curves c LEFT JOIN users u ON u.id = c.created_by

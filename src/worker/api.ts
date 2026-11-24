@@ -18,6 +18,7 @@ import { routeReset } from './reset';
 import { routeBillDocuments } from './billDocuments';
 import { routeBookings } from './bookings';
 import { routeStock } from './stock';
+import { routeNewOrder } from './newOrder';
 
 // ---------- Esquemas de entrada ----------
 
@@ -407,6 +408,8 @@ async function routeLoggedIn(
   if (noPrelo) return noPrelo;
   const stock = await routeStock(request, env, session, key, now);
   if (stock) return stock;
+  const newOrder = await routeNewOrder(env, session, key);
+  if (newOrder) return newOrder;
 
   return error(404, 'Rota não encontrada.');
 }
