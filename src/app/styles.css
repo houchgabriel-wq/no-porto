@@ -1598,3 +1598,23 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 @media (max-width: 720px) {
   .filtros .filtro-sel.prev-ordem { flex-basis: 100%; }
 }
+/* Nova PO pelo sistema (24/11/2026). */
+.grade-campos.po-topo { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1fr); margin-top: 14px; }
+.po-linhas { list-style: none; padding: 0; margin: 16px 0 12px; display: flex; flex-direction: column; gap: 14px; }
+.po-linha { position: relative; border: 1px solid var(--fio); border-radius: 14px; padding: 12px 16px 10px; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 12px; background: var(--folha); }
+.po-linha-n { font-family: var(--f-display); font-weight: 700; font-size: 15px; padding: 0 6px; }
+.po-tirar { position: absolute; top: 10px; right: 12px; }
+.po-linha > .grupo:first-of-type { margin-right: 52px; }
+.grade-campos.po-numeros { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; }
+.grade-campos.po-textos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.po-valor { margin: 0; text-align: right; color: var(--tinta-2); font-variant-numeric: tabular-nums; }
+.po-valor b { color: var(--tinta); }
+.po-total { margin: 14px 0 0; }
+@media (max-width: 860px) {
+  .grade-campos.po-topo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .grade-campos.po-numeros { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grade-campos.po-textos { grid-template-columns: minmax(0, 1fr); }
+  .po-linha { padding: 10px 12px; }
+}

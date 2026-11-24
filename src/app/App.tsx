@@ -22,6 +22,7 @@ import { ProductionView } from './Production';
 import { HistoryView, type HistoryData } from './History';
 import { ProductDialog } from './ProductDialog';
 import { ArrivalDialog, OrderUploadDialog } from './Documents';
+import { NewOrderDialog } from './NewOrder';
 import { NewShipmentDialog } from './NewShipment';
 import { ShipDialog } from './ShipDialog';
 import { SupplierDialog, SuppliersView, type SuppliersData } from './Suppliers';
@@ -531,6 +532,8 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [shipping, setShipping] = useState<string[] | null>(null);
   const [shipment, setShipment] = useState<string | null>(null);
   const [upload, setUpload] = useState<'pedido' | 'embarque' | null>(null);
+  // Nova PO pelo sistema (24/11/2026): o formulário que cadastra a PO e baixa o Excel para o fornecedor.
+  const [creatingOrder, setCreatingOrder] = useState(false);
   const [arrival, setArrival] = useState<string[] | null>(null);
   const [fullImport, setFullImport] = useState(false);
   const [shipmentsMode, setShipmentsMode] = useState<ShipmentsMode>(readShipmentsMode);
@@ -747,10 +750,16 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const actions = (
     <>
       {canEdit && (
-        <button type="button" className="btn" onClick={() => setUpload('pedido')}>
-          <Icon name="arquivo" />
-          <span className="rot">Novo pedido</span>
-        </button>
+        <>
+          <button type="button" className="btn" onClick={() => setCreatingOrder(true)}>
+            <Icon name="mais" />
+            <span className="rot">Criar PO</span>
+          </button>
+          <button type="button" className="btn" onClick={() => setUpload('pedido')}>
+            <Icon name="arquivo" />
+            <span className="rot">Novo pedido</span>
+          </button>
+        </>
       )}
       <button type="button" className="btn" onClick={() => void exportItems()} disabled={exporting}>
         <Icon name="arquivo" />
@@ -1172,6 +1181,17 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
             data={data}
             production={production}
             onClose={() => setUpload(null)}
+            onDone={(msg, orderId) => {
+              showToast(msg);
+              goToProduction({ orderId });
+            }}
+          />
+          <NewOrderDialog
+            open={creatingOrder}
+            data={data}
+            me={user}
+            production={production}
+            onClose={() => setCreatingOrder(false)}
             onDone={(msg, orderId) => {
               showToast(msg);
               goToProduction({ orderId });

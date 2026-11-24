@@ -1,6 +1,7 @@
 // Chamadas à API. Erros viram ApiError com a mensagem em português vinda do servidor.
 
 import type { DocumentLine } from '../core/documents';
+import type { CatalogEntry } from '../core/newOrder';
 import type { SalesArrival } from '../core/shippedItems';
 import type { ImportedItem } from '../core/importProduction';
 import type { ImportedShipmentItem } from '../core/importShipments';
@@ -172,6 +173,8 @@ export const api = {
   addPayment: (invoiceId: string, body: { paidAt: string | null; amountCents: number; exchangeRateE4: number | null; notes: string }) =>
     request<{ id: string }>('POST', `/api/invoices/${encodeURIComponent(invoiceId)}/payments`, body),
   deletePayment: (id: string) => request<{ ok: true }>('DELETE', `/api/payments/${encodeURIComponent(id)}`),
+  /** Os produtos para a Nova PO: os que já tiveram PO, com a última compra, e os da curva ABC (admin e editor). */
+  poCatalog: () => request<{ products: CatalogEntry[] }>('GET', '/api/po-catalog'),
   createOrder: (body: { code: string; supplier: string; orderedAt: string | null; items: Omit<DocumentLine, 'orderCode'>[] }) =>
     request<{ orderId: string; inserted: number }>('POST', '/api/orders', body),
   receiveShipment: (body: { bill: string | null; eta: string | null; invoices: { supplierId: string; number: string; ref: string; container: string; lines: DocumentLine[] }[] }) =>
