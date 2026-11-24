@@ -258,7 +258,7 @@ function InvoiceSection({
           Invoice {invoice.number}
           {invoice.ref && invoice.ref !== invoice.number && <span className="mudo"> · ref. {invoice.ref}</span>}
         </h3>
-        <span className="mudo">{supplier}</span>
+        {data.seeSuppliers && <span className="mudo">{supplier}</span>}
         {pay && <span className={`pilula pag ${pay.status}`}>{PAYMENT_LABELS[pay.status]}</span>}
         {canEdit && !editing && (
           <button type="button" className="btn-texto" onClick={() => setEditing(true)}>

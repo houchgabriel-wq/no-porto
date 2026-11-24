@@ -60,7 +60,23 @@ describe('perfil Embarques', () => {
     expect(d.invoices.map((v: { number: string }) => v.number)).toEqual(['C1']);
     expect(d.bills.map((b: { number: string }) => b.number)).toEqual(['BL1']);
     expect(d.orders.map((o: { code: string }) => o.code)).toEqual(['PO-024']);
-    expect(d.suppliers.map((s: { name: string }) => s.name)).toEqual(['Claire']);
+  });
+
+  it('não recebe os fornecedores, nem nas observações (24/11/2026)', async () => {
+    const admin = (await app.call('GET', '/api/data', { cookie: who.admin.cookie })).data;
+    const shipped = admin.items.find((i: { status: string }) => i.status === 'embarcado');
+    await app.call('PATCH', `/api/items/${shipped.id}`, { cookie: who.editor.cookie, body: { notes: 'Conferir com a Claire.' } });
+    const d = (await app.call('GET', '/api/data', { cookie: who.embarques.cookie })).data;
+    expect(d.seeSuppliers).toBe(false);
+    expect(d.suppliers).toEqual([]);
+    expect(d.items.map((i: { supplierId: string | null; notes: string }) => [i.supplierId, i.notes])).toEqual([[null, '']]);
+    expect(d.invoices.map((v: { supplierId: string | null }) => v.supplierId)).toEqual([null]);
+    expect(JSON.stringify(d)).not.toContain('Claire');
+    // O leitor continua recebendo.
+    const leitor = (await app.call('GET', '/api/data', { cookie: who.leitor.cookie })).data;
+    expect(leitor.seeSuppliers).toBe(true);
+    expect(leitor.suppliers.map((s: { name: string }) => s.name)).toContain('Claire');
+    expect(leitor.items.find((i: { id: string }) => i.id === shipped.id).notes).toBe('Conferir com a Claire.');
   });
 
   it('vê o histórico, sem preço nem total', async () => {
@@ -75,6 +91,15 @@ describe('perfil Embarques', () => {
     expect(h.data.items[0]).toMatchObject({ status: 'entregue', quantity: 1000 });
     expect(h.data.items[0]).not.toHaveProperty('unitPriceMicros');
     expect(h.data.items[0]).not.toHaveProperty('totalCents');
+    // Sem os fornecedores (24/11/2026); o leitor continua recebendo.
+    expect(h.data.seeSuppliers).toBe(false);
+    expect(h.data.suppliers).toEqual([]);
+    expect(h.data.items[0].supplierId).toBeNull();
+    expect(h.data.invoices.map((v: { supplierId: string | null }) => v.supplierId)).toEqual([null]);
+    expect(JSON.stringify(h.data)).not.toContain('Claire');
+    const leitor = (await app.call('GET', '/api/history', { cookie: who.leitor.cookie })).data;
+    expect(leitor.seeSuppliers).toBe(true);
+    expect(leitor.suppliers.map((s: { name: string }) => s.name)).toEqual(['Claire']);
   });
 
   it('não vê fornecedores, fichas de produto nem o arquivo do BL; não altera', async () => {
