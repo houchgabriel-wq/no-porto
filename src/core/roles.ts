@@ -21,6 +21,7 @@ export type Action =
   | 'view_suppliers' // a tela Fornecedores e a ficha de cada fornecedor (só admin e editor: decidido em 19/11/2026)
   | 'view_history' // a lista do histórico (o perfil Embarques vê, sem valores: pedido em 18/11/2026)
   | 'see_year_totals' // o recebido por ano, no topo do histórico (o perfil Embarques não vê)
+  | 'see_shipped_by_supplier' // o resumo do topo de Embarques › Por item, com cada fornecedor e o que ele tem no mar (o perfil Embarques, do marketing, não vê: 24/11/2026)
   | 'see_values' // preços, totais, câmbio e pagamentos (leitor e Embarques não veem: decidido em 17/11/2026)
   | 'edit' // cadastrar e alterar POs, itens, invoices, BLs, pagamentos e fornecedores
   | 'import' // carga de planilha
@@ -42,6 +43,7 @@ const PERMISSIONS: Record<Action, readonly Role[]> = {
   view_suppliers: ['admin', 'editor'],
   view_history: ['admin', 'editor', 'consulta', 'leitor', 'embarques'],
   see_year_totals: ['admin', 'editor', 'consulta', 'leitor'],
+  see_shipped_by_supplier: ['admin', 'editor', 'consulta', 'leitor'],
   see_values: ['admin', 'editor', 'consulta'],
   edit: ['admin', 'editor'],
   import: ['admin'],

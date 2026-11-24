@@ -1059,7 +1059,12 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                   ))}
                 </div>
                 {shipmentsMode === 'item' ? (
-                  <ShipmentItemsView data={data} onOpen={(item) => setDialog({ mode: 'edit', item })} actions={shipmentActions} />
+                  <ShipmentItemsView
+                    data={data}
+                    onOpen={(item) => setDialog({ mode: 'edit', item })}
+                    actions={shipmentActions}
+                    supplierTotals={can(user.role, 'see_shipped_by_supplier')}
+                  />
                 ) : (
                   <ShipmentsView data={data} onOpen={setShipment} actions={shipmentActions} />
                 )}
