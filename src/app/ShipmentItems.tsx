@@ -41,9 +41,11 @@ interface Props {
   data: ProductionData;
   onOpen: (item: Item) => void;
   actions: React.ReactNode;
+  /** O resumo do topo, com o no mar de cada fornecedor (o perfil Embarques, do marketing, não vê: 24/11/2026). */
+  supplierTotals: boolean;
 }
 
-export function ShipmentItemsView({ data, onOpen, actions }: Props) {
+export function ShipmentItemsView({ data, onOpen, actions, supplierTotals }: Props) {
   const narrow = useNarrow();
   const { seeValues } = data;
   const [filters, setFilters] = useState<ShippedFilters>(EMPTY_SHIPPED_FILTERS);
@@ -70,45 +72,47 @@ export function ShipmentItemsView({ data, onOpen, actions }: Props) {
 
   return (
     <>
-      <section className="forn-faixa" aria-label="No mar por fornecedor">
-        <div className="forn-total">
-          <span className="forn-rot">No mar</span>
-          <b>{headline(all)}</b>
-          <span className="forn-sub">
-            {itemsCount(all.items)}
-            {seeValues && ` · ${formatQuantity(all.quantity)} ex.`}
-            {all.unpriced > 0 && ` · ${all.unpriced} sem preço`}
-          </span>
-        </div>
-        <ul className="forn-lista">
-          {bySupplier.map((s) => {
-            const id = s.supplierId ?? '';
-            const active = filters.supplierId !== '' && filters.supplierId === id;
-            const share = seeValues ? (all.valueCents ? (s.valueCents ?? 0) / all.valueCents : 0) : s.quantity / Math.max(1, all.quantity);
-            return (
-              <li key={id || 'sem'}>
-                <button
-                  type="button"
-                  className="forn h"
-                  style={hueStyle(s.supplierId ? supplierHue(s.supplierId) : 0)}
-                  aria-pressed={active}
-                  onClick={() => setFilters({ ...filters, supplierId: active ? '' : id })}
-                >
-                  <span className="forn-nome">{s.name}</span>
-                  <b>{headline(s)}</b>
-                  <span className="barra" aria-hidden="true">
-                    <span style={{ width: `${Math.max(2, share * 100)}%` }} />
-                  </span>
-                  <span className="forn-sub">
-                    {itemsCount(s.items)}
-                    {seeValues && ` · ${formatQuantity(s.quantity)} ex.`}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
+      {supplierTotals && (
+        <section className="forn-faixa" aria-label="No mar por fornecedor">
+          <div className="forn-total">
+            <span className="forn-rot">No mar</span>
+            <b>{headline(all)}</b>
+            <span className="forn-sub">
+              {itemsCount(all.items)}
+              {seeValues && ` · ${formatQuantity(all.quantity)} ex.`}
+              {all.unpriced > 0 && ` · ${all.unpriced} sem preço`}
+            </span>
+          </div>
+          <ul className="forn-lista">
+            {bySupplier.map((s) => {
+              const id = s.supplierId ?? '';
+              const active = filters.supplierId !== '' && filters.supplierId === id;
+              const share = seeValues ? (all.valueCents ? (s.valueCents ?? 0) / all.valueCents : 0) : s.quantity / Math.max(1, all.quantity);
+              return (
+                <li key={id || 'sem'}>
+                  <button
+                    type="button"
+                    className="forn h"
+                    style={hueStyle(s.supplierId ? supplierHue(s.supplierId) : 0)}
+                    aria-pressed={active}
+                    onClick={() => setFilters({ ...filters, supplierId: active ? '' : id })}
+                  >
+                    <span className="forn-nome">{s.name}</span>
+                    <b>{headline(s)}</b>
+                    <span className="barra" aria-hidden="true">
+                      <span style={{ width: `${Math.max(2, share * 100)}%` }} />
+                    </span>
+                    <span className="forn-sub">
+                      {itemsCount(s.items)}
+                      {seeValues && ` · ${formatQuantity(s.quantity)} ex.`}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       <div className="filtros">
         <label className="busca">

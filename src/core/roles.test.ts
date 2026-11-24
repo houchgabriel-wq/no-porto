@@ -16,7 +16,7 @@ describe('can', () => {
   });
 
   it('Vendas só vê a lista de produtos a caminho: sem a tela de embarques completa, histórico e valores', () => {
-    for (const action of ['view_shipments', 'view_all', 'view_suppliers', 'view_history', 'see_year_totals', 'see_values', 'edit', 'import', 'delete', 'manage_users', 'view_bookings', 'request_bookings', 'decide_bookings'] as const) {
+    for (const action of ['view_shipments', 'view_all', 'view_suppliers', 'view_history', 'see_year_totals', 'see_shipped_by_supplier', 'see_values', 'edit', 'import', 'delete', 'manage_users', 'view_bookings', 'request_bookings', 'decide_bookings'] as const) {
       expect(can('vendas', action)).toBe(false);
     }
     for (const role of ['admin', 'editor', 'consulta', 'leitor', 'embarques'] as const) expect(can(role, 'view_shipments')).toBe(true);
@@ -26,6 +26,11 @@ describe('can', () => {
     for (const role of ['admin', 'editor', 'consulta', 'leitor', 'embarques'] as const) expect(can(role, 'view_history')).toBe(true);
     for (const role of ['admin', 'editor', 'consulta', 'leitor'] as const) expect(can(role, 'see_year_totals')).toBe(true);
     expect(can('embarques', 'see_year_totals')).toBe(false);
+  });
+
+  it('o perfil Embarques (o do marketing) não vê o resumo por fornecedor no topo de Embarques › Por item (24/11/2026)', () => {
+    for (const role of ['admin', 'editor', 'consulta', 'leitor'] as const) expect(can(role, 'see_shipped_by_supplier'), role).toBe(true);
+    for (const role of ['embarques', 'vendas', 'agente'] as const) expect(can(role, 'see_shipped_by_supplier'), role).toBe(false);
   });
 
   it('leitor e Embarques não veem valores; Consulta vê', () => {
@@ -61,7 +66,7 @@ describe('cópia completa', () => {
 describe('solicitações de embarque', () => {
   it('o Agente pede containers e não vê mais nada do app', () => {
     expect(can('agente', 'request_bookings')).toBe(true);
-    for (const action of ['view', 'view_shipments', 'view_all', 'view_suppliers', 'view_history', 'see_year_totals', 'see_values', 'edit', 'import', 'delete', 'manage_users', 'view_bookings', 'decide_bookings'] as const) {
+    for (const action of ['view', 'view_shipments', 'view_all', 'view_suppliers', 'view_history', 'see_year_totals', 'see_shipped_by_supplier', 'see_values', 'edit', 'import', 'delete', 'manage_users', 'view_bookings', 'decide_bookings'] as const) {
       expect(can('agente', action), action).toBe(false);
     }
   });
