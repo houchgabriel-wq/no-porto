@@ -4,6 +4,7 @@
 
 import type { Workbook, Worksheet } from 'exceljs';
 import { IMPORT_MAX_ROWS } from '../core/importProduction';
+import type { OrderSheet } from '../core/newOrder';
 
 async function newWorkbook(): Promise<Workbook> {
   const mod = await import('exceljs');
@@ -194,5 +195,105 @@ export async function buildExport<T>(sheetName: string, columns: readonly Export
       if (n > 1) cell.font = { color: { argb: 'FF8A8F98' } };
     });
   });
+  return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+}
+
+/** Linhas de texto que a célula precisa, para a altura da linha (o Excel não ajusta sozinho ao abrir). */
+function linesNeeded(text: string, width: number, fontSize: number): number {
+  const perLine = Math.max(8, Math.floor(((width * 11) / fontSize) * 0.95));
+  return text.split('\n').reduce((n, part) => n + Math.max(1, Math.ceil(part.length / perLine)), 0);
+}
+
+/**
+ * A PO no modelo da editora, igual à PO-070 da Nicola: a editora e "PRINTING ORDER" no topo, To/From,
+ * Date e Order No., a tabela com o preço em amarelo, o valor por fórmula, o total e as condições. O
+ * conteúdo vem de src/core/newOrder.ts (orderSheet), que o Novo pedido lê de volta igual.
+ */
+export async function buildOrderFile(po: OrderSheet): Promise<ArrayBuffer> {
+  const wb = await newWorkbook();
+  wb.creator = 'No Porto';
+  const ws = wb.addWorksheet(po.name, {
+    pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.7, right: 0.7, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 } },
+  });
+  const widths = [23.7, 23.7, 48.4, 11.4, 20.7, 10.4, 12.1, 14, 17.1, 48, 26];
+  ws.columns = widths.map((width) => ({ width }));
+  po.rows.forEach((cells, r) => {
+    const row = ws.getRow(r + 1);
+    cells.forEach((cell, c) => {
+      if (cell === null) return;
+      const target = row.getCell(c + 1);
+      if (typeof cell === 'object' && 'date' in cell) target.value = new Date(`${cell.date}T00:00:00Z`);
+      else if (typeof cell === 'object') target.value = { formula: cell.formula, result: cell.result };
+      else target.value = cell;
+    });
+  });
+  const thin = { style: 'thin' as const };
+  const border = { top: thin, left: thin, bottom: thin, right: thin };
+  const center = { horizontal: 'center' as const, vertical: 'middle' as const, wrapText: true };
+  for (let r = 1; r <= po.totalRow; r++) {
+    for (let c = 1; c <= 11; c++) ws.getCell(r, c).border = border;
+  }
+  // O topo: a editora e o título, cada um numa faixa mesclada.
+  ws.mergeCells(1, 1, 2, 11);
+  ws.mergeCells(3, 1, 3, 11);
+  ws.getCell('A1').font = { name: 'Calibri', size: 26, bold: true };
+  ws.getCell('A1').alignment = center;
+  ws.getCell('A3').font = { name: 'Calibri', size: 22, bold: true, italic: true, color: { argb: 'FF0C0C0C' } };
+  ws.getCell('A3').alignment = center;
+  for (const r of [4, 5]) {
+    for (let c = 1; c <= 11; c++) ws.getCell(r, c).font = { name: 'Calibri', size: 14 };
+    ws.getCell(r, 1).alignment = { horizontal: 'right', vertical: 'middle' };
+    ws.getCell(r, 2).alignment = { vertical: 'middle' };
+    ws.getCell(r, 10).alignment = { horizontal: 'center', vertical: 'middle' };
+  }
+  ws.getCell('K4').numFmt = 'yyyy/mm/dd';
+  ws.getCell('K5').alignment = { horizontal: 'right', vertical: 'middle' };
+  [24.75, 18, 28.5, 18.75, 18.75, 49.5].forEach((h, i) => (ws.getRow(i + 1).height = h));
+  for (let c = 1; c <= 11; c++) {
+    const head = ws.getCell(6, c);
+    head.font = { name: 'Calibri', size: 16, bold: true };
+    head.alignment = center;
+  }
+  // As linhas dos produtos, com o estilo de cada coluna da PO-070.
+  const styles: { size: number; font?: string; align?: 'center' | 'right'; wrap?: boolean; numFmt?: string; fill?: string }[] = [
+    { size: 13, align: 'center' },
+    { size: 12, wrap: true },
+    { size: 13, wrap: true },
+    { size: 10, font: 'Arial', align: 'center' },
+    { size: 12, align: 'center', numFmt: '@' },
+    { size: 12, align: 'center', numFmt: '0' },
+    { size: 12, align: 'right', numFmt: '#,##0' },
+    { size: 12, align: 'right', numFmt: '\\$#,##0.0000', fill: 'FFFFFF00' },
+    { size: 12, align: 'right', numFmt: '\\$#,##0.00' },
+    { size: 12, wrap: true },
+    { size: 10, font: 'Arial', align: 'center', numFmt: 'dd\\-mmm\\-yyyy' },
+  ];
+  for (let r = po.firstLine; r <= po.lastLine; r++) {
+    styles.forEach((s, i) => {
+      const cell = ws.getCell(r, i + 1);
+      cell.font = { name: s.font ?? 'Calibri', size: s.size };
+      cell.alignment = { horizontal: s.align, vertical: 'middle', wrapText: s.wrap || s.align === 'center' };
+      if (s.numFmt) cell.numFmt = s.numFmt;
+      if (s.fill) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: s.fill } };
+    });
+    const text = (c: number) => String(ws.getCell(r, c).value ?? '');
+    const lines = Math.max(linesNeeded(text(2), widths[1]!, 12), linesNeeded(text(3), widths[2]!, 13), linesNeeded(text(10), widths[9]!, 12));
+    ws.getRow(r).height = Math.max(24, lines * 17);
+  }
+  // O total, em cinza, e as condições embaixo.
+  ws.mergeCells(po.totalRow, 1, po.totalRow, 5);
+  for (let c = 1; c <= 11; c++) {
+    const cell = ws.getCell(po.totalRow, c);
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } };
+    cell.font = { name: 'Calibri', size: 11, bold: true };
+    cell.alignment = { horizontal: c === 1 ? 'center' : 'right', vertical: 'middle' };
+  }
+  ws.getCell(po.totalRow, 7).numFmt = '#,##0';
+  ws.getCell(po.totalRow, 9).numFmt = '\\$#,##0.00';
+  ws.mergeCells(po.termsRow, 1, po.termsRow, 11);
+  ws.getCell(po.termsRow, 1).font = { name: 'Calibri', size: 9 };
+  ws.getCell(po.termsRow, 1).alignment = { vertical: 'top', wrapText: true };
+  ws.getRow(po.termsRow).height = 48;
+  ws.autoFilter = { from: { row: 6, column: 1 }, to: { row: po.lastLine, column: 11 } };
   return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
 }
