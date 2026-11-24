@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Item } from './items';
 import type { Bill, Invoice } from './shipments';
-import { filterShipped, groupShipped, invoicePayments, onlyShipped, salesArrivals, shippedRows, sortShipped, EMPTY_SHIPPED_FILTERS } from './shippedItems';
+import { filterShipped, groupShipped, invoicePayments, onlyShipped, salesArrivals, shippedRows, sortShipped, withoutSuppliers, EMPTY_SHIPPED_FILTERS } from './shippedItems';
 
 const today = '2026-11-17';
 const bills: Bill[] = [
@@ -131,6 +131,32 @@ describe('onlyShipped', () => {
     expect(view.orders.map((o) => o.code)).toEqual(['PO-001']);
     expect(view.suppliers.map((s) => s.name)).toEqual(['Sara']);
     expect(view.seeValues).toBe(false);
+  });
+});
+
+describe('withoutSuppliers (24/11/2026)', () => {
+  it('sem a lista de fornecedores, sem o fornecedor de itens e invoices e sem as observações', () => {
+    const data = {
+      items: [item('a', 'v1', { notes: 'Não estava na produção da Sara. Confira.' })],
+      invoices: [{ ...invoices[0]!, notes: 'Pago pela Sara' }],
+      bills: [{ ...bills[0]!, notes: 'Saiu com a Sara' }],
+      orders: [{ id: 'o1', code: 'PO-001', orderedAt: null, notes: 'Combinado com a Sara' }],
+      suppliers,
+      seeValues: false,
+    };
+    const view = withoutSuppliers(data);
+    expect(view.suppliers).toEqual([]);
+    expect(view.items.map((i) => [i.id, i.supplierId, i.notes, i.quantity])).toEqual([['a', null, '', data.items[0]!.quantity]]);
+    expect(view.invoices.map((v) => [v.number, v.supplierId, v.notes])).toEqual([[invoices[0]!.number, null, '']]);
+    expect(view.bills.map((b) => [b.number, b.notes])).toEqual([[bills[0]!.number, '']]);
+    expect(view.orders.map((o) => [o.code, o.notes])).toEqual([['PO-001', '']]);
+    expect(view.seeValues).toBe(false);
+    // Nada sobra com o nome, nem no texto.
+    expect(JSON.stringify(view)).not.toContain('Sara');
+    // Sem BLs nem POs (o histórico), só tira o que tem.
+    const history = withoutSuppliers({ items: data.items, invoices: data.invoices, suppliers });
+    expect(history).not.toHaveProperty('bills');
+    expect(JSON.stringify(history)).not.toContain('Sara');
   });
 });
 

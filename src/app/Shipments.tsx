@@ -32,7 +32,8 @@ interface Props {
 export function ShipmentsView({ data, onOpen, actions }: Props) {
   const [query, setQuery] = useState('');
   const [supplierId, setSupplierId] = useState('');
-  const { seeValues } = data;
+  // O perfil Embarques, que o marketing usa, não vê os fornecedores (24/11/2026).
+  const { seeValues, seeSuppliers } = data;
   const units = useMemo(() => shipmentUnits(data.bills, data.invoices, data.today), [data.bills, data.invoices, data.today]);
   const itemsByInvoice = useMemo(() => {
     const map = new Map<string, Item[]>();
@@ -111,17 +112,21 @@ export function ShipmentsView({ data, onOpen, actions }: Props) {
           <span className="so-leitor">Buscar</span>
           <input className="campo" type="search" placeholder="Buscar BL, invoice, ref., produto" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
-        <label className="so-leitor" htmlFor="emb-forn">
-          Fornecedor
-        </label>
-        <select id="emb-forn" className="campo filtro-sel" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
-          <option value="">Fornecedor: todos</option>
-          {suppliersOnTheWay.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+        {seeSuppliers && (
+          <>
+            <label className="so-leitor" htmlFor="emb-forn">
+              Fornecedor
+            </label>
+            <select id="emb-forn" className="campo filtro-sel" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
+              <option value="">Fornecedor: todos</option>
+              {suppliersOnTheWay.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
         <div className="filtros-acoes">{actions}</div>
       </div>
 
@@ -193,15 +198,26 @@ function UnitCard({ unit, ctx }: { unit: ShipmentUnit; ctx: Ctx }) {
         </span>
       </span>
       <span className="emb-meta">
-        {suppliers.map((s, i) => (
-          <span key={s}>
-            {i > 0 && ', '}
-            <span className="forn-ponto h" style={hueStyle(unit.supplierIds[i] ? supplierHue(unit.supplierIds[i]!) : 0)} aria-hidden="true" />
-            {s}
-          </span>
-        ))}
-        {unit.eta && state.kind !== 'chegou' && <span className="mudo"> · previsão {formatDay(unit.eta, true)}</span>}
-        {!unit.bill && <span className="mudo"> · sem BL</span>}
+        {data.seeSuppliers &&
+          suppliers.map((s, i) => (
+            <span key={s}>
+              {i > 0 && ', '}
+              <span className="forn-ponto h" style={hueStyle(unit.supplierIds[i] ? supplierHue(unit.supplierIds[i]!) : 0)} aria-hidden="true" />
+              {s}
+            </span>
+          ))}
+        {/* Sem os fornecedores, a linha começa pela previsão, sem o " · " na frente. */}
+        {[
+          unit.eta && state.kind !== 'chegou' ? `previsão ${formatDay(unit.eta, true)}` : null,
+          !unit.bill ? 'sem BL' : null,
+        ]
+          .filter((t): t is string => t !== null)
+          .map((t, i) => (
+            <span key={t} className="mudo">
+              {data.seeSuppliers || i > 0 ? ' · ' : ''}
+              {t}
+            </span>
+          ))}
       </span>
       <span className="emb-invoices">
         {unit.invoices.map((v) => {

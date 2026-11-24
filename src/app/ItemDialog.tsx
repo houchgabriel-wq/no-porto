@@ -387,31 +387,34 @@ export function ItemDialog({ state, me, data, production, onClose, onToast, onPr
               ))}
             </datalist>
           </div>
-          <div className="grupo">
-            <label className="rotulo" htmlFor={`${ids}-supplier`}>
-              Fornecedor
-            </label>
-            <input
-              className="campo"
-              {...field('supplier')}
-              list={`${ids}-forn`}
-              value={draft.supplier}
-              onChange={(e) => set('supplier')(e.target.value)}
-              placeholder={NO_SUPPLIER}
-              readOnly={Boolean(item?.invoiceId)}
-              aria-describedby={item?.invoiceId ? `${ids}-forn-dica` : undefined}
-            />
-            {item?.invoiceId && (
-              <span className="dica" id={`${ids}-forn-dica`}>
-                O fornecedor é o da invoice.
-              </span>
-            )}
-            <datalist id={`${ids}-forn`}>
-              {data.suppliers.map((s) => (
-                <option key={s.id} value={s.name} />
-              ))}
-            </datalist>
-          </div>
+          {/* O perfil Embarques, que o marketing usa, não vê o fornecedor (24/11/2026). */}
+          {data.seeSuppliers && (
+            <div className="grupo">
+              <label className="rotulo" htmlFor={`${ids}-supplier`}>
+                Fornecedor
+              </label>
+              <input
+                className="campo"
+                {...field('supplier')}
+                list={`${ids}-forn`}
+                value={draft.supplier}
+                onChange={(e) => set('supplier')(e.target.value)}
+                placeholder={NO_SUPPLIER}
+                readOnly={Boolean(item?.invoiceId)}
+                aria-describedby={item?.invoiceId ? `${ids}-forn-dica` : undefined}
+              />
+              {item?.invoiceId && (
+                <span className="dica" id={`${ids}-forn-dica`}>
+                  O fornecedor é o da invoice.
+                </span>
+              )}
+              <datalist id={`${ids}-forn`}>
+                {data.suppliers.map((s) => (
+                  <option key={s.id} value={s.name} />
+                ))}
+              </datalist>
+            </div>
+          )}
           <div className="grupo">
             <label className="rotulo" htmlFor={`${ids}-quantity`}>
               Quantidade
@@ -472,12 +475,15 @@ export function ItemDialog({ state, me, data, production, onClose, onToast, onPr
             errorField={error?.field}
             canEdit={canEdit}
           />
-          <div className="grupo largo">
-            <label className="rotulo" htmlFor={`${ids}-notes`}>
-              Observações
-            </label>
-            <textarea className="campo" {...field('notes')} rows={3} value={draft.notes} onChange={(e) => set('notes')(e.target.value)} />
-          </div>
+          {/* Para o perfil Embarques o servidor não manda as observações (podem citar o fornecedor). */}
+          {data.seeSuppliers && (
+            <div className="grupo largo">
+              <label className="rotulo" htmlFor={`${ids}-notes`}>
+                Observações
+              </label>
+              <textarea className="campo" {...field('notes')} rows={3} value={draft.notes} onChange={(e) => set('notes')(e.target.value)} />
+            </div>
+          )}
           <div className="grupo largo">
             <label className="rotulo" htmlFor={`${ids}-specification`}>
               Especificação

@@ -41,13 +41,13 @@ interface Props {
   data: ProductionData;
   onOpen: (item: Item) => void;
   actions: React.ReactNode;
-  /** O resumo do topo, com o no mar de cada fornecedor (o perfil Embarques, do marketing, não vê: 24/11/2026). */
-  supplierTotals: boolean;
 }
 
-export function ShipmentItemsView({ data, onOpen, actions, supplierTotals }: Props) {
+export function ShipmentItemsView({ data, onOpen, actions }: Props) {
   const narrow = useNarrow();
-  const { seeValues } = data;
+  // O perfil Embarques, que o marketing usa, não vê os fornecedores (24/11/2026): sem o resumo do topo,
+  // a coluna, o filtro e o fornecedor nos grupos e nos cartões.
+  const { seeValues, seeSuppliers } = data;
   const [filters, setFilters] = useState<ShippedFilters>(EMPTY_SHIPPED_FILTERS);
   const [sort, setSort] = useState<ShippedSort>({ key: 'arrival', dir: 1 });
   const [grouped, setGrouped] = useState(true);
@@ -68,11 +68,11 @@ export function ShipmentItemsView({ data, onOpen, actions, supplierTotals }: Pro
   const codes = useMemo(() => new Map(data.orders.map((o) => [o.id, o.code])), [data.orders]);
   const names = useMemo(() => new Map(data.suppliers.map((s) => [s.id, s.name])), [data.suppliers]);
   const filtered = filters.query.trim() !== '' || filters.supplierId !== '' || filters.unitKey !== '' || filters.payment !== '';
-  const ctx: Ctx = { seeValues, codes, names, onOpen, payments };
+  const ctx: Ctx = { seeValues, seeSuppliers, codes, names, onOpen, payments };
 
   return (
     <>
-      {supplierTotals && (
+      {seeSuppliers && (
         <section className="forn-faixa" aria-label="No mar por fornecedor">
           <div className="forn-total">
             <span className="forn-rot">No mar</span>
@@ -121,24 +121,28 @@ export function ShipmentItemsView({ data, onOpen, actions, supplierTotals }: Pro
           <input
             className="campo"
             type="search"
-            placeholder="Buscar produto, ISBN, invoice, BL, fornecedor"
+            placeholder={seeSuppliers ? 'Buscar produto, ISBN, invoice, BL, fornecedor' : 'Buscar produto, ISBN, invoice, BL'}
             value={filters.query}
             onChange={(e) => setFilters({ ...filters, query: e.target.value })}
           />
         </label>
-        <label className="so-leitor" htmlFor="embi-forn">
-          Fornecedor
-        </label>
-        <select id="embi-forn" className="campo filtro-sel" value={filters.supplierId} onChange={(e) => setFilters({ ...filters, supplierId: e.target.value })}>
-          <option value="">Fornecedor: todos</option>
-          {bySupplier
-            .filter((s) => s.supplierId)
-            .map((s) => (
-              <option key={s.supplierId} value={s.supplierId!}>
-                {s.name}
-              </option>
-            ))}
-        </select>
+        {seeSuppliers && (
+          <>
+            <label className="so-leitor" htmlFor="embi-forn">
+              Fornecedor
+            </label>
+            <select id="embi-forn" className="campo filtro-sel" value={filters.supplierId} onChange={(e) => setFilters({ ...filters, supplierId: e.target.value })}>
+              <option value="">Fornecedor: todos</option>
+              {bySupplier
+                .filter((s) => s.supplierId)
+                .map((s) => (
+                  <option key={s.supplierId} value={s.supplierId!}>
+                    {s.name}
+                  </option>
+                ))}
+            </select>
+          </>
+        )}
         <label className="so-leitor" htmlFor="embi-unid">
           Embarque
         </label>
@@ -200,6 +204,7 @@ export function ShipmentItemsView({ data, onOpen, actions, supplierTotals }: Pro
 
 interface Ctx {
   seeValues: boolean;
+  seeSuppliers: boolean;
   codes: Map<string, string>;
   names: Map<string, string>;
   onOpen: (item: Item) => void;
@@ -228,18 +233,18 @@ function GroupPayments({ group, ctx }: { group: ShippedGroup; ctx: Ctx }) {
   );
 }
 
-const COLUMNS: { key: ShippedSortKey; label: string; num?: boolean; values?: boolean }[] = [
+const COLUMNS: { key: ShippedSortKey; label: string; num?: boolean; values?: boolean; supplier?: boolean }[] = [
   { key: 'description', label: 'Produto' },
   { key: 'shipment', label: 'Embarque' },
-  { key: 'supplier', label: 'Fornecedor' },
+  { key: 'supplier', label: 'Fornecedor', supplier: true },
   { key: 'arrival', label: 'Chegada' },
   { key: 'quantity', label: 'Quantidade', num: true },
   { key: 'price', label: 'Preço unitário', num: true, values: true },
   { key: 'total', label: 'Total', num: true, values: true },
 ];
 
-function groupInfo(g: ShippedGroup, seeValues: boolean): string {
-  const parts = [g.suppliers.join(', ')];
+function groupInfo(g: ShippedGroup, seeValues: boolean, seeSuppliers: boolean): string {
+  const parts = seeSuppliers ? [g.suppliers.join(', ')] : [];
   if (g.invoices.length > 1 || !g.label.startsWith('Invoice')) parts.push(g.invoices.length === 1 ? `invoice ${g.invoices[0]!.number}` : `${g.invoices.length} invoices`);
   parts.push(itemsCount(g.items));
   if (seeValues) parts.push(`${formatQuantity(g.quantity)} ex.`);
@@ -252,7 +257,7 @@ function byGroup(rows: readonly ShippedRow[], groups: readonly ShippedGroup[]) {
 }
 
 function Table({ rows, groups, ctx, sort, onSort }: { rows: ShippedRow[]; groups: ShippedGroup[] | null; ctx: Ctx; sort: ShippedSort; onSort: (s: ShippedSort) => void }) {
-  const columns = COLUMNS.filter((c) => ctx.seeValues || !c.values);
+  const columns = COLUMNS.filter((c) => (ctx.seeValues || !c.values) && (ctx.seeSuppliers || !c.supplier));
   const toggle = (key: ShippedSortKey) => onSort(sort.key === key ? { key, dir: sort.dir === 1 ? -1 : 1 } : { key, dir: key === 'quantity' || key === 'total' || key === 'price' ? -1 : 1 });
   return (
     <div className="tabela-caixa">
@@ -277,7 +282,7 @@ function Table({ rows, groups, ctx, sort, onSort }: { rows: ShippedRow[]; groups
               <tr className="grupo-linha">
                 <th scope="rowgroup" colSpan={columns.length + (ctx.seeValues ? 2 : 1)}>
                   <span className="grupo-po">{group.label}</span>
-                  <span className="grupo-info">{groupInfo(group, ctx.seeValues)}</span>
+                  <span className="grupo-info">{groupInfo(group, ctx.seeValues, ctx.seeSuppliers)}</span>
                   <GroupPayments group={group} ctx={ctx} />
                   <b className="grupo-valor">{headline(group, true)}</b>
                 </th>
@@ -316,10 +321,12 @@ function Row({ row, ctx }: { row: ShippedRow; ctx: Ctx }) {
         {row.unitLabel}
         {row.bill && row.invoice && <span className="t-isbn">Invoice {row.invoice.number}</span>}
       </td>
-      <td className="nowrap">
-        <span className="forn-ponto h" style={hueStyle(item.supplierId ? supplierHue(item.supplierId) : 0)} aria-hidden="true" />
-        {supplier}
-      </td>
+      {ctx.seeSuppliers && (
+        <td className="nowrap">
+          <span className="forn-ponto h" style={hueStyle(item.supplierId ? supplierHue(item.supplierId) : 0)} aria-hidden="true" />
+          {supplier}
+        </td>
+      )}
       <td className="nowrap">
         <span className={`pilula chegada ${row.state.kind}`}>
           {row.state.kind === 'liberacao' && <Icon name="alerta" />}
@@ -360,7 +367,7 @@ function Cards({ rows, groups, ctx }: { rows: ShippedRow[]; groups: ShippedGroup
           <h3 className="grupo-cab">
             <span className="grupo-po">{group.label}</span>
             <b className="grupo-valor">{headline(group, true)}</b>
-            <span className="grupo-info">{groupInfo(group, ctx.seeValues)}</span>
+            <span className="grupo-info">{groupInfo(group, ctx.seeValues, ctx.seeSuppliers)}</span>
             <GroupPayments group={group} ctx={ctx} />
           </h3>
           <ul className="itens-cartoes">
@@ -382,8 +389,13 @@ function Card({ row, ctx }: { row: ShippedRow; ctx: Ctx }) {
       <button type="button" className="item-cartao" onClick={() => ctx.onOpen(item)}>
         <span className="item-cartao-titulo">{item.description}</span>
         <span className="item-cartao-meta">
-          <span className="forn-ponto h" style={hueStyle(item.supplierId ? supplierHue(item.supplierId) : 0)} aria-hidden="true" />
-          {supplier} · {row.unitLabel} · {row.eta ? `chega ${formatDay(row.eta)}` : 'sem previsão'}
+          {ctx.seeSuppliers && (
+            <>
+              <span className="forn-ponto h" style={hueStyle(item.supplierId ? supplierHue(item.supplierId) : 0)} aria-hidden="true" />
+              {supplier} ·{' '}
+            </>
+          )}
+          {row.unitLabel} · {row.eta ? `chega ${formatDay(row.eta)}` : 'sem previsão'}
         </span>
         <span className="item-cartao-num">
           <span>

@@ -7,7 +7,7 @@ import { isbnDigits, isbnProblem } from '../core/isbn';
 import { isValidUnitPrice } from '../core/money';
 import { itemForViewer, normalizeOrderCode, orderOwners, orderSupplierProblem, searchKey, titleKey, type Item, type ItemStatus, type PurchaseOrder, type Supplier } from '../core/items';
 import { can } from '../core/roles';
-import { onlyShipped, salesArrivals } from '../core/shippedItems';
+import { onlyShipped, salesArrivals, withoutSuppliers } from '../core/shippedItems';
 import { cleanSpecification, latestSpecification, SPECIFICATION_MAX } from '../core/specification';
 import { MAX_PARCELS, readStoredPlan, shipPlanProblem, shipPlanText, sortPlan, type ShipPlan } from '../core/shipPlan';
 import { changedInAppText, checkSheetPatch, SHEET_FIELD_LABELS, SHEET_FIELDS, sheetValues, type SheetField, type SheetValues } from '../core/updateSheet';
@@ -408,6 +408,8 @@ export const RECENT_ARRIVAL_DAYS = 60;
  */
 async function loadData(env: Env, session: Session, now: Date) {
   const seeValues = can(session.user.role, 'see_values');
+  // O perfil Embarques, que o marketing usa, não vê os fornecedores (24/11/2026): getData tira.
+  const seeSuppliers = can(session.user.role, 'see_supplier_names');
   const today = spDate(now);
   const cutoff = new Date(Date.parse(`${today}T00:00:00Z`) - RECENT_ARRIVAL_DAYS * 86_400_000).toISOString().slice(0, 10);
   const [s, o, i, b, v, pay, docs] = await env.DB.batch([
@@ -471,15 +473,17 @@ async function loadData(env: Env, session: Session, now: Date) {
         .filter((r) => shown.has(r.invoice_id))
         .map((r) => ({ id: r.id, invoiceId: r.invoice_id, paidAt: r.paid_at, amountCents: r.amount_cents, exchangeRateE4: r.exchange_rate_e4, notes: r.notes }))
     : [];
-  return { today, suppliers, orders, items, bills, invoices, payments, seeValues };
+  return { today, suppliers, orders, items, bills, invoices, payments, seeValues, seeSuppliers };
 }
 
 async function getData(env: Env, session: Session, now: Date): Promise<Response> {
   // Vendas não recebe a tela de embarques completa: só a lista de /api/sales.
   if (!can(session.user.role, 'view_shipments')) return error(403, 'Seu perfil vê só a lista de produtos a caminho.');
   const all = await loadData(env, session, now);
-  // O perfil Embarques recebe só os embarques a caminho (o servidor corta; a tela só esconde as abas).
-  return json(can(session.user.role, 'view_all') ? all : onlyShipped(all));
+  // O perfil Embarques recebe só os embarques a caminho (o servidor corta; a tela só esconde as abas),
+  // e sem os fornecedores, nem nas observações (24/11/2026).
+  const shown = can(session.user.role, 'view_all') ? all : onlyShipped(all);
+  return json(all.seeSuppliers ? shown : withoutSuppliers(shown));
 }
 
 /** Lista para Vendas (SPEC.md, seção 4): produto e previsão de chegada, nada mais. */

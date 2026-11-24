@@ -700,7 +700,9 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
       const { buildExport } = await import('./spreadsheet');
       const columns: { header: string; width: number; value: (r: HistoryRow) => string | number | null; numFmt?: string }[] = [
         { header: 'Chegada', width: 12, value: (r) => (r.arrivedAt ? r.arrivedAt.split('-').reverse().join('/') : '') },
-        { header: 'Fornecedor', width: 14, value: (r) => (r.item.supplierId ? (names.get(r.item.supplierId) ?? '') : '') },
+        ...(history?.seeSuppliers === false
+          ? []
+          : [{ header: 'Fornecedor', width: 14, value: (r: HistoryRow) => (r.item.supplierId ? (names.get(r.item.supplierId) ?? '') : '') }]),
         { header: 'Produto', width: 60, value: (r) => r.item.description },
         { header: 'ISBN', width: 16, value: (r) => r.item.isbn ?? '' },
         { header: 'Invoice', width: 18, value: (r) => r.invoice?.number ?? '' },
@@ -815,7 +817,13 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
     try {
       const sheets = copySheets({ ...data, items: data.items.filter((i) => i.status === 'embarcado') }, data.seeValues);
       const { buildSheets } = await import('./spreadsheet');
-      downloadXlsx(await buildSheets([{ name: 'Embarques', header: SHIPMENTS_HEADER, rows: sheets.shipments }]), `embarques-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      // Para quem não vê os fornecedores (o perfil Embarques), a planilha sai sem a coluna (24/11/2026).
+      const drop = data.seeSuppliers ? -1 : SHIPMENTS_HEADER.indexOf('Fornecedor');
+      const keep = <T,>(row: readonly T[]) => row.filter((_, i) => i !== drop);
+      downloadXlsx(
+        await buildSheets([{ name: 'Embarques', header: keep(SHIPMENTS_HEADER), rows: sheets.shipments.map(keep) }]),
+        `embarques-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      );
     } catch {
       showToast('Não foi possível gerar a planilha.');
     } finally {
@@ -1059,12 +1067,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                   ))}
                 </div>
                 {shipmentsMode === 'item' ? (
-                  <ShipmentItemsView
-                    data={data}
-                    onOpen={(item) => setDialog({ mode: 'edit', item })}
-                    actions={shipmentActions}
-                    supplierTotals={can(user.role, 'see_shipped_by_supplier')}
-                  />
+                  <ShipmentItemsView data={data} onOpen={(item) => setDialog({ mode: 'edit', item })} actions={shipmentActions} />
                 ) : (
                   <ShipmentsView data={data} onOpen={setShipment} actions={shipmentActions} />
                 )}

@@ -19,6 +19,8 @@ export interface HistoryData {
   suppliers: Supplier[];
   invoices: InvoiceInfo[];
   seeValues: boolean;
+  /** O perfil vê os fornecedores? (o perfil Embarques, que o marketing usa, não: 24/11/2026) */
+  seeSuppliers: boolean;
 }
 
 interface Props {
@@ -38,7 +40,7 @@ const yearLabel = (y: string) => (y === NO_DATE ? 'Sem data' : y);
 export function HistoryView({ history, suppliers, onProduct, showYears, onExport, exporting, actions }: Props) {
   const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
   const [shownCount, setShownCount] = useState(PAGE);
-  const { seeValues } = history;
+  const { seeValues, seeSuppliers } = history;
   const rows = useMemo(() => historyRows(history.items, history.invoices), [history]);
   const byYear = useMemo(() => totalsByYear(rows, seeValues), [rows, seeValues]);
   const shown = useMemo(() => filterHistory(rows, filters, suppliers), [rows, filters, suppliers]);
@@ -90,17 +92,21 @@ export function HistoryView({ history, suppliers, onProduct, showYears, onExport
             onChange={(e) => change({ ...filters, query: e.target.value })}
           />
         </label>
-        <label className="so-leitor" htmlFor="hist-forn">
-          Fornecedor
-        </label>
-        <select id="hist-forn" className="campo filtro-sel" value={filters.supplierId} onChange={(e) => change({ ...filters, supplierId: e.target.value })}>
-          <option value="">Fornecedor: todos</option>
-          {historySuppliers.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+        {seeSuppliers && (
+          <>
+            <label className="so-leitor" htmlFor="hist-forn">
+              Fornecedor
+            </label>
+            <select id="hist-forn" className="campo filtro-sel" value={filters.supplierId} onChange={(e) => change({ ...filters, supplierId: e.target.value })}>
+              <option value="">Fornecedor: todos</option>
+              {historySuppliers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
         <label className="so-leitor" htmlFor="hist-ano">
           Ano de chegada
         </label>
@@ -147,7 +153,7 @@ export function HistoryView({ history, suppliers, onProduct, showYears, onExport
                 <tr>
                   <th>Chegada</th>
                   <th>Produto</th>
-                  <th>Fornecedor</th>
+                  {seeSuppliers && <th>Fornecedor</th>}
                   <th>Invoice</th>
                   <th className="num">Quantidade</th>
                   {seeValues && (
@@ -174,10 +180,12 @@ export function HistoryView({ history, suppliers, onProduct, showYears, onExport
                       )}
                       <span className="t-isbn">{item.isbn ?? 'Sem ISBN'}</span>
                     </td>
-                    <td className="nowrap" data-rot="Fornecedor">
-                      <span className="forn-ponto h" style={hueStyle(item.supplierId ? supplierHue(item.supplierId) : 0)} aria-hidden="true" />
-                      {item.supplierId ? (names.get(item.supplierId) ?? NO_SUPPLIER) : NO_SUPPLIER}
-                    </td>
+                    {seeSuppliers && (
+                      <td className="nowrap" data-rot="Fornecedor">
+                        <span className="forn-ponto h" style={hueStyle(item.supplierId ? supplierHue(item.supplierId) : 0)} aria-hidden="true" />
+                        {item.supplierId ? (names.get(item.supplierId) ?? NO_SUPPLIER) : NO_SUPPLIER}
+                      </td>
+                    )}
                     <td data-rot="Invoice">
                       {invoice?.number ?? '—'}
                       {invoice?.billNumber && <span className="t-isbn">BL {invoice.billNumber}</span>}

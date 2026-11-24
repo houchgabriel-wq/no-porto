@@ -11,6 +11,7 @@ import { productSummaries } from '../core/productLookup';
 import { can } from '../core/roles';
 import { cleanSpecification, latestSpecification, SPECIFICATION_MAX } from '../core/specification';
 import { readStoredPlan, shipPlanProblem } from '../core/shipPlan';
+import { withoutSuppliers } from '../core/shippedItems';
 import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, json, readBody } from './http';
@@ -87,12 +88,16 @@ async function getHistory(env: Env, session: Session): Promise<Response> {
       `SELECT id, name FROM suppliers WHERE id IN (SELECT supplier_id FROM order_items WHERE status = 'entregue' AND deleted_at IS NULL) ORDER BY name COLLATE NOCASE`,
     ),
   ]);
-  return json({
+  const seeSuppliers = can(session.user.role, 'see_supplier_names');
+  const history = {
     items: (i!.results as ItemRow[]).map((r) => itemForViewer(toItem(r), seeValues)),
     invoices: (v!.results as InvoiceInfoRow[]).map(invoiceInfo),
     suppliers: s!.results as { id: string; name: string }[],
     seeValues,
-  });
+    seeSuppliers,
+  };
+  // O perfil Embarques, que o marketing usa, não vê os fornecedores, nem nas observações (24/11/2026).
+  return json(seeSuppliers ? history : withoutSuppliers(history));
 }
 
 /** Ficha do produto: todas as compras (em produção, embarcadas e entregues), com PO, invoice e chegada. */

@@ -88,6 +88,8 @@ export interface ProductionData {
   payments: Payment[];
   /** O perfil vê preços e valores? (o leitor não vê) */
   seeValues: boolean;
+  /** O perfil vê os fornecedores? (o perfil Embarques, que o marketing usa, não: o servidor tira; 24/11/2026) */
+  seeSuppliers: boolean;
 }
 
 /** Campos de um item, como o formulário manda: fornecedor e PO pelo nome e código. */
@@ -188,7 +190,7 @@ export const api = {
   reset: (confirm: string) => request<{ items: number }>('POST', '/api/reset', { confirm }),
   importShipments: (items: ImportedShipmentItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/shipments', { items }),
   sales: () => request<{ today: string; rows: SalesArrival[] }>('GET', '/api/sales'),
-  history: () => request<{ items: Item[]; invoices: InvoiceInfo[]; suppliers: Supplier[]; seeValues: boolean }>('GET', '/api/history'),
+  history: () => request<{ items: Item[]; invoices: InvoiceInfo[]; suppliers: Supplier[]; seeValues: boolean; seeSuppliers: boolean }>('GET', '/api/history'),
   /** Terminal de consulta do painel: o resumo de cada produto (só quantidades). */
   lookup: () => request<{ products: ProductSummary[] }>('GET', '/api/lookup'),
   product: (id: string) =>
