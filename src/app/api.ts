@@ -1,5 +1,6 @@
 // Chamadas à API. Erros viram ApiError com a mensagem em português vinda do servidor.
 
+import type { BillUnit } from '../core/billUnits';
 import type { DocumentLine } from '../core/documents';
 import type { CatalogEntry } from '../core/newOrder';
 import type { SalesArrival } from '../core/shippedItems';
@@ -177,11 +178,14 @@ export const api = {
   poCatalog: () => request<{ products: CatalogEntry[] }>('GET', '/api/po-catalog'),
   createOrder: (body: { code: string; supplier: string; orderedAt: string | null; items: Omit<DocumentLine, 'orderCode'>[] }) =>
     request<{ orderId: string; inserted: number }>('POST', '/api/orders', body),
-  receiveShipment: (body: { bill: string | null; eta: string | null; invoices: { supplierId: string; number: string; ref: string; container: string; lines: DocumentLine[] }[] }) =>
+  receiveShipment: (body: { bill: string | null; eta: string | null; invoices: { supplierId: string; number: string; ref: string; container: string; unit: BillUnit | null; lines: DocumentLine[] }[] }) =>
     request<{ billId: string | null; invoiceIds: string[]; taken: number; extra: number }>('POST', '/api/shipments', body),
   putBillDocument: (billId: string, body: { name: string; contentType: string; data: string }) =>
     request<{ document: { name: string; size: number } }>('PUT', `/api/bills/${encodeURIComponent(billId)}/document`, body),
   deleteBillDocument: (billId: string) => request<{ ok: true }>('DELETE', `/api/bills/${encodeURIComponent(billId)}/document`),
+  /** Grava a unidade (o container) de cada invoice do BL, lida do PDF do BL (25/11/2026). */
+  saveBillUnits: (billId: string, units: { invoiceId: string; unit: BillUnit | null }[]) =>
+    request<{ updated: number }>('POST', `/api/bills/${encodeURIComponent(billId)}/units`, { units }),
   deleteInvoice: (id: string) => request<{ back: number; merged: number; removed: number; billRemoved: boolean }>('DELETE', `/api/invoices/${encodeURIComponent(id)}`),
   deleteBill: (id: string) => request<{ back: number; merged: number; removed: number; invoices: number }>('DELETE', `/api/bills/${encodeURIComponent(id)}`),
   itemSpecification: (id: string) =>

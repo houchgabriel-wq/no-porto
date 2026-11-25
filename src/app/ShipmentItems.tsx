@@ -319,7 +319,12 @@ function Row({ row, ctx }: { row: ShippedRow; ctx: Ctx }) {
       </td>
       <td className="nowrap">
         {row.unitLabel}
-        {row.bill && row.invoice && <span className="t-isbn">Invoice {row.invoice.number}</span>}
+        {row.bill && row.invoice && (
+          <span className="t-isbn">
+            Invoice {row.invoice.number}
+            {row.invoice.unit && ` · ${row.invoice.unit.container}`}
+          </span>
+        )}
       </td>
       {ctx.seeSuppliers && (
         <td className="nowrap">
@@ -395,7 +400,8 @@ function Card({ row, ctx }: { row: ShippedRow; ctx: Ctx }) {
               {supplier} ·{' '}
             </>
           )}
-          {row.unitLabel} · {row.eta ? `chega ${formatDay(row.eta)}` : 'sem previsão'}
+          {row.unitLabel}
+          {row.invoice?.unit && ` · ${row.invoice.unit.container}`} · {row.eta ? `chega ${formatDay(row.eta)}` : 'sem previsão'}
         </span>
         <span className="item-cartao-num">
           <span>

@@ -2,6 +2,7 @@
 // itens e os pagamentos de cada uma (data, valor em dólar e câmbio). O leitor só acompanha.
 
 import { useEffect, useId, useState, type FormEvent } from 'react';
+import { cartonsOf, formatWeight, matchUnits, unitSummary, type BillUnit } from '../core/billUnits';
 import { NO_SUPPLIER, type Item } from '../core/items';
 import { formatQuantity, formatUsd, parseExchangeRate, parseMoneyCents } from '../core/money';
 import { can } from '../core/roles';
@@ -21,6 +22,7 @@ import {
 import { api, ApiError, type Me, type ProductionData } from './api';
 import { Dialog, FormError } from './components';
 import { Icon } from './icons';
+import { billUnitsFromPdf } from './pdfText';
 import type { Production } from './production';
 
 interface Props {
@@ -165,6 +167,9 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
           )}
         </form>
         {unit.bill && <BillFile bill={unit.bill} canEdit={canEdit} canDownload={data.seeValues} busy={busy} run={run} onError={setError} />}
+        {unit.bill && canEdit && unit.bill.document && /\.pdf$/i.test(unit.bill.document.name) && (
+          <BillUnits key={unit.bill.id} billId={unit.bill.id} invoices={unit.invoices} data={data} busy={busy} run={run} />
+        )}
         <FormError message={error} />
       </div>
 
@@ -204,6 +209,136 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
         </button>
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * As unidades do BL, lidas do PDF anexado (25/11/2026): para os embarques já cadastrados. Cada invoice
+ * fica com a unidade do mesmo container ou, sem o número, com a de mesmas caixas (pelas peças por caixa
+ * dos itens); a pessoa confere e grava.
+ */
+function BillUnits({
+  billId,
+  invoices,
+  data,
+  busy,
+  run,
+}: {
+  billId: string;
+  invoices: Invoice[];
+  data: ProductionData;
+  busy: boolean;
+  run: (action: () => Promise<unknown>, done: string) => Promise<void>;
+}) {
+  const ids = useId();
+  const [units, setUnits] = useState<BillUnit[] | null>(null);
+  const [choice, setChoice] = useState<Record<string, string>>({});
+  const [reading, setReading] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function read() {
+    setReading(true);
+    setNote(null);
+    try {
+      const res = await fetch(`/api/bills/${encodeURIComponent(billId)}/document`, { credentials: 'same-origin' });
+      if (!res.ok) throw new Error();
+      const found = await billUnitsFromPdf(await res.arrayBuffer());
+      if (found.length === 0) {
+        setNote('Não achei as unidades (container, lacre, caixas e peso) no PDF do BL.');
+        return;
+      }
+      const matches = matchUnits(
+        invoices.map((v) => ({
+          key: v.id,
+          container: v.unit?.container ?? null,
+          cartons: v.unit?.cartons ?? cartonsOf(data.items.filter((i) => i.invoiceId === v.id)),
+          weightGrams: v.unit?.weightGrams ?? null,
+        })),
+        found,
+      );
+      setChoice(Object.fromEntries(invoices.map((v) => [v.id, matches.get(v.id)?.unit.container ?? ''])));
+      setUnits(found);
+    } catch {
+      setNote('Não foi possível ler o PDF do BL.');
+    } finally {
+      setReading(false);
+    }
+  }
+
+  function save() {
+    const picked = Object.values(choice).filter(Boolean);
+    if (new Set(picked).size !== picked.length) return setNote('A mesma unidade está em duas invoices. Confira.');
+    void run(async () => {
+      await api.saveBillUnits(
+        billId,
+        invoices.map((v) => ({ invoiceId: v.id, unit: units!.find((u) => u.container === choice[v.id]) ?? null })),
+      );
+      setUnits(null);
+    }, 'Unidades gravadas.');
+  }
+
+  if (!units) {
+    return (
+      <div className="bl-unidades">
+        <button type="button" className="btn" onClick={() => void read()} disabled={reading || busy}>
+          <Icon name="container" />
+          {reading ? 'Lendo o BL…' : invoices.some((v) => v.unit) ? 'Ler as unidades do BL de novo' : 'Ler as unidades do BL'}
+        </button>
+        {note && (
+          <p className="aviso alerta">
+            <Icon name="alerta" />
+            <span>{note}</span>
+          </p>
+        )}
+      </div>
+    );
+  }
+  return (
+    <section className="bl-unidades bloco-leve" aria-labelledby={`${ids}-t`}>
+      <h3 id={`${ids}-t`}>Unidades do BL</h3>
+      <p className="dica">
+        {units.length === 1 ? '1 unidade' : `${units.length} unidades`} no BL. Confira de qual invoice é cada uma (as que deu para ligar já vêm escolhidas, pelo número do
+        container ou pelas caixas) e grave.
+      </p>
+      <ul className="bl-unidades-lista">
+        {invoices.map((v) => {
+          const taken = new Set(invoices.filter((o) => o.id !== v.id).map((o) => choice[o.id]).filter(Boolean));
+          const chosen = units.find((u) => u.container === choice[v.id]);
+          return (
+            <li key={v.id}>
+              <label className="rotulo" htmlFor={`${ids}-${v.id}`}>
+                Invoice {v.number}
+              </label>
+              <select id={`${ids}-${v.id}`} className="campo" value={choice[v.id] ?? ''} onChange={(e) => setChoice((m) => ({ ...m, [v.id]: e.target.value }))}>
+                <option value="">Nenhuma</option>
+                {units.map((u) => (
+                  <option key={u.container} value={u.container} disabled={taken.has(u.container)}>
+                    {u.container}
+                    {u.cartons !== null ? ` · ${u.cartons.toLocaleString('pt-BR')} caixas` : ''}
+                    {u.weightGrams !== null ? ` · ${formatWeight(u.weightGrams)}` : ''}
+                  </option>
+                ))}
+              </select>
+              {chosen && <span className="dica">{unitSummary(chosen)}</span>}
+            </li>
+          );
+        })}
+      </ul>
+      {note && (
+        <p className="aviso alerta">
+          <Icon name="alerta" />
+          <span>{note}</span>
+        </p>
+      )}
+      <div className="bl-unidades-acoes">
+        <button type="button" className="btn" onClick={() => setUnits(null)} disabled={busy}>
+          Cancelar
+        </button>
+        <button type="button" className="btn primario" onClick={save} disabled={busy}>
+          Gravar as unidades
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -282,6 +417,15 @@ function InvoiceSection({
         />
       )}
       {editing && <InvoiceForm invoice={invoice} data={data} onCancel={() => setEditing(false)} onSave={async (body) => (await act(() => api.updateInvoice(invoice.id, body), 'Invoice salva.')) && setEditing(false)} />}
+      {invoice.unit && (
+        <p className="emb-unidade">
+          <Icon name="container" />
+          <span>
+            Unidade <b>{invoice.unit.container}</b>
+            {unitSummary(invoice.unit).slice(invoice.unit.container.length)}
+          </span>
+        </p>
+      )}
 
       <ul className="emb-itens">
         {items.map((item) => (

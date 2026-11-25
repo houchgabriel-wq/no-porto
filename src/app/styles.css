@@ -1618,3 +1618,16 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
   .grade-campos.po-textos { grid-template-columns: minmax(0, 1fr); }
   .po-linha { padding: 10px 12px; }
 }
+/* Unidades do BL (25/11/2026): o container de cada invoice, para agendar o transporte do porto. */
+.emb-unidade { display: flex; align-items: flex-start; gap: 7px; margin: 6px 0 2px; color: var(--tinta-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.emb-unidade .ic { width: 16px; height: 16px; margin-top: 2px; flex: none; color: hsl(200 var(--c-s) var(--c-l)); }
+.emb-unidade b { color: var(--tinta); letter-spacing: 0.01em; }
+.emb-inv-ctr { color: var(--tinta-2); font-weight: 500; font-variant-numeric: tabular-nums; }
+.bl-unidades { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; align-items: flex-start; }
+.bl-unidades.bloco-leve { align-items: stretch; border: 1px solid var(--fio); border-radius: 12px; padding: 12px 14px; }
+.bl-unidades h3 { font-family: var(--f-display); font-size: 16px; margin: 0; }
+.bl-unidades-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.bl-unidades-lista li { display: flex; flex-direction: column; gap: 4px; }
+.bl-unidades-acoes { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.unidades-bl span { overflow-wrap: anywhere; }
+.conteiner-unidade { margin-top: -2px; overflow-wrap: anywhere; }

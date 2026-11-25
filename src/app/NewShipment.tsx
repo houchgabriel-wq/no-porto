@@ -3,9 +3,12 @@
 // ser escolhidos de uma vez, e o app junta invoice e packing list de cada um. O arquivo do BL pode ser
 // anexado. Antes de gravar, a prévia mostra de qual PO sai cada item: sempre da produção do mesmo
 // fornecedor, a mais antiga primeiro, e os containers do mesmo fornecedor em sequência.
+// Com o BL em PDF, as unidades (container, lacre, caixas, peso) são lidas dele e ligadas a cada
+// container pelo número do container da packing list ou pelas caixas e pelo peso (25/11/2026).
 
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { allocateInvoices, guessSupplier, type LineAllocation } from '../core/allocation';
+import { formatWeight, matchUnits, packingTotals, unitDifference, unitSummary, type BillUnit, type UnitMatch } from '../core/billUnits';
 import { parseShipmentFile, type DocumentLine, type DocumentNote, type ShipmentFile } from '../core/documents';
 import { NO_SUPPLIER } from '../core/items';
 import { formatQuantity, formatUsd } from '../core/money';
@@ -15,6 +18,7 @@ import { api, ApiError, type ProductionData } from './api';
 import { Dialog, FormError } from './components';
 import { linesValue, Notes, readFile } from './Documents';
 import { Icon } from './icons';
+import { billUnitsFromPdf } from './pdfText';
 import type { Production } from './production';
 
 const SHEETS = '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel';
@@ -38,6 +42,11 @@ function containerLines(c: Container): { lines: DocumentLine[]; warnings: Docume
   const merged = mergePackingList(inv?.lines ?? null, pl?.lines ?? null);
   const parsed = [...(inv?.warnings ?? []), ...(pl && pl !== inv ? pl.warnings : [])];
   return { lines: merged.lines, warnings: [...parsed, ...merged.warnings] };
+}
+
+/** A packing list do container, para as caixas e o peso (pode estar no mesmo arquivo da invoice). */
+function packingDoc(c: Container) {
+  return (c.packing ? (c.packing.packing ?? c.packing.invoice) : null) ?? c.invoice?.packing ?? null;
 }
 
 async function readShipmentFile(f: File): Promise<ShipmentFile> {
@@ -70,6 +79,11 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
   const [bill, setBill] = useState('');
   const [eta, setEta] = useState('');
   const [blFile, setBlFile] = useState<File | null>(null);
+  // As unidades lidas do PDF do BL; null quando não há BL lido.
+  const [units, setUnits] = useState<BillUnit[] | null>(null);
+  const [unitsNote, setUnitsNote] = useState<string | null>(null);
+  // A unidade que a pessoa escolheu para um container ('' é nenhuma); sem escolha, vale a ligação automática.
+  const [unitChoice, setUnitChoice] = useState<Record<string, string>>({});
   const [containers, setContainers] = useState<Container[]>([]);
   const [reading, setReading] = useState(false);
   const [readErrors, setReadErrors] = useState<string[]>([]);
@@ -81,6 +95,9 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
     setBill('');
     setEta('');
     setBlFile(null);
+    setUnits(null);
+    setUnitsNote(null);
+    setUnitChoice({});
     setContainers([]);
     setReadErrors([]);
     setError(null);
@@ -169,6 +186,20 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
     if (!n || !c.supplierId) return false;
     return data.invoices.some((v) => v.supplierId === c.supplierId && v.number.toUpperCase() === n) || containers.some((o, j) => j < i && o.supplierId === c.supplierId && o.number.trim().toUpperCase() === n);
   });
+  // As caixas e o peso de cada container, pela packing list, e a unidade do BL ligada a ele.
+  const totals = useMemo(() => containers.map((c) => { const pl = packingDoc(c); return pl ? packingTotals(pl.lines) : { cartons: null, weightGrams: null }; }), [containers]);
+  const matches = useMemo(
+    () => (units ? matchUnits(containers.map((c, i) => ({ key: c.key, container: c.container.trim() || null, ...totals[i]! })), units) : new Map<string, UnitMatch>()),
+    [units, containers, totals],
+  );
+  const unitOf = (c: Container): BillUnit | null => {
+    if (!units) return null;
+    const chosen = unitChoice[c.key];
+    if (chosen !== undefined) return units.find((u) => u.container === chosen) ?? null;
+    return matches.get(c.key)?.unit ?? null;
+  };
+  const chosenUnits = containers.map(unitOf);
+  const loose = units ? units.filter((u) => !chosenUnits.some((x) => x?.container === u.container)) : [];
   const totalQty = merged.reduce((s, m) => s + m.lines.reduce((t, l) => t + l.quantity, 0), 0);
   const totalValue = merged.reduce((s, m) => s + linesValue(m.lines), 0);
   const taken = allocation ? allocation.flat().reduce((s, a) => s + a.takes.reduce((t, k) => t + k.quantity, 0), 0) : 0;
@@ -180,6 +211,29 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
     if (!['application/pdf', 'image/png', 'image/jpeg'].includes(f.type)) return setError('Envie o BL em PDF, PNG ou JPG.');
     if (f.size > BL_MAX_BYTES) return setError('O arquivo do BL pode ter no máximo 5 MB.');
     setBlFile(f);
+    void readUnits(f);
+  }
+
+  /** As unidades do BL: só do PDF com texto (imagem e PDF escaneado não dão para ler). */
+  async function readUnits(f: File) {
+    setUnits(null);
+    setUnitChoice({});
+    setUnitsNote(null);
+    if (f.type !== 'application/pdf') return setUnitsNote('O BL é uma imagem: as unidades não são lidas. Informe o container de cada um, se quiser.');
+    try {
+      const found = await billUnitsFromPdf(await f.arrayBuffer());
+      if (found.length === 0) return setUnitsNote('Não achei as unidades (container, lacre, caixas e peso) no PDF do BL. Informe o container de cada um, se quiser.');
+      setUnits(found);
+    } catch {
+      setUnitsNote('Não foi possível ler o PDF do BL. Informe o container de cada um, se quiser.');
+    }
+  }
+
+  function dropBl() {
+    setBlFile(null);
+    setUnits(null);
+    setUnitsNote(null);
+    setUnitChoice({});
   }
 
   async function save(e: FormEvent) {
@@ -188,6 +242,8 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
     const missing = containers.findIndex((c, i) => !c.supplierId || !c.number.trim() || merged[i]!.lines.length === 0);
     if (missing >= 0) return setError(`Container ${missing + 1}: informe o fornecedor e o número da invoice.`);
     if (duplicates.some(Boolean)) return setError('Há invoice que já foi registrada (ou repetida). Confira os números.');
+    const picked = chosenUnits.filter((u): u is BillUnit => u !== null).map((u) => u.container);
+    if (new Set(picked).size !== picked.length) return setError('A mesma unidade do BL está em dois containers. Confira.');
     setBusy(true);
     setError(null);
     try {
@@ -195,7 +251,14 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
         const r = await api.receiveShipment({
           bill: bill.trim() || null,
           eta: knownBill ? null : eta || null,
-          invoices: containers.map((c, i) => ({ supplierId: c.supplierId, number: c.number.trim(), ref: c.ref.trim(), container: c.container.trim(), lines: merged[i]!.lines })),
+          invoices: containers.map((c, i) => ({
+            supplierId: c.supplierId,
+            number: c.number.trim(),
+            ref: c.ref.trim(),
+            container: (chosenUnits[i]?.container ?? c.container).trim(),
+            unit: chosenUnits[i] ?? null,
+            lines: merged[i]!.lines,
+          })),
         });
         if (blFile && r.billId) {
           try {
@@ -268,7 +331,7 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
                 {blFile ? (
                   <span className="arquivo-nome">
                     {blFile.name}
-                    <button type="button" className="btn-texto" onClick={() => setBlFile(null)}>
+                    <button type="button" className="btn-texto" onClick={dropBl}>
                       Tirar
                     </button>
                   </span>
@@ -279,6 +342,25 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
             </div>
           </fieldset>
           {blFile && !bill.trim() && <p className="dica">Para anexar o arquivo, informe o número do BL.</p>}
+          {unitsNote && (
+            <p className="aviso alerta">
+              <Icon name="alerta" />
+              <span>{unitsNote}</span>
+            </p>
+          )}
+          {units && (
+            <div className={`aviso ${containers.length && loose.length ? 'alerta' : 'ok'} unidades-bl`} role="status">
+              <Icon name="container" />
+              <span>
+                <b>{units.length === 1 ? '1 unidade no BL' : `${units.length} unidades no BL`}:</b>{' '}
+                {units.map((u) => `${u.container} (${[u.cartons !== null ? `${formatQuantity(u.cartons)} caixas` : null, u.weightGrams !== null ? formatWeight(u.weightGrams) : null].filter(Boolean).join(', ')})`).join(' · ')}
+                {containers.length > 0 &&
+                  (loose.length
+                    ? `. ${loose.length === 1 ? 'Falta ligar' : 'Faltam ligar'} ${loose.map((u) => u.container).join(' e ')}: escolha em cada container.`
+                    : '. Todas ligadas aos containers.')}
+              </span>
+            </div>
+          )}
 
           <div className="conteineres-topo">
             <h3 className="rotulo">Containers</h3>
@@ -324,6 +406,12 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
               lines={merged[i]!.lines}
               warnings={merged[i]!.warnings}
               allocation={allocation?.[i] ?? null}
+              units={units}
+              unit={chosenUnits[i] ?? null}
+              by={unitChoice[c.key] !== undefined ? 'escolha' : (matches.get(c.key)?.by ?? null)}
+              taken={new Set(chosenUnits.filter((u, j): u is BillUnit => u !== null && j !== i).map((u) => u.container))}
+              totals={totals[i]!}
+              onUnit={(container) => setUnitChoice((m) => ({ ...m, [c.key]: container }))}
               duplicate={duplicates[i]!}
               busy={busy}
               onChange={(patch) => update(c.key, patch)}
@@ -367,6 +455,12 @@ function ContainerCard({
   lines,
   warnings,
   allocation,
+  units,
+  unit,
+  by,
+  taken,
+  totals,
+  onUnit,
   duplicate,
   busy,
   onChange,
@@ -380,6 +474,14 @@ function ContainerCard({
   lines: DocumentLine[];
   warnings: DocumentNote[];
   allocation: LineAllocation[] | null;
+  /** As unidades lidas do BL (null sem BL em PDF). */
+  units: BillUnit[] | null;
+  unit: BillUnit | null;
+  by: UnitMatch['by'] | 'escolha' | null;
+  /** As unidades que já estão em outros containers. */
+  taken: Set<string>;
+  totals: { cartons: number | null; weightGrams: number | null };
+  onUnit: (container: string) => void;
   duplicate: boolean;
   busy: boolean;
   onChange: (patch: Partial<Container>) => void;
@@ -396,7 +498,7 @@ function ContainerCard({
       <div className="conteiner-topo">
         <h4 id={`${ids}-t`}>
           Container {index + 1}
-          {c.container && <span className="mudo"> · {c.container}</span>}
+          {(unit?.container ?? c.container) && <span className="mudo"> · {unit?.container ?? c.container}</span>}
         </h4>
         <span className="mudo">
           {lines.length} {lines.length === 1 ? 'linha' : 'linhas'} · {formatQuantity(qty)} ex.
@@ -452,12 +554,30 @@ function ContainerCard({
           </label>
           <input id={`${ids}-num`} className="campo" value={c.number} onChange={(e) => onChange({ number: e.target.value })} aria-invalid={duplicate} />
         </div>
-        <div className="grupo">
-          <label className="rotulo" htmlFor={`${ids}-ctr`}>
-            Container
-          </label>
-          <input id={`${ids}-ctr`} className="campo" value={c.container} onChange={(e) => onChange({ container: e.target.value })} placeholder="Opcional" />
-        </div>
+        {units?.length ? (
+          <div className="grupo">
+            <label className="rotulo" htmlFor={`${ids}-ctr`}>
+              Unidade do BL
+            </label>
+            <select id={`${ids}-ctr`} className="campo" value={unit?.container ?? ''} onChange={(e) => onUnit(e.target.value)} aria-describedby={`${ids}-uni`}>
+              <option value="">Nenhuma</option>
+              {units.map((u) => (
+                <option key={u.container} value={u.container} disabled={taken.has(u.container)}>
+                  {u.container}
+                  {u.cartons !== null ? ` · ${formatQuantity(u.cartons)} caixas` : ''}
+                  {u.weightGrams !== null ? ` · ${formatWeight(u.weightGrams)}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="grupo">
+            <label className="rotulo" htmlFor={`${ids}-ctr`}>
+              Container
+            </label>
+            <input id={`${ids}-ctr`} className="campo" value={c.container} onChange={(e) => onChange({ container: e.target.value })} placeholder="Opcional" />
+          </div>
+        )}
         <div className="grupo">
           <label className="rotulo" htmlFor={`${ids}-ref`}>
             Ref. do embarque
@@ -465,6 +585,19 @@ function ContainerCard({
           <input id={`${ids}-ref`} className="campo" value={c.ref} onChange={(e) => onChange({ ref: e.target.value })} placeholder="Opcional" />
         </div>
       </fieldset>
+      {units?.length ? (
+        <p className="dica conteiner-unidade" id={`${ids}-uni`}>
+          {unit
+            ? `${unitSummary(unit)}${by === 'container' ? '. Ligada pelo número do container da packing list.' : by === 'medidas' ? '. Ligada pelas caixas e pelo peso da packing list.' : '.'}`
+            : `Escolha a unidade do BL deste container${totals.cartons !== null || totals.weightGrams !== null ? ` (a packing list tem ${[totals.cartons !== null ? `${formatQuantity(totals.cartons)} caixas` : null, totals.weightGrams !== null ? formatWeight(totals.weightGrams) : null].filter(Boolean).join(' e ')})` : ''}.`}
+        </p>
+      ) : null}
+      {unit && unitDifference(totals, unit) && (
+        <p className="aviso alerta">
+          <Icon name="alerta" />
+          <span>{unitDifference(totals, unit)}</span>
+        </p>
+      )}
       {duplicate && (
         <p className="aviso alerta">
           <Icon name="alerta" />
