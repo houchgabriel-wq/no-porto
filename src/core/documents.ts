@@ -226,15 +226,31 @@ export function lotsFromComment(text: string, quantity: number): { plan: ShipPla
   return problem ? { error: problem.charAt(0).toLowerCase() + problem.slice(1).replace(/\.$/, '') } : { plan };
 }
 
+/** A data escrita no meio de um texto, depois de "by", "until", "até"...: "New title – ship by 01-Jan-2027." */
+const SHIP_BY = /\b(?:by|on|until|till|before|até|em|in|for)\s+(?:the\s+)?(\d{1,2}[-\s.][a-zç]{3,9}\.?[-\s.]\d{4}|\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}|[a-zç]{3,9}\.?\s+\d{4}|\d{1,2}\/\d{4})/i;
+
 /**
- * Programação de envio de uma linha da PO: os lotes do comentário, quando há; senão, o item inteiro no
- * mês da coluna de envio. O que não dá para ler vira aviso, e o item entra sem programação.
+ * O mês de envio escrito como texto na coluna de envio, em vez de uma data (a PO-073 da Claire, de
+ * 25/11/2026, traz "New title – ship by 01-Jan-2027."). null quando o texto não tem uma data.
+ */
+export function shipMonthInText(text: string): string | null {
+  const m = SHIP_BY.exec(text);
+  return m ? readMonthText(m[1]!) : null;
+}
+
+/**
+ * Programação de envio de uma linha da PO: os lotes do comentário, quando há; senão, os lotes escritos na
+ * própria coluna de envio; senão, o item inteiro no mês da coluna, que pode ser uma data ou um texto com a
+ * data ("ship by 01-Jan-2027"). O que não dá para ler vira aviso, e o item entra sem programação.
  */
 function linePlan(shipText: string, comment: string, quantity: number, warn: (message: string) => void): ShipPlan {
-  const lots = lotsFromComment(comment, quantity);
-  if (lots && 'plan' in lots) return lots.plan;
-  const month = shipText ? readMonthText(shipText) : null;
-  if (lots) warn(`${lots.error.charAt(0).toUpperCase()}${lots.error.slice(1)}; ${month ? 'vale a data de envio da coluna' : 'o item entra sem programação de envio'}.`);
+  const fromComment = lotsFromComment(comment, quantity);
+  if (fromComment && 'plan' in fromComment) return fromComment.plan;
+  const fromColumn = fromComment ? null : lotsFromComment(shipText, quantity);
+  if (fromColumn && 'plan' in fromColumn) return fromColumn.plan;
+  const month = shipText ? (readMonthText(shipText) ?? shipMonthInText(shipText)) : null;
+  const error = fromComment ? fromComment.error : fromColumn ? fromColumn.error.replace('do comentário', 'da coluna de envio').replace('o comentário fala', 'a coluna de envio fala') : null;
+  if (error) warn(`${error.charAt(0).toUpperCase()}${error.slice(1)}; ${month ? 'vale a data de envio da coluna' : 'o item entra sem programação de envio'}.`);
   if (month) return [{ month, quantity }];
   if (shipText) warn(`Data de envio "${shipText}" não reconhecida; o item entra sem programação de envio.`);
   return [];
@@ -319,8 +335,9 @@ function fieldValue(rows: readonly string[][], pattern: RegExp, limit = HEADER_S
         if (/[:：]$/.test(next) || /^(date|data|to|from|ref)\b/i.test(next)) break;
         return next;
       }
+      // Embaixo, só se não for outro rótulo: com o "To:" vazio (a PO-073 da Claire), embaixo vem "From:".
       const below = clean(rows[r + 1]?.[c]);
-      if (below) return below;
+      if (below && !/[:：]$/.test(below) && !/^(date|data|to|from|ref)\b/i.test(below)) return below;
       return null;
     }
   }

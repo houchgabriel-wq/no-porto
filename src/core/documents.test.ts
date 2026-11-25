@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findContainer, findIsbn, lotsFromComment, parseInvoiceDocument, parseOrderDocument, parseQuantity, parseShipmentFile } from './documents';
+import { findContainer, findIsbn, lotsFromComment, parseInvoiceDocument, parseOrderDocument, parseQuantity, parseShipmentFile, shipMonthInText } from './documents';
 
 const pad = (row: string[], n = 11) => [...row, ...Array(Math.max(0, n - row.length)).fill('')];
 
@@ -102,6 +102,53 @@ describe('parseOrderDocument', () => {
     expect(doc.warnings).toEqual([{ row: 10, message: 'Os lotes do comentário somam 10.000 exemplares, e a linha tem 9.000; vale a data de envio da coluna.' }]);
     // O comentário continua nas observações do item.
     expect(doc.lines[1]!.notes).toMatch(/^Ship in 2 lots/);
+  });
+
+  it('PO-073 da Claire: a data e os lotes escritos como texto na coluna de envio (25/11/2026)', () => {
+    // Na PO-073, a coluna "Estimated Shipping Date" traz a instrução de envio em texto, e o Comments,
+    // as notas de preço ("REACH 0.85"). Sem "To:" e sem "Order No.", a PO vem do nome do arquivo.
+    const head = [pad(['IBC - INSTITUTO BRASILEIRO DE CULTURA LTDA']), pad(['PRINTING ORDER']), pad(['To:', '', '', '', '', '', '', '', '', 'Date', '2026-11-09']), pad(['From:', 'GABRIEL', '', '', '', '', '', '', '', 'Order No.:', '']), PO[4]!];
+    const row = (n: number, name: string, isbn: string, quantity: string, comment: string, ship: string) => [String(n), name, 'Size：15.1x23cm,portrait', 'yes', isbn, '', quantity, '0.88', '', comment, ship];
+    const rows = [
+      ...head,
+      row(15, 'A Abadia de Northanger - Jane Austen - Atlantis', '978-65-83970-88-6', '5000', 'REACH 0.85', 'New title – ship by 01-Jan-2027.'),
+      row(23, 'O Médico é o Monstro - Atlantis', '978-65-83970-93-0', '5000', 'OK', 'New title – ship by 01-Jan-2027.'),
+      row(30, 'A Morte de Ivan Ilitch - Liev Toltói - Camelot Editora', '9786580921416', '12000', 'REACH 0.25', 'RUSH (low stock). Ship in 2 lots: 6000 pcs by 01-Jan-2027 (before CNY) / 6000 pcs by 01-Mar-2027 – same unit price for total quantity.'),
+      row(31, 'Lotes que não somam', '', '9000', '', 'Ship in 2 lots: 5000 pcs by 01-Jan-2027 / 5000 pcs by 01-Mar-2027'),
+      row(32, 'Sem data', '', '1000', '', 'ASAP'),
+      pad(['TOTAL', 'TOTAL']),
+    ];
+    const doc = parseOrderDocument([{ name: 'RESUMO', rows }], 'PO-073_claire.xlsx');
+    if ('error' in doc) throw new Error(doc.error);
+    expect([doc.code, doc.supplier, doc.orderedAt]).toEqual(['PO-073', null, '2026-11-09']);
+    expect(doc.lines.map((l) => [l.description, l.shipPlan])).toEqual([
+      ['A Abadia de Northanger - Jane Austen - Atlantis', [{ month: '2027-01', quantity: 5000 }]],
+      ['O Médico é o Monstro - Atlantis', [{ month: '2027-01', quantity: 5000 }]],
+      [
+        'A Morte de Ivan Ilitch - Liev Toltói - Camelot Editora',
+        [
+          { month: '2027-01', quantity: 6000 },
+          { month: '2027-03', quantity: 6000 },
+        ],
+      ],
+      // Os lotes não somam: vale a primeira data escrita, com o item inteiro, e avisa.
+      ['Lotes que não somam', [{ month: '2027-01', quantity: 9000 }]],
+      ['Sem data', []],
+    ]);
+    expect(doc.warnings).toEqual([
+      { row: 9, message: 'Os lotes da coluna de envio somam 10.000 exemplares, e a linha tem 9.000; vale a data de envio da coluna.' },
+      { row: 10, message: 'Data de envio "ASAP" não reconhecida; o item entra sem programação de envio.' },
+    ]);
+    // O Comments continua nas observações do item.
+    expect(doc.lines[0]!.notes).toBe('REACH 0.85');
+  });
+
+  it('a data no meio do texto da coluna de envio', () => {
+    expect(shipMonthInText('New title – ship by 01-Jan-2027.')).toBe('2027-01');
+    expect(shipMonthInText('Ship until 15/02/2027, please')).toBe('2027-02');
+    expect(shipMonthInText('ship in March 2027')).toBe('2027-03');
+    expect(shipMonthInText('RUSH – as soon as possible')).toBeNull();
+    expect(shipMonthInText('PO-056 lot (5,000 pcs) first')).toBeNull();
   });
 
   it('prefere o número da PO escrito no documento', () => {
