@@ -228,6 +228,7 @@ function UnitCard({ unit, ctx }: { unit: ShipmentUnit; ctx: Ctx }) {
               <span className="emb-inv-num">
                 {v.number}
                 {v.ref && v.ref !== v.number && <span className="mudo"> · {v.ref}</span>}
+                {v.unit && <span className="emb-inv-ctr"> · {v.unit.container}</span>}
               </span>
               <span className="emb-inv-dir">
                 {data.seeValues ? formatUsd(invoiceTotal(its)) : `${formatQuantity(its.reduce((s, i) => s + i.quantity, 0))} ex.`}
