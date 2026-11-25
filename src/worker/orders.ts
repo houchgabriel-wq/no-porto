@@ -7,6 +7,7 @@ import { isbnDigits, isbnProblem } from '../core/isbn';
 import { isValidUnitPrice } from '../core/money';
 import { itemForViewer, normalizeOrderCode, orderOwners, orderSupplierProblem, searchKey, titleKey, type Item, type ItemStatus, type PurchaseOrder, type Supplier } from '../core/items';
 import { can } from '../core/roles';
+import type { BillUnit } from '../core/billUnits';
 import { onlyShipped, salesArrivals, withoutSuppliers } from '../core/shippedItems';
 import { cleanSpecification, latestSpecification, SPECIFICATION_MAX } from '../core/specification';
 import { MAX_PARCELS, readStoredPlan, shipPlanProblem, shipPlanText, sortPlan, type ShipPlan } from '../core/shipPlan';
@@ -398,6 +399,22 @@ export function insertItem(
 
 // ---------- Rotas ----------
 
+/** As colunas da unidade do BL na invoice (migração 0016). */
+export interface UnitColumns {
+  container: string;
+  container_seal: string;
+  container_kind: string;
+  container_cartons: number | null;
+  container_weight_grams: number | null;
+  container_volume_liters: number | null;
+}
+
+/** A unidade da invoice, ou null quando ainda não se sabe o container. */
+export function unitOf(r: UnitColumns): BillUnit | null {
+  if (!r.container) return null;
+  return { container: r.container, seal: r.container_seal, kind: r.container_kind, cartons: r.container_cartons, weightGrams: r.container_weight_grams, volumeLiters: r.container_volume_liters };
+}
+
 /** Quantos dias os embarques que chegaram continuam na tela de embarques (depois, vão para o histórico). */
 export const RECENT_ARRIVAL_DAYS = 60;
 
@@ -425,7 +442,8 @@ async function loadData(env: Env, session: Session, now: Date) {
     // Invoices a caminho e as que chegaram nos últimos 60 dias. As do histórico sem data de chegada
     // (itens entregues, mas o dia não está na planilha) não voltam para a tela de embarques.
     env.DB.prepare(
-      `SELECT v.id, v.number, v.ref, v.supplier_id, v.bill_of_lading_id, v.eta, v.arrived_at, v.notes
+      `SELECT v.id, v.number, v.ref, v.supplier_id, v.bill_of_lading_id, v.eta, v.arrived_at, v.notes,
+              v.container, v.container_seal, v.container_kind, v.container_cartons, v.container_weight_grams, v.container_volume_liters
          FROM invoices v LEFT JOIN bills_of_lading b ON b.id = v.bill_of_lading_id
         WHERE COALESCE(v.arrived_at, b.arrived_at) >= ?
            OR (COALESCE(v.arrived_at, b.arrived_at) IS NULL
@@ -443,7 +461,7 @@ async function loadData(env: Env, session: Session, now: Date) {
     notes: r.notes,
   }));
   const items = (i!.results as ItemRow[]).map((r) => itemForViewer(toItem(r), seeValues));
-  const invoiceRows = v!.results as { id: string; number: string; ref: string; supplier_id: string | null; bill_of_lading_id: string | null; eta: string | null; arrived_at: string | null; notes: string }[];
+  const invoiceRows = v!.results as ({ id: string; number: string; ref: string; supplier_id: string | null; bill_of_lading_id: string | null; eta: string | null; arrived_at: string | null; notes: string } & UnitColumns)[];
   // BLs das invoices mostradas, e os BLs vazios ainda a caminho (todas as invoices desfeitas).
   const usedBills = new Set(invoiceRows.map((r) => r.bill_of_lading_id));
   const allBills = b!.results as { id: string; number: string; eta: string | null; arrived_at: string | null; notes: string }[];
@@ -466,6 +484,7 @@ async function loadData(env: Env, session: Session, now: Date) {
     eta: r.eta,
     arrivedAt: r.arrived_at,
     notes: r.notes,
+    unit: unitOf(r),
   }));
   const shown = new Set(invoices.map((x) => x.id));
   const payments: Payment[] = seeValues

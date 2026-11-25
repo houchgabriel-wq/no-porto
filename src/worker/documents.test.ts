@@ -170,7 +170,8 @@ describe('novo embarque pela invoice', () => {
     );
     expect(rows).toHaveLength(5);
     expect((d.items as Row[]).find((i) => i.description === 'A Odisseia')!.notes).toBe('Não estava na produção da Claire. Confira.');
-    expect(d.invoices).toMatchObject([{ number: '126062009-2', ref: 'CTNR04', supplierId: claire, billId: d.bills[0].id, notes: 'Container YMLU5449045' }]);
+    // O container tem campo próprio desde 25/11/2026 (antes ia para as observações).
+    expect(d.invoices).toMatchObject([{ number: '126062009-2', ref: 'CTNR04', supplierId: claire, billId: d.bills[0].id, notes: '', unit: { container: 'YMLU5449045', seal: '', cartons: null } }]);
     expect(d.bills).toMatchObject([{ number: 'MEDU123', eta: '2026-12-20', document: null }]);
   });
 
