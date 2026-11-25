@@ -6,7 +6,7 @@
 
 import { isbnDigits, isbnProblem } from './isbn';
 import { normalizeOrderCode, searchKey } from './items';
-import { formatQuantity, parseSheetUnitPrice } from './money';
+import { formatQuantity, parseScaled, parseSheetUnitPrice } from './money';
 import { parseDate } from './shipments';
 import { mergePlans, plannedTotal, readMonthText, shipPlanProblem, type ShipPlan } from './shipPlan';
 import { cleanSpecification } from './specification';
@@ -39,6 +39,10 @@ export interface DocumentLine {
    * Só para a prévia: não é gravado.
    */
   extraCartons?: { cartons: number; pieces: number }[];
+  /** Caixas da linha (a coluna "No. of Cartons" da packing list), quando a planilha traz. */
+  cartons?: number | null;
+  /** Peso bruto da linha em gramas ("Total GW", ou o peso por caixa vezes as caixas), quando a planilha traz. */
+  grossWeightGrams?: number | null;
 }
 
 export interface DocumentNote {
@@ -79,7 +83,7 @@ function clean(text: string | undefined): string {
   return (text ?? '').replace(/\s+/g, ' ').trim();
 }
 
-type Role = 'description' | 'quantity' | 'price' | 'isbn' | 'order' | 'pieces' | 'comments' | 'specification' | 'shipDate';
+type Role = 'description' | 'quantity' | 'price' | 'isbn' | 'order' | 'pieces' | 'comments' | 'specification' | 'shipDate' | 'cartons' | 'grossTotal' | 'grossEach';
 
 /** Peso de cada coluna candidata a nome do produto: "Name" vale mais que "Description". */
 function descriptionScore(l: string): number {
@@ -106,7 +110,18 @@ const ROLE_TESTS: Record<Exclude<Role, 'description'>, (l: string) => boolean> =
   specification: (l) => l.includes('specification') || l === 'specs' || l === 'spec' || l.startsWith('especifica'),
   // "Estimated Shipping Date" na PO da editora; "ETD", "Delivery date", "Data de envio".
   shipDate: (l) => /^etd\b/.test(l) || (/\b(ship|shipping|shipment|delivery|envio|embarque)\b/.test(l) && /\b(date|data|dia)\b/.test(l)),
+  // Para ligar o container à unidade do BL (25/11/2026): as caixas ("No. of Cartons", "CTNS") e o peso
+  // bruto, total ("Total GW") ou por caixa ("GW (kgs)"), como na packing list da Miyi.
+  cartons: (l) => /^(no of |number of |qty of |total )?(cartons?|ctns?)\b/.test(l) && !/\b(per|size|meas|dimension)\b/.test(l),
+  grossTotal: (l) => /\btotal\b/.test(l) && /\b(gw|g w|gross)\b/.test(l),
+  grossEach: (l) => /^(gw|g w|gross weight)\b/.test(l) && !/\btotal\b/.test(l),
 };
+
+/** Peso escrito na planilha, em quilos ("24430", "4211.7", "1,680.5 kgs") → gramas; null se não é número. */
+function gramsOf(text: string): number | null {
+  const t = clean(text).replace(/\s*kgs?\.?$/i, '');
+  return t ? parseScaled(t, 3, { round: true }) : null;
+}
 
 interface Header {
   /** Última linha do cabeçalho (os dados começam depois). */
@@ -307,6 +322,13 @@ function readLines(rows: readonly string[][], header: Header, warnings: Document
       specification: cleanSpecification(cell(row, 'specification')),
     };
     if (withShipPlan) line.shipPlan = linePlan(clean(cell(row, 'shipDate')), notes, quantity, (message) => warnings.push({ row: rowNumber, message }));
+    // Caixas e peso bruto da linha, quando a planilha traz (a packing list).
+    if (cols.cartons !== undefined) line.cartons = parseQuantity(cell(row, 'cartons'));
+    if (cols.grossTotal !== undefined) line.grossWeightGrams = gramsOf(cell(row, 'grossTotal'));
+    else if (cols.grossEach !== undefined) {
+      const each = gramsOf(cell(row, 'grossEach'));
+      line.grossWeightGrams = each !== null && line.cartons ? each * line.cartons : null;
+    }
     lines.push(line);
   }
   return lines;

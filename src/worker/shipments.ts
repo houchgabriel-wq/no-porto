@@ -81,6 +81,20 @@ const receiveLine = z.object({
   orderCode: z.string().max(20).nullable().default(null),
 });
 
+/** A unidade do BL (o container) de uma invoice: lida do PDF do BL e ligada pela packing list (25/11/2026). */
+const unitSchema = z.object({
+  container: z
+    .string({ error: 'Informe o número do container.' })
+    .max(30, 'Número do container inválido.')
+    .transform((s) => s.replace(/\s+/g, '').toUpperCase())
+    .pipe(z.string().min(4, 'Informe o número do container.').max(20, 'Número do container inválido.')),
+  seal: text(30, 'Lacre').default(''),
+  kind: text(20, 'Tipo do container').default(''),
+  cartons: z.number().int('Caixas inválidas.').min(0, 'Caixas inválidas.').max(1_000_000, 'Caixas inválidas.').nullable().default(null),
+  weightGrams: z.number().int('Peso inválido.').min(0, 'Peso inválido.').max(1_000_000_000, 'Peso inválido.').nullable().default(null),
+  volumeLiters: z.number().int('Cubagem inválida.').min(0, 'Cubagem inválida.').max(10_000_000, 'Cubagem inválida.').nullable().default(null),
+});
+
 /** Novo embarque: um BL (ou nenhum, por enquanto) com um ou mais containers, cada um com a sua invoice. */
 const receiveBody = z
   .object({
@@ -93,6 +107,7 @@ const receiveBody = z
           number: invoiceNumber,
           ref: text(60, 'Ref.').default(''),
           container: text(20, 'Container').default(''),
+          unit: unitSchema.nullable().default(null),
           lines: z.array(receiveLine).min(1, 'Um dos containers não tem itens.'),
         }),
       )
@@ -456,15 +471,25 @@ async function receiveShipment(request: Request, env: Env, session: Session, now
   const invoices = body.invoices.map((v) => ({ id: crypto.randomUUID(), number: v.number }));
   body.invoices.forEach((v, i) => {
     statements.push(
-      env.DB.prepare('INSERT INTO invoices (id, number, ref, supplier_id, bill_of_lading_id, eta, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(
+      env.DB.prepare(
+        `INSERT INTO invoices (id, number, ref, supplier_id, bill_of_lading_id, eta, notes, created_at,
+                               container, container_seal, container_kind, container_cartons, container_weight_grams, container_volume_liters)
+         VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
         invoices[i]!.id,
         v.number,
         v.ref,
         v.supplierId,
         billId,
         billId ? null : body.eta,
-        v.container ? `Container ${v.container}` : '',
         at,
+        // O container passa a ter campo próprio (antes ia para as observações).
+        v.unit?.container ?? v.container.replace(/\s+/g, '').toUpperCase(),
+        v.unit?.seal ?? '',
+        v.unit?.kind ?? '',
+        v.unit?.cartons ?? null,
+        v.unit?.weightGrams ?? null,
+        v.unit?.volumeLiters ?? null,
       ),
     );
   });
@@ -739,6 +764,43 @@ async function importShipments(request: Request, env: Env, session: Session, now
   return json({ inserted: items.length, skipped: body.items.length - items.length }, 201);
 }
 
+// ---------- Unidades do BL ----------
+
+const unitsBody = z.object({
+  units: z
+    .array(z.object({ invoiceId: z.string({ error: 'Invoice inválida.' }).min(1).max(100), unit: unitSchema.nullable() }), { error: 'Informe as unidades.' })
+    .min(1, 'Informe as unidades.')
+    .max(60, 'No máximo 60 unidades por vez.'),
+});
+
+/**
+ * Grava a unidade de cada invoice do BL (25/11/2026): a que a ficha do embarque leu do PDF do BL e a
+ * pessoa conferiu. null tira a unidade. A mesma unidade não vai para duas invoices.
+ */
+async function saveBillUnits(request: Request, env: Env, billId: string): Promise<Response> {
+  checkMutation(request);
+  const body = await readBody(request, unitsBody);
+  const bill = await env.DB.prepare('SELECT id FROM bills_of_lading WHERE id = ?').bind(billId).first<{ id: string }>();
+  if (!bill) return error(404, 'BL não encontrado.');
+  const { results } = await env.DB.prepare('SELECT id, container FROM invoices WHERE bill_of_lading_id = ?').bind(billId).all<{ id: string; container: string }>();
+  const mine = new Map(results.map((r) => [r.id, r.container]));
+  if (body.units.some((u) => !mine.has(u.invoiceId))) return error(400, 'Uma das invoices não é deste BL.');
+  // A unidade de cada invoice depois da gravação: as mudadas e as que ficam como estavam.
+  const after = new Map(mine);
+  for (const u of body.units) after.set(u.invoiceId, u.unit?.container ?? '');
+  const taken = [...after.values()].filter(Boolean);
+  if (new Set(taken).size !== taken.length) return error(400, 'A mesma unidade ficou em duas invoices. Confira.');
+  await env.DB.batch(
+    body.units.map((u) =>
+      env.DB.prepare(
+        `UPDATE invoices SET container = ?, container_seal = ?, container_kind = ?, container_cartons = ?, container_weight_grams = ?, container_volume_liters = ?
+          WHERE id = ?`,
+      ).bind(u.unit?.container ?? '', u.unit?.seal ?? '', u.unit?.kind ?? '', u.unit?.cartons ?? null, u.unit?.weightGrams ?? null, u.unit?.volumeLiters ?? null, u.invoiceId),
+    ),
+  );
+  return json({ updated: body.units.length });
+}
+
 // ---------- Roteador ----------
 
 export async function routeShipments(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {
@@ -758,6 +820,8 @@ export async function routeShipments(request: Request, env: Env, session: Sessio
   m = /^\/api\/bills\/([^/]+)$/.exec(path);
   if (m && request.method === 'PATCH') return onlyEdit() ?? updateBill(request, env, session, decodeURIComponent(m[1]!), now);
   if (m && request.method === 'DELETE') return onlyAdmin() ?? deleteBill(request, env, session, decodeURIComponent(m[1]!), now);
+  m = /^\/api\/bills\/([^/]+)\/units$/.exec(path);
+  if (m && request.method === 'POST') return onlyEdit() ?? saveBillUnits(request, env, decodeURIComponent(m[1]!));
   m = /^\/api\/invoices\/([^/]+)$/.exec(path);
   if (m && request.method === 'PATCH') return onlyEdit() ?? updateInvoice(request, env, session, decodeURIComponent(m[1]!), now);
   if (m && request.method === 'DELETE') return onlyAdmin() ?? deleteInvoice(request, env, session, decodeURIComponent(m[1]!), now);

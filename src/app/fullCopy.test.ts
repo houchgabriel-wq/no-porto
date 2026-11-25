@@ -90,6 +90,17 @@ describe('cópia completa', () => {
     ]);
   });
 
+  it('o container da unidade do BL vai nas observações, sem repetir o que a observação já diz', () => {
+    const unit = { container: 'YMLU5432079', seal: 'YMAX802369', kind: '40NOR', cartons: 2497, weightGrams: 24_430_000, volumeLiters: 57_840 };
+    const withUnits = copySheets({
+      ...input,
+      invoices: input.invoices.map((v) =>
+        v.id === 'v1' ? { ...v, unit } : v.id === 'v2' ? { ...v, notes: 'Container MSCU1234567 · pago metade', unit: { ...unit, container: 'MSCU1234567' } } : v,
+      ),
+    });
+    expect(withUnits.shipments.map((r) => r[12])).toEqual(['Container YMLU5432079', 'Container MSCU1234567 · pago metade']);
+  });
+
   it('a aba Embarques volta com invoice, BL, chegada e pagamento', async () => {
     const r = parseShipmentRows(await roundTrip('Embarques', SHIPMENTS_HEADER, sheets.shipments));
     if ('error' in r) throw new Error(r.error);

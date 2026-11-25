@@ -1,6 +1,7 @@
 // Embarques (SPEC.md, seções 3 e 6): BLs e invoices, chegada prevista e atraso, situação de
 // pagamento da invoice e as regras para embarcar itens da produção, inteiros ou em parte.
 
+import type { BillUnit } from './billUnits';
 import { totalOf, type Item, type ItemStatus } from './items';
 import { reaisCents } from './money';
 
@@ -26,6 +27,8 @@ export interface Invoice {
   eta: string | null;
   arrivedAt: string | null;
   notes: string;
+  /** A unidade (o container) em que a invoice veio, lida do BL (25/11/2026); null quando não se sabe. */
+  unit?: BillUnit | null;
 }
 
 export interface Payment {

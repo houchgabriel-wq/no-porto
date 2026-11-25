@@ -72,7 +72,10 @@ export function copySheets(input: CopyInput, seeValues = true): CopySheets {
   const shipRow = (i: Item, date: string | null): CopyCell[] => {
     const v = invoices.get(i.invoiceId!)!;
     const bill = v.billId ? bills.get(v.billId) : undefined;
-    return [v.ref || v.number, ...common(i), date ? { date } : null, paymentText(v.id), v.number, bill?.number ?? null, [v.notes, i.notes].filter(Boolean).join(' · ') || null, ...extra(i)];
+    // O container da unidade do BL vai nas observações, como o Novo embarque escrevia antes da migração 0016;
+    // a observação que já cita o container (mudada à mão antes da migração) não o repete.
+    const container = v.unit && !v.notes.includes(v.unit.container) ? `Container ${v.unit.container}` : '';
+    return [v.ref || v.number, ...common(i), date ? { date } : null, paymentText(v.id), v.number, bill?.number ?? null, [container, v.notes, i.notes].filter(Boolean).join(' · ') || null, ...extra(i)];
   };
   const arrival = (v: Invoice) => {
     const bill = v.billId ? bills.get(v.billId) : undefined;
