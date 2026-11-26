@@ -875,6 +875,35 @@ async function savePackingList(request: Request, env: Env, session: Session, inv
   return json({ updated });
 }
 
+// ---------- Prioridade do container ----------
+
+const priorityBody = z.object({ priority: z.boolean({ error: 'Informe se o container tem prioridade.' }) });
+
+/**
+ * Marca ou tira a prioridade de um container no desembaraço e no transporte (pedido do Gabriel em
+ * 26/11/2026): quando e quem marcou ficam na invoice, e a mudança, nos eventos.
+ */
+async function setPriority(request: Request, env: Env, session: Session, invoiceId: string, now: Date): Promise<Response> {
+  checkMutation(request);
+  const body = await readBody(request, priorityBody);
+  const invoice = await env.DB.prepare('SELECT id, number, priority_at FROM invoices WHERE id = ?').bind(invoiceId).first<{ id: string; number: string; priority_at: string | null }>();
+  if (!invoice) return error(404, 'Invoice não encontrada.');
+  // Já está como pedido: nada muda (a marca guarda quem marcou primeiro).
+  if (Boolean(invoice.priority_at) === body.priority) return json({ changed: false });
+  const at = now.toISOString();
+  await env.DB.batch([
+    env.DB.prepare('UPDATE invoices SET priority_at = ?, priority_by = ? WHERE id = ?').bind(body.priority ? at : null, body.priority ? session.user.id : null, invoiceId),
+    env.DB.prepare("INSERT INTO events (id, entity, entity_id, user_id, type, detail, created_at) VALUES (?, 'invoice', ?, ?, 'priority', ?, ?)").bind(
+      crypto.randomUUID(),
+      invoiceId,
+      session.user.id,
+      JSON.stringify({ invoice: invoice.number, priority: body.priority }),
+      at,
+    ),
+  ]);
+  return json({ changed: true });
+}
+
 // ---------- Roteador ----------
 
 export async function routeShipments(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {
@@ -899,6 +928,8 @@ export async function routeShipments(request: Request, env: Env, session: Sessio
   m = /^\/api\/invoices\/([^/]+)$/.exec(path);
   if (m && request.method === 'PATCH') return onlyEdit() ?? updateInvoice(request, env, session, decodeURIComponent(m[1]!), now);
   if (m && request.method === 'DELETE') return onlyAdmin() ?? deleteInvoice(request, env, session, decodeURIComponent(m[1]!), now);
+  m = /^\/api\/invoices\/([^/]+)\/priority$/.exec(path);
+  if (m && request.method === 'PUT') return onlyEdit() ?? setPriority(request, env, session, decodeURIComponent(m[1]!), now);
   m = /^\/api\/invoices\/([^/]+)\/packing-list$/.exec(path);
   if (m && request.method === 'POST') return onlyEdit() ?? savePackingList(request, env, session, decodeURIComponent(m[1]!), now);
   m = /^\/api\/invoices\/([^/]+)\/payments$/.exec(path);

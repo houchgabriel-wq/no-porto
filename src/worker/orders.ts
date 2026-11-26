@@ -444,8 +444,9 @@ async function loadData(env: Env, session: Session, now: Date) {
     env.DB.prepare(
       `SELECT v.id, v.number, v.ref, v.supplier_id, v.bill_of_lading_id, v.eta, v.arrived_at, v.notes,
               v.container, v.container_seal, v.container_kind, v.container_cartons, v.container_weight_grams, v.container_volume_liters,
-              v.packing_list_name, v.packing_list_at, u.name AS packing_list_by
+              v.packing_list_name, v.packing_list_at, u.name AS packing_list_by, v.priority_at, up.name AS priority_by
          FROM invoices v LEFT JOIN bills_of_lading b ON b.id = v.bill_of_lading_id LEFT JOIN users u ON u.id = v.packing_list_by
+              LEFT JOIN users up ON up.id = v.priority_by
         WHERE COALESCE(v.arrived_at, b.arrived_at) >= ?
            OR (COALESCE(v.arrived_at, b.arrived_at) IS NULL
                AND NOT EXISTS (SELECT 1 FROM order_items i WHERE i.invoice_id = v.id AND i.status = 'entregue' AND i.deleted_at IS NULL))`,
@@ -474,6 +475,8 @@ async function loadData(env: Env, session: Session, now: Date) {
     packing_list_name: string;
     packing_list_at: string | null;
     packing_list_by: string | null;
+    priority_at: string | null;
+    priority_by: string | null;
   } & UnitColumns)[];
   // BLs das invoices mostradas, e os BLs vazios ainda a caminho (todas as invoices desfeitas).
   const usedBills = new Set(invoiceRows.map((r) => r.bill_of_lading_id));
@@ -499,6 +502,7 @@ async function loadData(env: Env, session: Session, now: Date) {
     notes: r.notes,
     unit: unitOf(r),
     packingList: r.packing_list_name ? { name: r.packing_list_name, at: r.packing_list_at, by: r.packing_list_by } : null,
+    priority: r.priority_at ? { at: r.priority_at, by: r.priority_by } : null,
   }));
   const shown = new Set(invoices.map((x) => x.id));
   const payments: Payment[] = seeValues
