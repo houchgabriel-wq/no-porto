@@ -46,6 +46,11 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
   *Pronto para o teste em 20/11/2026:* aba Estoque (admin, editor, Consulta e leitor) com os quatro cartões que filtram, busca, classe, só importados, ordem, tabela com as colunas de 3 e de 6 meses, ficha de cada título com o porquê de cada número, lista do que está no No Porto e não está na curva e Baixar .xlsx; carga da curva por admin e editor, com a data do estoque lida do nome do arquivo (migração `0012`); cartão no painel. Com a curva de 19/11/2026: 2.457 títulos, um de fora (conteúdo digital) e dois códigos somados. Auditoria de acessibilidade sem violações na aba, na ficha, na carga e no painel, nos dois temas, no computador e no celular.
   *Fechado em 20/11/2026:* no ar; o Gabriel carregou a curva e conferiu os títulos.
 
+- [ ] **Ligação com o No Estoque.**
+  A chegada de um container vira uma entrada prevista no No Estoque (decidido pelo Gabriel em 24/11/2026): a porta interna `NoEstoqueApi` entrega as chegadas a partir de um dia, com os itens da packing list e sem valores (SPEC, seção 8).
+  *Teste do Gabriel:* registrar a chegada de um container e ver a entrada prevista nas Chegadas do No Estoque.
+  *Pronto para o teste em 26/11/2026:* a porta e os testes; chamada de outro Worker pela ligação interna, no simulador da Cloudflare, com o banco local, sem nenhum valor na resposta.
+
 ## Depois
 
 Sem prazo: o resto da ligação com o No Prelo pelo ISBN (a aprovação do arquivo já vem de lá, desde 19/11/2026), custo final em reais por exemplar, conferência das solicitações com os embarques (avisar de embarque sem aprovação ou com mais containers que o aprovado).

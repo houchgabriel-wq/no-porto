@@ -59,6 +59,12 @@ Todo dia às 6h40 (Brasília), o No Porto busca no No Prelo a "Data de aprovaç�
 
 Os dois Workers falam por uma ligação interna da Cloudflare (service binding), sem senha nem token: não há nada para cadastrar no painel. Na primeira publicação, o No Prelo precisa ir ao ar antes do No Porto, porque é ele que tem a porta (`NoPortoApi`).
 
+## Ligação com o No Estoque
+
+Cada container que chega (a chegada registrada na invoice ou no BL) vira uma entrada prevista no No Estoque, que busca aqui de hora em hora. Lá, o gerente de estoque monta a entrada em paletes, escolhe as posições e guarda. Pela ligação vão só o container, o BL, a invoice, o fornecedor e os itens (código de barras, título, quantidade e peças por caixa); nenhum valor.
+
+Os dois Workers falam por uma ligação interna da Cloudflare (service binding), sem senha nem token: não há nada para cadastrar no painel. Na primeira publicação, o No Porto precisa ir ao ar antes do No Estoque, porque é ele que tem a porta (`NoEstoqueApi`).
+
 ## Previsão de estoque
 
 Toda semana, o admin ou o editor carrega a curva ABC do sistema de vendas na aba **Estoque**, em **Carregar curva ABC**, do jeito que ela sai (.xlsx ou .xls). A tela mostra o que foi lido e pede a data do estoque, que vem do nome do arquivo quando ele traz o dia ("curva_abc_19-11.xlsx"). Cada carga substitui a anterior. A previsão é calculada na hora, com o que está embarcado e em produção no No Porto; as regras estão no `SPEC.md` (seções 2 e 6).
