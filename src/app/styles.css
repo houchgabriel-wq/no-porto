@@ -1664,3 +1664,17 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 }
 .pl-itens li.muda .pl-item-caixas { color: var(--tinta); font-weight: 600; }
 .pl-itens li.fora .pl-item-caixas { color: var(--alerta); font-weight: 600; }
+/* Prioridade do container no desembaraço e no transporte (26/11/2026). */
+.pilula.prioridade { background: var(--critico-suave); color: var(--critico); }
+.pilula.prioridade .ic { width: 13px; height: 13px; }
+.emb-topo-pilulas { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.emb-cartao.prioridade { box-shadow: var(--sombra-1), inset 0 0 0 1.5px var(--critico); }
+.emb-cartao.prioridade:hover { box-shadow: var(--sombra-2), inset 0 0 0 1.5px var(--critico); }
+.emb-inv-prio { display: inline-flex; align-items: center; margin-right: 4px; color: var(--critico); vertical-align: -2px; }
+.emb-inv-prio .ic { width: 14px; height: 14px; }
+.emb-prioridade { margin: 2px 0 0; color: var(--critico); font-size: 13px; font-weight: 600; }
+.filtro-prioridade { gap: 6px; color: var(--critico); border-color: var(--critico-suave); }
+.filtro-prioridade .ic { width: 15px; height: 15px; }
+.filtro-prioridade.ativo { background: var(--critico-suave); border-color: var(--critico); }
+.item-prio { color: var(--critico); font-weight: 600; white-space: nowrap; }
+.item-prio .ic { width: 12px; height: 12px; vertical-align: -1px; margin-right: 2px; }

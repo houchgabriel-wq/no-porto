@@ -1,6 +1,7 @@
 // Tela Embarques (SPEC.md, seção 5): os BLs e as invoices a caminho, agrupados pela chegada
 // (os em liberação primeiro), com o valor no mar e o que falta pagar. Funciona também como a lista de
-// chegadas. Quem não vê valores (o leitor) vê exemplares e não vê pagamentos.
+// chegadas. Quem não vê valores (o leitor) vê exemplares e não vê pagamentos. Os containers com
+// prioridade no desembaraço e no transporte têm a marca e vêm antes no seu grupo (26/11/2026).
 
 import { useMemo, useState } from 'react';
 import { NO_SUPPLIER, searchKey, totals, type Item } from '../core/items';
@@ -10,6 +11,7 @@ import {
   arrivalState,
   arrivalText,
   formatDay,
+  hasPriority,
   invoiceTotal,
   PAYMENT_LABELS,
   paymentSummary,
@@ -32,6 +34,7 @@ interface Props {
 export function ShipmentsView({ data, onOpen, actions }: Props) {
   const [query, setQuery] = useState('');
   const [supplierId, setSupplierId] = useState('');
+  const [onlyPriority, setOnlyPriority] = useState(false);
   // O perfil Embarques, que o marketing usa, não vê os fornecedores (24/11/2026).
   const { seeValues, seeSuppliers } = data;
   const units = useMemo(() => shipmentUnits(data.bills, data.invoices, data.today), [data.bills, data.invoices, data.today]);
@@ -45,7 +48,11 @@ export function ShipmentsView({ data, onOpen, actions }: Props) {
   const due = useMemo(() => (seeValues ? totalDue(data.invoices, data.items, data.payments) : null), [seeValues, data]);
 
   const words = searchKey(query).split(' ').filter(Boolean);
+  // Containers com prioridade que ainda não chegaram; sem nenhum, o filtro some (e deixa de valer).
+  const priorityCount = units.reduce((s, u) => s + u.priority, 0);
+  const priorityOnly = onlyPriority && priorityCount > 0;
   const shown = units.filter((u) => {
+    if (priorityOnly && u.priority === 0) return false;
     if (supplierId && !u.supplierIds.includes(supplierId)) return false;
     if (!words.length) return true;
     const hay = searchKey(
@@ -127,6 +134,12 @@ export function ShipmentsView({ data, onOpen, actions }: Props) {
             </select>
           </>
         )}
+        {priorityCount > 0 && (
+          <button type="button" className={`btn filtro-prioridade${priorityOnly ? ' ativo' : ''}`} aria-pressed={priorityOnly} onClick={() => setOnlyPriority(!priorityOnly)}>
+            <Icon name="flag" />
+            {priorityCount === 1 ? '1 container com prioridade' : `${priorityCount} containers com prioridade`}
+          </button>
+        )}
         <div className="filtros-acoes">{actions}</div>
       </div>
 
@@ -189,12 +202,20 @@ function UnitCard({ unit, ctx }: { unit: ShipmentUnit; ctx: Ctx }) {
   const suppliers = unit.supplierIds.map((id) => (id ? (names.get(id) ?? NO_SUPPLIER) : NO_SUPPLIER));
   const title = unit.bill ? `BL ${unit.bill.number}` : `Invoice ${unit.invoices[0]?.number ?? ''}`;
   return (
-    <button type="button" className={`emb-cartao estado-${state.kind}`} onClick={() => ctx.onOpen(unit.key)}>
+    <button type="button" className={`emb-cartao estado-${state.kind}${unit.priority ? ' prioridade' : ''}`} onClick={() => ctx.onOpen(unit.key)}>
       <span className="emb-topo">
         <span className="emb-titulo">{title}</span>
-        <span className={`pilula chegada ${state.kind}`}>
-          {state.kind === 'liberacao' && <Icon name="alerta" />}
-          {arrivalText(state)}
+        <span className="emb-topo-pilulas">
+          {unit.priority > 0 && (
+            <span className="pilula prioridade">
+              <Icon name="flag" />
+              {unit.invoices.length > 1 && unit.priority < unit.invoices.length ? `Prioridade em ${unit.priority} de ${unit.invoices.length}` : 'Prioridade'}
+            </span>
+          )}
+          <span className={`pilula chegada ${state.kind}`}>
+            {state.kind === 'liberacao' && <Icon name="alerta" />}
+            {arrivalText(state)}
+          </span>
         </span>
       </span>
       <span className="emb-meta">
@@ -226,6 +247,12 @@ function UnitCard({ unit, ctx }: { unit: ShipmentUnit; ctx: Ctx }) {
           return (
             <span key={v.id} className="emb-inv">
               <span className="emb-inv-num">
+                {hasPriority(v, unit) && unit.invoices.length > 1 && (
+                  <span className="emb-inv-prio" title="Container com prioridade">
+                    <Icon name="flag" />
+                    <span className="so-leitor">Prioridade: </span>
+                  </span>
+                )}
                 {v.number}
                 {v.ref && v.ref !== v.number && <span className="mudo"> · {v.ref}</span>}
                 {v.unit && <span className="emb-inv-ctr"> · {v.unit.container}</span>}
