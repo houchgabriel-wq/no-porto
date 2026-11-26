@@ -1197,7 +1197,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
               goToProduction({ orderId });
             }}
           />
-          <NewShipmentDialog open={upload === 'embarque'} data={data} production={production} onClose={() => setUpload(null)} onDone={showToast} />
+          <NewShipmentDialog open={upload === 'embarque'} me={user} data={data} production={production} onClose={() => setUpload(null)} onDone={showToast} />
           <ArrivalDialog open={arrival !== null} initial={arrival ?? []} data={data} production={production} onClose={() => setArrival(null)} onDone={showToast} />
         </>
       )}

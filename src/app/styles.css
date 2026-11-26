@@ -1631,3 +1631,16 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 .bl-unidades-acoes { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .unidades-bl span { overflow-wrap: anywhere; }
 .conteiner-unidade { margin-top: -2px; overflow-wrap: anywhere; }
+/* Chegada prevista pelo BL (26/11/2026): a data do BL mais o prazo, e o prazo que o admin muda. */
+.chegada-bl { display: flex; flex-direction: column; gap: 8px; }
+.chegada-bl-texto { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 10px; margin: 0; }
+.chegada-bl-texto > span { flex: 1 1 260px; min-width: 0; }
+.chegada-bl-texto .ic { width: 16px; height: 16px; flex: none; color: hsl(200 var(--c-s) var(--c-l)); }
+.chegada-bl-texto .btn-texto { padding: 2px 4px; white-space: nowrap; }
+.prazo-bl { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--fio); border-radius: 12px; padding: 12px 14px; }
+.prazo-bl-linha { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.prazo-bl-linha .campo { width: 110px; }
+.prazo-bl-botoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.prazo-bl .dica { margin: 0; }
+.bl-chegada { display: flex; flex-direction: column; gap: 4px; }
+.bl-chegada .dica { margin: 0; }

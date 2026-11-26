@@ -2,6 +2,7 @@
 // itens e os pagamentos de cada uma (data, valor em dólar e câmbio). O leitor só acompanha.
 
 import { useEffect, useId, useState, type FormEvent } from 'react';
+import { ARRIVAL_DAYS_DEFAULT, arrivalFromBill, arrivalText as arrivalAfter, billDateProblem, billDateText, type BillDate } from '../core/billArrival';
 import { cartonsOf, formatWeight, matchUnits, unitSummary, type BillUnit } from '../core/billUnits';
 import { NO_SUPPLIER, type Item } from '../core/items';
 import { formatQuantity, formatUsd, parseExchangeRate, parseMoneyCents } from '../core/money';
@@ -22,7 +23,7 @@ import {
 import { api, ApiError, type Me, type ProductionData } from './api';
 import { Dialog, FormError } from './components';
 import { Icon } from './icons';
-import { billUnitsFromPdf } from './pdfText';
+import { readBillPdf } from './pdfText';
 import type { Production } from './production';
 
 interface Props {
@@ -168,7 +169,7 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
         </form>
         {unit.bill && <BillFile bill={unit.bill} canEdit={canEdit} canDownload={data.seeValues} busy={busy} run={run} onError={setError} />}
         {unit.bill && canEdit && unit.bill.document && /\.pdf$/i.test(unit.bill.document.name) && (
-          <BillUnits key={unit.bill.id} billId={unit.bill.id} invoices={unit.invoices} data={data} busy={busy} run={run} />
+          <BillReading key={unit.bill.id} bill={unit.bill} invoices={unit.invoices} data={data} busy={busy} run={run} />
         )}
         <FormError message={error} />
       </div>
@@ -213,38 +214,54 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
 }
 
 /**
- * As unidades do BL, lidas do PDF anexado (25/11/2026): para os embarques já cadastrados. Cada invoice
- * fica com a unidade do mesmo container ou, sem o número, com a de mesmas caixas (pelas peças por caixa
- * dos itens); a pessoa confere e grava.
+ * O PDF do BL anexado, lido para os embarques já cadastrados: as unidades (25/11/2026), que cada invoice
+ * recebe pelo mesmo container ou, sem o número, pelas caixas (pelas peças por caixa dos itens); e a data
+ * do BL, que sugere a chegada prevista, a data mais o prazo (26/11/2026). A pessoa confere e grava.
  */
-function BillUnits({
-  billId,
+function BillReading({
+  bill,
   invoices,
   data,
   busy,
   run,
 }: {
-  billId: string;
+  bill: Bill;
   invoices: Invoice[];
   data: ProductionData;
   busy: boolean;
   run: (action: () => Promise<unknown>, done: string) => Promise<void>;
 }) {
   const ids = useId();
-  const [units, setUnits] = useState<BillUnit[] | null>(null);
+  const [read, setRead] = useState<{ units: BillUnit[]; date: BillDate | null; days: number; notes: string[] } | null>(null);
   const [choice, setChoice] = useState<Record<string, string>>({});
+  const [useEta, setUseEta] = useState(true);
   const [reading, setReading] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
+  const [notes, setNotes] = useState<string[]>([]);
 
-  async function read() {
+  // A chegada prevista que a data do BL sugere, quando ela muda a do BL (o que já chegou não muda).
+  const suggested = read?.date && !bill.arrivedAt ? arrivalFromBill(read.date.date, read.days) : null;
+  const changesEta = suggested !== null && suggested !== bill.eta;
+
+  async function readPdf() {
     setReading(true);
-    setNote(null);
+    setNotes([]);
     try {
-      const res = await fetch(`/api/bills/${encodeURIComponent(billId)}/document`, { credentials: 'same-origin' });
+      const [res, settings] = await Promise.all([
+        fetch(`/api/bills/${encodeURIComponent(bill.id)}/document`, { credentials: 'same-origin' }),
+        api.settings().catch(() => null),
+      ]);
       if (!res.ok) throw new Error();
-      const found = await billUnitsFromPdf(await res.arrayBuffer());
-      if (found.length === 0) {
-        setNote('Não achei as unidades (container, lacre, caixas e peso) no PDF do BL.');
+      const found = await readBillPdf(await res.arrayBuffer());
+      const problem = found.date ? billDateProblem(found.date.date, spDate(new Date())) : null;
+      const date = found.date && !problem ? found.date : null;
+      const lines: string[] = [];
+      if (found.units.length === 0) lines.push('Não achei as unidades (container, lacre, caixas e peso) no PDF do BL.');
+      if (!bill.arrivedAt && !date) lines.push(problem ?? 'Não achei a data do BL no PDF.');
+      const days = settings?.arrivalDays ?? ARRIVAL_DAYS_DEFAULT;
+      const next = date && !bill.arrivedAt ? arrivalFromBill(date.date, days) : null;
+      // Sem unidades e sem chegada para mudar, não há o que gravar: só os avisos.
+      if (found.units.length === 0 && (next === null || next === bill.eta)) {
+        setNotes(date && next === bill.eta ? [...lines, `${billDateText(date)} A chegada prevista do BL já é ${formatDay(next!, true)}, ${days} dias depois.`] : lines);
         return;
       }
       const matches = matchUnits(
@@ -254,88 +271,116 @@ function BillUnits({
           cartons: v.unit?.cartons ?? cartonsOf(data.items.filter((i) => i.invoiceId === v.id)),
           weightGrams: v.unit?.weightGrams ?? null,
         })),
-        found,
+        found.units,
       );
       setChoice(Object.fromEntries(invoices.map((v) => [v.id, matches.get(v.id)?.unit.container ?? ''])));
-      setUnits(found);
+      setUseEta(true);
+      setRead({ units: found.units, date, days, notes: lines });
     } catch {
-      setNote('Não foi possível ler o PDF do BL.');
+      setNotes(['Não foi possível ler o PDF do BL.']);
     } finally {
       setReading(false);
     }
   }
 
   function save() {
+    if (!read) return;
     const picked = Object.values(choice).filter(Boolean);
-    if (new Set(picked).size !== picked.length) return setNote('A mesma unidade está em duas invoices. Confira.');
-    void run(async () => {
-      await api.saveBillUnits(
-        billId,
-        invoices.map((v) => ({ invoiceId: v.id, unit: units!.find((u) => u.container === choice[v.id]) ?? null })),
-      );
-      setUnits(null);
-    }, 'Unidades gravadas.');
+    if (read.units.length > 0 && new Set(picked).size !== picked.length) return setRead({ ...read, notes: [...read.notes.filter((n) => !n.startsWith('A mesma')), 'A mesma unidade está em duas invoices. Confira.'] });
+    const units = read.units.length > 0;
+    const eta = changesEta && useEta ? suggested : null;
+    void run(
+      async () => {
+        if (units) await api.saveBillUnits(bill.id, invoices.map((v) => ({ invoiceId: v.id, unit: read.units.find((u) => u.container === choice[v.id]) ?? null })));
+        if (eta) await api.updateBill(bill.id, { eta });
+        setRead(null);
+      },
+      units && eta ? 'Unidades e chegada prevista gravadas.' : eta ? 'Chegada prevista gravada.' : 'Unidades gravadas.',
+    );
   }
 
-  if (!units) {
+  if (!read) {
     return (
       <div className="bl-unidades">
-        <button type="button" className="btn" onClick={() => void read()} disabled={reading || busy}>
+        <button type="button" className="btn" onClick={() => void readPdf()} disabled={reading || busy}>
           <Icon name="container" />
-          {reading ? 'Lendo o BL…' : invoices.some((v) => v.unit) ? 'Ler as unidades do BL de novo' : 'Ler as unidades do BL'}
+          {reading ? 'Lendo o BL…' : invoices.some((v) => v.unit) ? 'Ler o BL de novo' : 'Ler o BL'}
         </button>
-        {note && (
-          <p className="aviso alerta">
-            <Icon name="alerta" />
-            <span>{note}</span>
+        {notes.map((n) => (
+          <p key={n} className={`aviso ${n.startsWith('Data do BL') ? 'ok' : 'alerta'}`}>
+            <Icon name={n.startsWith('Data do BL') ? 'check' : 'alerta'} />
+            <span>{n}</span>
           </p>
-        )}
+        ))}
       </div>
     );
   }
+  const units = read.units;
   return (
     <section className="bl-unidades bloco-leve" aria-labelledby={`${ids}-t`}>
-      <h3 id={`${ids}-t`}>Unidades do BL</h3>
-      <p className="dica">
-        {units.length === 1 ? '1 unidade' : `${units.length} unidades`} no BL. Confira de qual invoice é cada uma (as que deu para ligar já vêm escolhidas, pelo número do
-        container ou pelas caixas) e grave.
-      </p>
-      <ul className="bl-unidades-lista">
-        {invoices.map((v) => {
-          const taken = new Set(invoices.filter((o) => o.id !== v.id).map((o) => choice[o.id]).filter(Boolean));
-          const chosen = units.find((u) => u.container === choice[v.id]);
-          return (
-            <li key={v.id}>
-              <label className="rotulo" htmlFor={`${ids}-${v.id}`}>
-                Invoice {v.number}
-              </label>
-              <select id={`${ids}-${v.id}`} className="campo" value={choice[v.id] ?? ''} onChange={(e) => setChoice((m) => ({ ...m, [v.id]: e.target.value }))}>
-                <option value="">Nenhuma</option>
-                {units.map((u) => (
-                  <option key={u.container} value={u.container} disabled={taken.has(u.container)}>
-                    {u.container}
-                    {u.cartons !== null ? ` · ${u.cartons.toLocaleString('pt-BR')} caixas` : ''}
-                    {u.weightGrams !== null ? ` · ${formatWeight(u.weightGrams)}` : ''}
-                  </option>
-                ))}
-              </select>
-              {chosen && <span className="dica">{unitSummary(chosen)}</span>}
-            </li>
-          );
-        })}
-      </ul>
-      {note && (
-        <p className="aviso alerta">
-          <Icon name="alerta" />
-          <span>{note}</span>
-        </p>
+      <h3 id={`${ids}-t`}>Lido do BL</h3>
+      {read.date && suggested && (
+        <div className="bl-chegada">
+          <p className="dica">
+            {billDateText(read.date)} Pela regra, a chegada prevista é {arrivalAfter(read.date.date, read.days)}.
+          </p>
+          {changesEta ? (
+            <label className="chegada-invoice">
+              <input type="checkbox" checked={useEta} onChange={(e) => setUseEta(e.target.checked)} />
+              <span>
+                Mudar a chegada prevista do BL para <b>{formatDay(suggested, true)}</b>
+                {bill.eta ? ` (hoje está ${formatDay(bill.eta, true)})` : ' (o BL ainda não tem)'}
+              </span>
+            </label>
+          ) : (
+            <p className="dica">A chegada prevista do BL já é essa.</p>
+          )}
+        </div>
       )}
+      {units.length > 0 && (
+        <>
+          <p className="dica">
+            {units.length === 1 ? '1 unidade' : `${units.length} unidades`} no BL. Confira de qual invoice é cada uma (as que deu para ligar já vêm escolhidas, pelo número
+            do container ou pelas caixas) e grave.
+          </p>
+          <ul className="bl-unidades-lista">
+            {invoices.map((v) => {
+              const taken = new Set(invoices.filter((o) => o.id !== v.id).map((o) => choice[o.id]).filter(Boolean));
+              const chosen = units.find((u) => u.container === choice[v.id]);
+              return (
+                <li key={v.id}>
+                  <label className="rotulo" htmlFor={`${ids}-${v.id}`}>
+                    Invoice {v.number}
+                  </label>
+                  <select id={`${ids}-${v.id}`} className="campo" value={choice[v.id] ?? ''} onChange={(e) => setChoice((m) => ({ ...m, [v.id]: e.target.value }))}>
+                    <option value="">Nenhuma</option>
+                    {units.map((u) => (
+                      <option key={u.container} value={u.container} disabled={taken.has(u.container)}>
+                        {u.container}
+                        {u.cartons !== null ? ` · ${u.cartons.toLocaleString('pt-BR')} caixas` : ''}
+                        {u.weightGrams !== null ? ` · ${formatWeight(u.weightGrams)}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {chosen && <span className="dica">{unitSummary(chosen)}</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+      {read.notes.map((n) => (
+        <p key={n} className="aviso alerta">
+          <Icon name="alerta" />
+          <span>{n}</span>
+        </p>
+      ))}
       <div className="bl-unidades-acoes">
-        <button type="button" className="btn" onClick={() => setUnits(null)} disabled={busy}>
+        <button type="button" className="btn" onClick={() => setRead(null)} disabled={busy}>
           Cancelar
         </button>
-        <button type="button" className="btn primario" onClick={save} disabled={busy}>
-          Gravar as unidades
+        <button type="button" className="btn primario" onClick={save} disabled={busy || (units.length === 0 && !(changesEta && useEta))}>
+          {units.length === 0 ? 'Gravar a chegada prevista' : changesEta && useEta ? 'Gravar' : 'Gravar as unidades'}
         </button>
       </div>
     </section>

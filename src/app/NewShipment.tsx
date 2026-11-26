@@ -4,21 +4,24 @@
 // anexado. Antes de gravar, a prévia mostra de qual PO sai cada item: sempre da produção do mesmo
 // fornecedor, a mais antiga primeiro, e os containers do mesmo fornecedor em sequência.
 // Com o BL em PDF, as unidades (container, lacre, caixas, peso) são lidas dele e ligadas a cada
-// container pelo número do container da packing list ou pelas caixas e pelo peso (25/11/2026).
+// container pelo número do container da packing list ou pelas caixas e pelo peso (25/11/2026). A data do
+// BL preenche a chegada prevista: a data mais o prazo, de 35 dias por padrão, que o admin muda (26/11/2026).
 
-import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import { allocateInvoices, guessSupplier, type LineAllocation } from '../core/allocation';
+import { ARRIVAL_DAYS_DEFAULT, arrivalDaysProblem, arrivalFromBill, arrivalText, billDateProblem, billDateText, type BillDate } from '../core/billArrival';
 import { formatWeight, matchUnits, packingTotals, unitDifference, unitSummary, type BillUnit, type UnitMatch } from '../core/billUnits';
 import { parseShipmentFile, type DocumentLine, type DocumentNote, type ShipmentFile } from '../core/documents';
 import { NO_SUPPLIER } from '../core/items';
 import { formatQuantity, formatUsd } from '../core/money';
-import { formatDay } from '../core/shipments';
+import { can } from '../core/roles';
+import { formatDay, spDate } from '../core/shipments';
 import { mergePackingList, pairShipmentFiles, piecesLabel } from '../core/shipmentFiles';
-import { api, ApiError, type ProductionData } from './api';
+import { api, ApiError, type Me, type ProductionData } from './api';
 import { Dialog, FormError } from './components';
 import { linesValue, Notes, readFile } from './Documents';
 import { Icon } from './icons';
-import { billUnitsFromPdf } from './pdfText';
+import { readBillPdf } from './pdfText';
 import type { Production } from './production';
 
 const SHEETS = '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel';
@@ -68,13 +71,14 @@ let nextKey = 0;
 
 interface Props {
   open: boolean;
+  me: Me;
   data: ProductionData;
   production: Production;
   onClose: () => void;
   onDone: (msg: string) => void;
 }
 
-export function NewShipmentDialog({ open, data, production, onClose, onDone }: Props) {
+export function NewShipmentDialog({ open, me, data, production, onClose, onDone }: Props) {
   const ids = useId();
   const [bill, setBill] = useState('');
   const [eta, setEta] = useState('');
@@ -84,6 +88,11 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
   const [unitsNote, setUnitsNote] = useState<string | null>(null);
   // A unidade que a pessoa escolheu para um container ('' é nenhuma); sem escolha, vale a ligação automática.
   const [unitChoice, setUnitChoice] = useState<Record<string, string>>({});
+  // A data do BL e o prazo até a chegada prevista; a chegada que o app preencheu (para não trocar a digitada).
+  const [arrivalDays, setArrivalDays] = useState(ARRIVAL_DAYS_DEFAULT);
+  const [billDate, setBillDate] = useState<BillDate | null>(null);
+  const [dateNote, setDateNote] = useState<string | null>(null);
+  const autoEta = useRef<string | null>(null);
   const [containers, setContainers] = useState<Container[]>([]);
   const [reading, setReading] = useState(false);
   const [readErrors, setReadErrors] = useState<string[]>([]);
@@ -98,14 +107,35 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
     setUnits(null);
     setUnitsNote(null);
     setUnitChoice({});
+    setBillDate(null);
+    setDateNote(null);
+    autoEta.current = null;
     setContainers([]);
     setReadErrors([]);
     setError(null);
     setBusy(false);
+    // O prazo pode ter mudado desde a última vez; sem resposta, vale o padrão.
+    api
+      .settings()
+      .then((s) => setArrivalDays(s.arrivalDays))
+      .catch(() => setArrivalDays(ARRIVAL_DAYS_DEFAULT));
   }, [open]);
 
   const openBills = useMemo(() => data.bills.filter((b) => !b.arrivedAt), [data.bills]);
   const knownBill = openBills.find((b) => b.number.toUpperCase() === bill.trim().toUpperCase());
+
+  // Com a data do BL, a chegada prevista vem preenchida, se ainda está vazia ou com a que o app pôs; a
+  // data que a pessoa digitou fica. Volta a valer quando o BL ou o prazo mudam.
+  const suggestedEta = billDate ? arrivalFromBill(billDate.date, arrivalDays) : null;
+  useEffect(() => {
+    if (!suggestedEta || knownBill) return;
+    if (eta === '' || eta === autoEta.current) {
+      setEta(suggestedEta);
+      autoEta.current = suggestedEta;
+    }
+    // Só quando a sugestão muda, ou quando o número deixa de ser o de um BL já cadastrado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestedEta, Boolean(knownBill)]);
   const names = useMemo(() => new Map(data.suppliers.map((s) => [s.id, s.name])), [data.suppliers]);
 
   /** Container novo a partir dos arquivos, com fornecedor, número e container sugeridos. */
@@ -211,21 +241,29 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
     if (!['application/pdf', 'image/png', 'image/jpeg'].includes(f.type)) return setError('Envie o BL em PDF, PNG ou JPG.');
     if (f.size > BL_MAX_BYTES) return setError('O arquivo do BL pode ter no máximo 5 MB.');
     setBlFile(f);
-    void readUnits(f);
+    void readBl(f);
   }
 
-  /** As unidades do BL: só do PDF com texto (imagem e PDF escaneado não dão para ler). */
-  async function readUnits(f: File) {
+  /** A data e as unidades do BL: só do PDF com texto (imagem e PDF escaneado não dão para ler). */
+  async function readBl(f: File) {
     setUnits(null);
     setUnitChoice({});
     setUnitsNote(null);
-    if (f.type !== 'application/pdf') return setUnitsNote('O BL é uma imagem: as unidades não são lidas. Informe o container de cada um, se quiser.');
+    setBillDate(null);
+    setDateNote(null);
+    if (f.type !== 'application/pdf') return setUnitsNote('O BL é uma imagem: a data e as unidades não são lidas. Informe a chegada prevista e, se quiser, o container de cada um.');
     try {
-      const found = await billUnitsFromPdf(await f.arrayBuffer());
-      if (found.length === 0) return setUnitsNote('Não achei as unidades (container, lacre, caixas e peso) no PDF do BL. Informe o container de cada um, se quiser.');
-      setUnits(found);
+      const read = await readBillPdf(await f.arrayBuffer());
+      if (read.units.length === 0 && !read.date) {
+        return setUnitsNote('Não achei a data nem as unidades no PDF do BL (o BL escaneado não tem texto). Informe a chegada prevista e, se quiser, o container de cada um.');
+      }
+      if (read.units.length > 0) setUnits(read.units);
+      else setUnitsNote('Não achei as unidades (container, lacre, caixas e peso) no PDF do BL. Informe o container de cada um, se quiser.');
+      const problem = read.date ? billDateProblem(read.date.date, spDate(new Date())) : 'Não achei a data do BL no PDF: informe a chegada prevista.';
+      if (problem) setDateNote(problem);
+      else setBillDate(read.date);
     } catch {
-      setUnitsNote('Não foi possível ler o PDF do BL. Informe o container de cada um, se quiser.');
+      setUnitsNote('Não foi possível ler o PDF do BL. Informe a chegada prevista e, se quiser, o container de cada um.');
     }
   }
 
@@ -234,6 +272,11 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
     setUnits(null);
     setUnitsNote(null);
     setUnitChoice({});
+    setBillDate(null);
+    setDateNote(null);
+    // A chegada que veio do BL sai junto; a digitada fica.
+    if (eta === autoEta.current) setEta('');
+    autoEta.current = null;
   }
 
   async function save(e: FormEvent) {
@@ -342,6 +385,20 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
             </div>
           </fieldset>
           {blFile && !bill.trim() && <p className="dica">Para anexar o arquivo, informe o número do BL.</p>}
+          <ArrivalHint
+            billDate={billDate}
+            note={dateNote}
+            days={arrivalDays}
+            eta={eta}
+            knownBill={Boolean(knownBill)}
+            canChange={can(me.role, 'settings')}
+            disabled={busy}
+            onUse={(next) => {
+              setEta(next);
+              autoEta.current = next;
+            }}
+            onDays={setArrivalDays}
+          />
           {unitsNote && (
             <p className="aviso alerta">
               <Icon name="alerta" />
@@ -444,6 +501,147 @@ export function NewShipmentDialog({ open, data, production, onClose, onDone }: P
         </div>
       </form>
     </Dialog>
+  );
+}
+
+/**
+ * A chegada prevista pelo BL (26/11/2026): de onde veio a data do BL e o prazo, com "Usar essa data"
+ * quando a pessoa mudou a chegada, e "Mudar o prazo" para o admin (vale para todos, nos próximos BLs).
+ */
+function ArrivalHint({
+  billDate,
+  note,
+  days,
+  eta,
+  knownBill,
+  canChange,
+  disabled,
+  onUse,
+  onDays,
+}: {
+  billDate: BillDate | null;
+  note: string | null;
+  days: number;
+  eta: string;
+  knownBill: boolean;
+  canChange: boolean;
+  disabled: boolean;
+  onUse: (eta: string) => void;
+  onDays: (days: number) => void;
+}) {
+  const ids = useId();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<number | null>(null);
+
+  async function saveDays() {
+    const n = draft.trim() === '' ? Number.NaN : Number(draft.trim().replace(',', '.'));
+    const problem = arrivalDaysProblem(n);
+    if (problem) return setError(problem);
+    setSaving(true);
+    setError(null);
+    try {
+      const s = await api.saveSettings({ arrivalDays: n });
+      onDays(s.arrivalDays);
+      setSaved(s.arrivalDays);
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Não foi possível gravar o prazo.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (knownBill) return billDate ? <p className="dica">{billDateText(billDate)} Este BL já está cadastrado: vale a chegada prevista dele.</p> : null;
+  if (note) {
+    return (
+      <p className="aviso alerta">
+        <Icon name="alerta" />
+        <span>{note}</span>
+      </p>
+    );
+  }
+  const suggested = billDate ? arrivalFromBill(billDate.date, days) : null;
+  const daysText = days === 1 ? '1 dia' : `${days} dias`;
+  return (
+    <div className="chegada-bl">
+      <p className="dica chegada-bl-texto">
+        <Icon name="navio" />
+        <span>
+          {billDate && suggested
+            ? suggested === eta
+              ? `${billDateText(billDate)} Chegada prevista: ${arrivalText(billDate.date, days)}.`
+              : `${billDateText(billDate)} Pela regra, a chegada prevista seria ${formatDay(suggested, true)} (${daysText} depois).`
+            : `Com o BL em PDF, a chegada prevista vem preenchida: ${daysText} depois da data do BL.`}
+          {saved !== null && ` Prazo de ${saved === 1 ? '1 dia' : `${saved} dias`} gravado, para todos.`}
+        </span>
+        {suggested && suggested !== eta && (
+          <button type="button" className="btn-texto" onClick={() => onUse(suggested)} disabled={disabled}>
+            Usar essa data
+          </button>
+        )}
+        {canChange && !editing && (
+          <button
+            type="button"
+            className="btn-texto"
+            disabled={disabled}
+            onClick={() => {
+              setDraft(String(days));
+              setError(null);
+              setSaved(null);
+              setEditing(true);
+            }}
+          >
+            Mudar o prazo
+          </button>
+        )}
+      </p>
+      {editing && (
+        <div className="prazo-bl">
+          <label className="rotulo" htmlFor={`${ids}-dias`}>
+            Dias da data do BL até a chegada prevista
+          </label>
+          <div className="prazo-bl-linha">
+            <input
+              id={`${ids}-dias`}
+              className="campo"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={120}
+              step={1}
+              value={draft}
+              aria-describedby={`${ids}-dias-dica`}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setError(null);
+              }}
+              onKeyDown={(e) => {
+                // O Enter grava o prazo, e não o embarque.
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void saveDays();
+                }
+              }}
+            />
+            <span className="prazo-bl-botoes">
+              <button type="button" className="btn primario" onClick={() => void saveDays()} disabled={saving}>
+                {saving ? 'Gravando…' : 'Gravar o prazo'}
+              </button>
+              <button type="button" className="btn" onClick={() => setEditing(false)} disabled={saving}>
+                Cancelar
+              </button>
+            </span>
+          </div>
+          <p className="dica" id={`${ids}-dias-dica`}>
+            Vale para todos, nos próximos BLs lidos. A chegada prevista de cada embarque continua podendo ser mudada.
+          </p>
+          <FormError message={error} />
+        </div>
+      )}
+    </div>
   );
 }
 
