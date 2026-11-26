@@ -4,6 +4,9 @@ import { testApp } from './test-api';
 
 let app: ReturnType<typeof testApp>;
 let who: Awaited<ReturnType<ReturnType<typeof testApp>['accounts']>>;
+/** O dia dos testes (o testApp está em 17/11/2026). */
+const NOW = new Date('2026-11-17T12:00:00Z');
+const arrivals = (since: string) => arrivalsSince(app.env, since, NOW);
 
 beforeEach(async () => {
   app = testApp();
@@ -27,18 +30,19 @@ async function ship(itemIds: string[], newInvoice: object): Promise<string> {
 const billId = async () => (await app.call('GET', '/api/data', { cookie: who.admin.cookie })).data.bills[0].id as string;
 
 describe('porta do No Estoque', () => {
-  it('manda as invoices que chegaram a partir do dia, com os itens e sem valores', async () => {
+  it('manda as invoices que chegaram a partir do dia, com a previsão, os itens e sem valores', async () => {
     const a = await create({ description: 'Coleção 101 Palavras', isbn: '978-65-5547-866-2', piecesPerCarton: 20 });
     const b = await create({ description: 'Ágape', isbn: '9788543230139', piecesPerCarton: 40 });
     const invoiceId = await ship([a, b], { number: '2026-47B', ref: '2026-10-13 (2)', bill: 'ROECHN26101769', eta: '2026-11-26' });
-    // A caminho: ainda não vai.
-    expect(await arrivalsSince(app.env, '2026-11-01')).toEqual([]);
+    // A caminho (a previsão é 26/11): ainda não vai.
+    expect(await arrivals('2026-11-01')).toEqual([]);
     await app.call('PATCH', `/api/bills/${await billId()}`, { cookie: who.editor.cookie, body: { arrivedAt: '2026-11-17' } });
-    const out = await arrivalsSince(app.env, '2026-11-01');
+    const out = await arrivals('2026-11-01');
     expect(out).toEqual([
       {
         id: invoiceId,
         arrivedAt: '2026-11-17',
+        eta: '2026-11-26',
         supplier: 'Miyi',
         invoice: '2026-47B',
         ref: '2026-10-13 (2)',
@@ -46,6 +50,8 @@ describe('porta do No Estoque', () => {
         container: '',
         containerKind: '',
         cartons: null,
+        weightGrams: null,
+        volumeLiters: null,
         items: [
           { barcode: '9786555478662', title: 'Coleção 101 Palavras', quantity: 1000, piecesPerCarton: 20 },
           { barcode: '9788543230139', title: 'Ágape', quantity: 1000, piecesPerCarton: 40 },
@@ -53,10 +59,26 @@ describe('porta do No Estoque', () => {
       },
     ]);
     expect(JSON.stringify(out)).not.toMatch(/price|micros|cents|500000/i);
-    // Antes do dia pedido, não vai; desmarcar a chegada tira da lista.
-    expect(await arrivalsSince(app.env, '2026-11-18')).toEqual([]);
+    // Antes do dia pedido, não vai; desmarcar a chegada (com a previsão no futuro) tira da lista.
+    expect(await arrivals('2026-11-18')).toEqual([]);
     await app.call('PATCH', `/api/bills/${await billId()}`, { cookie: who.editor.cookie, body: { arrivedAt: null } });
-    expect(await arrivalsSince(app.env, '2026-11-01')).toEqual([]);
+    expect(await arrivals('2026-11-01')).toEqual([]);
+  });
+
+  it('manda o container em liberação (previsão no passado, sem chegada), com a unidade, as caixas, o peso e o volume', async () => {
+    const a = await create({ description: 'Coleção 101 Palavras', isbn: '978-65-5547-866-2', piecesPerCarton: 20 });
+    const invoiceId = await ship([a], { number: '2026-50C', ref: '', bill: 'ROECHN26110001', eta: '2026-11-10' });
+    await app.env.DB.prepare('UPDATE invoices SET container = ?, container_kind = ?, container_cartons = ?, container_weight_grams = ?, container_volume_liters = ? WHERE id = ?')
+      .bind('YMLU5432079', '40NOR', 2497, 24_430_000, 57_840, invoiceId)
+      .run();
+    // Em liberação vai sempre, qualquer que seja o dia pedido.
+    const [arrival] = await arrivals('2026-11-17');
+    expect(arrival).toMatchObject({ id: invoiceId, arrivedAt: null, eta: '2026-11-10', container: 'YMLU5432079', containerKind: '40NOR', cartons: 2497, weightGrams: 24_430_000, volumeLiters: 57_840 });
+    expect(arrival!.items).toEqual([{ barcode: '9786555478662', title: 'Coleção 101 Palavras', quantity: 1000, piecesPerCarton: 20 }]);
+    // Registrada a chegada (antes do dia pedido), sai; a partir do dia pedido, continua, com o dia.
+    await app.call('PATCH', `/api/bills/${await billId()}`, { cookie: who.editor.cookie, body: { arrivedAt: '2026-11-16' } });
+    expect(await arrivals('2026-11-17')).toEqual([]);
+    expect((await arrivals('2026-11-16'))[0]).toMatchObject({ id: invoiceId, arrivedAt: '2026-11-16' });
   });
 
   it('a invoice sem BL vale pela própria chegada; o item excluído não vai', async () => {
@@ -65,11 +87,11 @@ describe('porta do No Estoque', () => {
     const invoiceId = await ship([a, b], { number: '108', ref: '', bill: null, eta: '2026-11-21' });
     await app.call('PATCH', `/api/invoices/${invoiceId}`, { cookie: who.editor.cookie, body: { arrivedAt: '2026-11-20' } });
     await app.env.DB.prepare('UPDATE order_items SET deleted_at = ? WHERE id = ?').bind('2026-11-20T10:00:00Z', b).run();
-    const [arrival] = await arrivalsSince(app.env, '2026-11-20');
+    const [arrival] = await arrivals('2026-11-20');
     expect(arrival).toMatchObject({ id: invoiceId, invoice: '108', bill: null, arrivedAt: '2026-11-20', items: [{ barcode: null, title: 'Ecobag', quantity: 1000, piecesPerCarton: null }] });
   });
 
   it('recusa dia em outro formato', async () => {
-    await expect(arrivalsSince(app.env, '20/11/2026')).rejects.toThrow('Dia inválido');
+    await expect(arrivals('20/11/2026')).rejects.toThrow('Dia inválido');
   });
 });
