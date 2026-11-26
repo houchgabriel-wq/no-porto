@@ -12,6 +12,7 @@ import {
   parseDate,
   paymentSummary,
   shipmentUnits,
+  hasPriority,
   shipProblem,
   spDate,
   totalDue,
@@ -167,6 +168,34 @@ describe('tela de embarques', () => {
       ['bl:b2', 'sem_previsao', null],
       ['bl:b1', 'chegaram', '2025-09-02'],
     ]);
+  });
+
+  it('o embarque com container de prioridade vem antes no seu grupo; depois da chegada, a marca não vale', () => {
+    const today = '2026-11-17';
+    const mark = { at: '2026-11-17T12:00:00Z', by: 'Gabriel' };
+    const units = shipmentUnits(
+      [bill('b1', '2026-11-10'), bill('b2', '2026-11-12'), bill('b3', '2026-11-20'), bill('b4', '2026-11-01', '2026-11-05')],
+      [
+        invoice('a1', 'b1', 's1'),
+        // No mesmo BL, um container com prioridade e outro sem.
+        { ...invoice('b2-1', 'b2', 's1'), priority: mark },
+        invoice('b2-2', 'b2', 's1'),
+        { ...invoice('c1', 'b3', 's2'), priority: mark },
+        // Já chegou: a prioridade não vale mais.
+        { ...invoice('d1', 'b4', 's2'), priority: mark },
+      ],
+      today,
+    );
+    expect(units.map((u) => [u.key, u.group, u.priority])).toEqual([
+      ['bl:b2', 'liberacao', 1],
+      ['bl:b1', 'liberacao', 0],
+      ['bl:b3', 'semana', 1],
+      ['bl:b4', 'chegaram', 0],
+    ]);
+    const [b2] = units;
+    expect(b2!.invoices.map((v) => hasPriority(v, b2!))).toEqual([true, false]);
+    // A invoice que chegou sozinha, num BL que ainda não chegou, também perde a prioridade.
+    expect(hasPriority({ priority: mark, arrivedAt: '2026-11-15' }, { group: 'liberacao' })).toBe(false);
   });
 
   it('a pagar: soma o que falta nas invoices, sem as quitadas', () => {

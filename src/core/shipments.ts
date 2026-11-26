@@ -31,6 +31,8 @@ export interface Invoice {
   unit?: BillUnit | null;
   /** A packing list registrada para o container (26/11/2026); null quando não há registro. */
   packingList?: PackingListInfo | null;
+  /** Prioridade no desembaraço e no transporte (26/11/2026): quando e quem marcou; null sem a marca. */
+  priority?: { at: string; by: string | null } | null;
 }
 
 /** O registro da packing list de um container: o arquivo, quando e quem registrou. */
@@ -244,11 +246,19 @@ export interface ShipmentUnit {
   group: ArrivalGroup;
   /** Fornecedores das invoices, sem repetir. */
   supplierIds: (string | null)[];
+  /** Containers com prioridade que ainda não chegaram (26/11/2026). */
+  priority: number;
+}
+
+/** O container tem prioridade enquanto não chega: depois da chegada, a marca não vale mais. */
+export function hasPriority(invoice: Pick<Invoice, 'priority' | 'arrivedAt'>, unit: Pick<ShipmentUnit, 'group'>): boolean {
+  return Boolean(invoice.priority) && !invoice.arrivedAt && unit.group !== 'chegaram';
 }
 
 /**
  * Junta as invoices por BL (as sem BL ficam sozinhas) e ordena pela chegada: em liberação e próximos
- * primeiro, sem previsão depois e os que chegaram no fim, do mais recente para o mais antigo.
+ * primeiro, sem previsão depois e os que chegaram no fim, do mais recente para o mais antigo. Dentro de
+ * cada grupo, os embarques com container de prioridade vêm antes (26/11/2026).
  */
 export function shipmentUnits(bills: readonly Bill[], invoices: readonly Invoice[], today: string): ShipmentUnit[] {
   const byBill = new Map(bills.map((b) => [b.id, b]));
@@ -259,7 +269,7 @@ export function shipmentUnits(bills: readonly Bill[], invoices: readonly Invoice
     let unit = units.get(key);
     if (!unit) {
       const { eta, arrivedAt } = bill ? bill : invoice;
-      unit = { key, bill: bill ?? null, invoices: [], eta, arrivedAt, group: arrivalGroup(eta, arrivedAt, today), supplierIds: [] };
+      unit = { key, bill: bill ?? null, invoices: [], eta, arrivedAt, group: arrivalGroup(eta, arrivedAt, today), supplierIds: [], priority: 0 };
       units.set(key, unit);
     }
     unit.invoices.push(invoice);
@@ -278,13 +288,15 @@ export function shipmentUnits(bills: readonly Bill[], invoices: readonly Invoice
   // BL sem invoice (todas desfeitas) também aparece, para poder ser corrigido.
   for (const bill of bills) {
     if (!units.has(`bl:${bill.id}`)) {
-      units.set(`bl:${bill.id}`, { key: `bl:${bill.id}`, bill, invoices: [], eta: bill.eta, arrivedAt: bill.arrivedAt, group: arrivalGroup(bill.eta, bill.arrivedAt, today), supplierIds: [] });
+      units.set(`bl:${bill.id}`, { key: `bl:${bill.id}`, bill, invoices: [], eta: bill.eta, arrivedAt: bill.arrivedAt, group: arrivalGroup(bill.eta, bill.arrivedAt, today), supplierIds: [], priority: 0 });
     }
   }
+  for (const unit of units.values()) unit.priority = unit.invoices.filter((v) => hasPriority(v, unit)).length;
   const order = (u: ShipmentUnit) => ARRIVAL_GROUPS.indexOf(u.group);
   return [...units.values()].sort((a, b) => {
     if (order(a) !== order(b)) return order(a) - order(b);
     if (a.group === 'chegaram') return (b.arrivedAt ?? '').localeCompare(a.arrivedAt ?? '');
+    if (a.priority > 0 !== b.priority > 0) return a.priority > 0 ? -1 : 1;
     return (a.eta ?? '').localeCompare(b.eta ?? '') || (a.bill?.number ?? a.invoices[0]?.number ?? '').localeCompare(b.bill?.number ?? b.invoices[0]?.number ?? '');
   });
 }
