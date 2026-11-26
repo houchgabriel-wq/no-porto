@@ -29,6 +29,16 @@ export interface Invoice {
   notes: string;
   /** A unidade (o container) em que a invoice veio, lida do BL (25/11/2026); null quando não se sabe. */
   unit?: BillUnit | null;
+  /** A packing list registrada para o container (26/11/2026); null quando não há registro. */
+  packingList?: PackingListInfo | null;
+}
+
+/** O registro da packing list de um container: o arquivo, quando e quem registrou. */
+export interface PackingListInfo {
+  /** Nome do arquivo; vazio para quem não vê os fornecedores (o nome pode citar o fornecedor). */
+  name: string;
+  at: string | null;
+  by: string | null;
 }
 
 export interface Payment {
