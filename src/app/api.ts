@@ -186,7 +186,7 @@ export const api = {
   poCatalog: () => request<{ products: CatalogEntry[] }>('GET', '/api/po-catalog'),
   createOrder: (body: { code: string; supplier: string; orderedAt: string | null; items: Omit<DocumentLine, 'orderCode'>[] }) =>
     request<{ orderId: string; inserted: number }>('POST', '/api/orders', body),
-  receiveShipment: (body: { bill: string | null; eta: string | null; invoices: { supplierId: string; number: string; ref: string; container: string; unit: BillUnit | null; lines: DocumentLine[] }[] }) =>
+  receiveShipment: (body: { bill: string | null; eta: string | null; invoices: { supplierId: string; number: string; ref: string; container: string; unit: BillUnit | null; packingList: string; lines: DocumentLine[] }[] }) =>
     request<{ billId: string | null; invoiceIds: string[]; taken: number; extra: number }>('POST', '/api/shipments', body),
   putBillDocument: (billId: string, body: { name: string; contentType: string; data: string }) =>
     request<{ document: { name: string; size: number } }>('PUT', `/api/bills/${encodeURIComponent(billId)}/document`, body),
@@ -194,6 +194,9 @@ export const api = {
   /** Grava a unidade (o container) de cada invoice do BL, lida do PDF do BL (25/11/2026). */
   saveBillUnits: (billId: string, units: { invoiceId: string; unit: BillUnit | null }[]) =>
     request<{ updated: number }>('POST', `/api/bills/${encodeURIComponent(billId)}/units`, { units }),
+  /** Registra a packing list de um container já gravado (26/11/2026): as peças por caixa que mudam. */
+  savePackingList: (invoiceId: string, body: { fileName: string; items: { itemId: string; piecesPerCarton: number }[]; container: string | null; cartons: number | null; weightGrams: number | null }) =>
+    request<{ updated: number }>('POST', `/api/invoices/${encodeURIComponent(invoiceId)}/packing-list`, body),
   /** O prazo da chegada prevista pelo BL (26/11/2026): admin e editor leem; só o admin muda. */
   settings: () => request<Settings>('GET', '/api/settings'),
   saveSettings: (body: { arrivalDays: number }) => request<Settings>('PUT', '/api/settings', body),

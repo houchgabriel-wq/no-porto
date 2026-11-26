@@ -1644,3 +1644,23 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 .prazo-bl .dica { margin: 0; }
 .bl-chegada { display: flex; flex-direction: column; gap: 4px; }
 .bl-chegada .dica { margin: 0; }
+/* Packing list de cada container (26/11/2026): o registro e a leitura antes de gravar. */
+.emb-pl { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 2px; }
+.emb-pl-linha { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; margin: 0; color: var(--tinta-2); overflow-wrap: anywhere; }
+.emb-pl-linha > span { flex: 1 1 260px; min-width: 0; }
+.emb-pl-linha .ic { width: 16px; height: 16px; flex: none; color: hsl(200 var(--c-s) var(--c-l)); }
+.emb-pl-linha b { color: var(--tinta); }
+.emb-pl-linha .btn-texto.arquivo { align-self: center; white-space: nowrap; }
+.pl-leitura h4 { font-family: var(--f-display); font-size: 15px; margin: 0; overflow-wrap: anywhere; }
+.pl-leitura .dica { margin: 0; }
+.pl-itens { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pl-itens li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 16px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--fio); font-size: 13.5px; }
+.pl-itens li:first-child { border-top: 0; }
+.pl-item-nome { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.pl-item-caixas { color: var(--tinta-2); text-align: right; }
+@media (max-width: 760px) {
+  .pl-itens li { grid-template-columns: minmax(0, 1fr); }
+  .pl-item-caixas { text-align: left; }
+}
+.pl-itens li.muda .pl-item-caixas { color: var(--tinta); font-weight: 600; }
+.pl-itens li.fora .pl-item-caixas { color: var(--alerta); font-weight: 600; }

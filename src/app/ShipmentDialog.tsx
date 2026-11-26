@@ -4,6 +4,8 @@
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { ARRIVAL_DAYS_DEFAULT, arrivalFromBill, arrivalText as arrivalAfter, billDateProblem, billDateText, type BillDate } from '../core/billArrival';
 import { cartonsOf, formatWeight, matchUnits, unitSummary, type BillUnit } from '../core/billUnits';
+import { parseShipmentFile } from '../core/documents';
+import { cartonsText, missingPieces, packingPlan, type PackingPlan, type PackingRow } from '../core/packingList';
 import { NO_SUPPLIER, type Item } from '../core/items';
 import { formatQuantity, formatUsd, parseExchangeRate, parseMoneyCents } from '../core/money';
 import { can } from '../core/roles';
@@ -22,6 +24,7 @@ import {
 } from '../core/shipments';
 import { api, ApiError, type Me, type ProductionData } from './api';
 import { Dialog, FormError } from './components';
+import { readFile } from './Documents';
 import { Icon } from './icons';
 import { readBillPdf } from './pdfText';
 import type { Production } from './production';
@@ -471,6 +474,7 @@ function InvoiceSection({
           </span>
         </p>
       )}
+      <PackingListBlock invoice={invoice} items={items} canEdit={canEdit} act={act} />
 
       <ul className="emb-itens">
         {items.map((item) => (
@@ -520,6 +524,160 @@ function InvoiceSection({
       )}
       <FormError message={error} />
     </section>
+  );
+}
+
+const SHEETS = '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel';
+
+/** O item diante da packing list: as caixas com as peças por caixa novas e o que mudou. */
+function packingRowText(r: PackingRow): string {
+  if (!r.found) return `${formatQuantity(r.quantity)} ex. · não está na packing list`;
+  if (r.to === null) return `${formatQuantity(r.quantity)} ex. · a packing list não traz as peças por caixa`;
+  const was = r.from === r.to ? 'como já estava' : r.from === null ? 'antes sem as peças por caixa' : `antes ${formatQuantity(r.from)} por caixa`;
+  return `${cartonsText(r.quantity, r.to)} · ${was}`;
+}
+
+/**
+ * A packing list do container (pedido do Gabriel em 26/11/2026): se foi registrada (o arquivo, quando e
+ * quem) e quantos itens estão sem as peças por caixa, que o No Estoque usa. Para admin e editor,
+ * "Registrar packing list" (ou "Trocar"): o app lê o arquivo, liga as linhas aos itens e mostra o que
+ * muda antes de gravar.
+ */
+function PackingListBlock({
+  invoice,
+  items,
+  canEdit,
+  act,
+}: {
+  invoice: Invoice;
+  items: Item[];
+  canEdit: boolean;
+  act: (action: () => Promise<unknown>, done: string) => Promise<boolean>;
+}) {
+  const ids = useId();
+  const [read, setRead] = useState<{ fileName: string; container: string | null; plan: PackingPlan } | null>(null);
+  const [reading, setReading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const pl = invoice.packingList;
+  const missing = missingPieces(items);
+
+  async function choose(f: File | undefined) {
+    if (!f) return;
+    setNote(null);
+    setRead(null);
+    if (!/\.xlsx?$/i.test(f.name)) return setNote('Escolha a packing list em Excel (.xlsx ou .xls).');
+    setReading(true);
+    try {
+      const parsed = parseShipmentFile(await readFile(f), f.name);
+      if ('error' in parsed) return setNote(`${f.name}: ${parsed.error}`);
+      if (!parsed.packing) return setNote(`${f.name}: não achei as peças por caixa. Escolha a packing list do container.`);
+      setRead({ fileName: f.name, container: parsed.container, plan: packingPlan(items, parsed.packing.lines) });
+    } catch {
+      setNote(`Não foi possível ler ${f.name}.`);
+    } finally {
+      setReading(false);
+    }
+  }
+
+  async function save() {
+    if (!read) return;
+    setSaving(true);
+    const n = read.plan.changes.length;
+    const ok = await act(
+      () => api.savePackingList(invoice.id, { fileName: read.fileName, items: read.plan.changes, container: read.container, cartons: read.plan.cartons, weightGrams: read.plan.weightGrams }),
+      n ? `Packing list registrada: ${n === 1 ? '1 item ficou' : `${n} itens ficaram`} com as peças por caixa da packing list.` : 'Packing list registrada.',
+    );
+    setSaving(false);
+    if (ok) setRead(null);
+  }
+
+  // O container da packing list não bate com o deste container: algo está trocado.
+  const otherContainer = read?.container && invoice.unit && read.container !== invoice.unit.container ? read.container : null;
+  const totals = read ? [read.plan.cartons !== null ? `${formatQuantity(read.plan.cartons)} caixas` : null, read.plan.weightGrams !== null ? formatWeight(read.plan.weightGrams) : null].filter(Boolean) : [];
+
+  return (
+    <div className="emb-pl">
+      <p className="emb-pl-linha">
+        <Icon name="caixa" />
+        <span>
+          {pl ? (
+            <>
+              Packing list {pl.name && <b>{pl.name}</b>} registrada{pl.at ? ` em ${formatDay(spDate(new Date(pl.at)), true)}` : ''}
+              {pl.by ? ` por ${pl.by}` : ''}
+            </>
+          ) : (
+            'Sem packing list registrada'
+          )}
+          {items.length > 0 &&
+            (missing === 0
+              ? ' · todos os itens com as peças por caixa'
+              : missing === items.length
+                ? ' · nenhum item com as peças por caixa'
+                : ` · ${missing} de ${items.length} itens sem as peças por caixa`)}
+        </span>
+        {canEdit && !read && (
+          <label className="btn-texto arquivo">
+            {reading ? 'Lendo…' : pl ? 'Trocar packing list' : 'Registrar packing list'}
+            <span className="so-leitor"> da invoice {invoice.number}</span>
+            <input
+              type="file"
+              accept={SHEETS}
+              disabled={reading}
+              onChange={(e) => {
+                void choose(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
+          </label>
+        )}
+      </p>
+      {note && (
+        <p className="aviso alerta">
+          <Icon name="alerta" />
+          <span>{note}</span>
+        </p>
+      )}
+      {read && (
+        <section className="bl-unidades bloco-leve pl-leitura" aria-labelledby={`${ids}-t`}>
+          <h4 id={`${ids}-t`}>Packing list {read.fileName}</h4>
+          <p className="dica">
+            Confira as peças por caixa de cada item. A quantidade e o preço não mudam.
+            {(read.container || totals.length > 0) && ` Na packing list: ${[read.container ? `container ${read.container}` : null, ...totals].filter(Boolean).join(' · ')}.`}
+          </p>
+          <ul className="pl-itens">
+            {read.plan.rows.map((r) => (
+              <li key={r.itemId} className={!r.found || r.to === null ? 'fora' : r.from !== r.to ? 'muda' : undefined}>
+                <span className="pl-item-nome">{r.description}</span>
+                <span className="num pl-item-caixas">{packingRowText(r)}</span>
+              </li>
+            ))}
+          </ul>
+          {otherContainer && (
+            <p className="aviso alerta">
+              <Icon name="alerta" />
+              <span>
+                A packing list é do container {otherContainer}, e este é o {invoice.unit!.container}. Confira se é o arquivo certo.
+              </span>
+            </p>
+          )}
+          {read.plan.warnings.map((w) => (
+            <p key={w} className="aviso alerta">
+              <Icon name="alerta" />
+              <span>{w}</span>
+            </p>
+          ))}
+          <div className="bl-unidades-acoes">
+            <button type="button" className="btn" onClick={() => setRead(null)} disabled={saving}>
+              Cancelar
+            </button>
+            <button type="button" className="btn primario" onClick={() => void save()} disabled={saving}>
+              {saving ? 'Gravando…' : 'Gravar a packing list'}
+            </button>
+          </div>
+        </section>
+      )}
+    </div>
   );
 }
 
