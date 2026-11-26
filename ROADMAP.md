@@ -50,6 +50,8 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
   A chegada de um container vira uma entrada prevista no No Estoque (decidido pelo Gabriel em 24/11/2026): a porta interna `NoEstoqueApi` entrega as chegadas a partir de um dia, com os itens da packing list e sem valores (SPEC, seção 8).
   *Teste do Gabriel:* registrar a chegada de um container e ver a entrada prevista nas Chegadas do No Estoque.
   *Pronto para o teste em 26/11/2026:* a porta e os testes; chamada de outro Worker pela ligação interna, no simulador da Cloudflare, com o banco local, sem nenhum valor na resposta.
+  *Testada em 26/11/2026:* as chegadas apareceram no No Estoque de teste; depois do teste, o Gabriel pediu os containers em liberação.
+  *Ajustada em 26/11/2026:* também os containers em liberação (pedido do Gabriel), com a previsão, o peso e o volume do container.
 
 ## Depois
 

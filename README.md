@@ -61,7 +61,7 @@ Os dois Workers falam por uma ligação interna da Cloudflare (service binding),
 
 ## Ligação com o No Estoque
 
-Cada container que chega (a chegada registrada na invoice ou no BL) vira uma entrada prevista no No Estoque, que busca aqui de hora em hora. Lá, o gerente de estoque monta a entrada em paletes, escolhe as posições e guarda. Pela ligação vão só o container, o BL, a invoice, o fornecedor e os itens (código de barras, título, quantidade e peças por caixa); nenhum valor.
+Cada container em liberação (o que aparece assim na tela Embarques) vira uma entrada prevista no No Estoque, que busca aqui de hora em hora; registrada a chegada, ele continua lá até ser guardado. O gerente de estoque monta a entrada em paletes, escolhe as posições e guarda. Pela ligação vão só a previsão, a chegada, o container (com as caixas, o peso e o volume), o BL, a invoice, o fornecedor e os itens (código de barras, título, quantidade e peças por caixa); nenhum valor.
 
 Os dois Workers falam por uma ligação interna da Cloudflare (service binding), sem senha nem token: não há nada para cadastrar no painel. Na primeira publicação, o No Porto precisa ir ao ar antes do No Estoque, porque é ele que tem a porta (`NoEstoqueApi`).
 
