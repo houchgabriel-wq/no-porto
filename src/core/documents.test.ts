@@ -312,6 +312,49 @@ describe('parseShipmentFile', () => {
     expect(f.packing!.lines[0]).toMatchObject({ quantity: 8680, piecesPerCarton: 40 });
   });
 
+  it('packing list da Ricky: "QTY/CARTON", e o título na segunda coluna do "DESCRIPTION" mesclado (26/11/2026)', () => {
+    // As células mescladas chegam repetidas: o "DESCRIPTION" nas duas colunas e a categoria em todas as linhas.
+    const rows = [
+      pad(['PACKING LIST']),
+      pad(['DESCRIPTION', 'DESCRIPTION', 'ISBN', 'QTY', 'QTY/CARTON', 'CARTONS', 'N.W / CARTON', 'G.W / CARTON', 'N.W./KG', 'G.W./KG', 'CARTON SIZE', 'CBM']),
+      pad(['sunglass col', 'Patrulha Canina - Meu Livro de Atividades e Diversão Ed.1 ', '978-65-6126-608-6', '20960', '40', '524', '3.9', '4.4', '2043.6', '2305.6', '350x260x285', '13.58994']),
+      pad(['sunglass col', 'Sonic - Meu Livro de Atividades e Diversão Ed.1 ', '978-65-6126-612-3', '24240', '40', '606', '3.9', '4.4', '2363.4', '2666.4', '350x260x285', '15.71661']),
+      pad(['TOTAL', 'TOTAL', 'TOTAL', '45200', '', '1130', '', '', '4407', '4972', '', '29.30655']),
+    ];
+    const f = parseShipmentFile([{ name: 'PL', rows }], 'PL-R260930021.xlsx');
+    if ('error' in f) throw new Error(f.error);
+    expect(f.invoice).toBeNull();
+    expect(f.packing!.lines.map((l) => [l.description, l.isbn, l.quantity, l.piecesPerCarton, l.cartons, l.grossWeightGrams])).toEqual([
+      ['Patrulha Canina - Meu Livro de Atividades e Diversão Ed.1', '9786561266086', 20960, 40, 524, 2_305_600],
+      ['Sonic - Meu Livro de Atividades e Diversão Ed.1', '9786561266123', 24240, 40, 606, 2_666_400],
+    ]);
+  });
+
+  it('peças por caixa com outros nomes de coluna; sem a coluna, a quantidade ÷ as caixas, quando é exata', () => {
+    const pieces = (header: string) => {
+      const f = parseShipmentFile([{ name: 'PL', rows: [pad(['TITLE', 'QTY', header]), pad(['A Odisseia', '10000', '25'])] }], 'PL.xlsx');
+      if ('error' in f) throw new Error(f.error);
+      return f.packing?.lines[0]?.piecesPerCarton ?? null;
+    };
+    for (const h of ['PCS/CTN', 'Pcs/Box', 'Units per carton', "Q'TY/CTN", 'Qty in each Ctn', 'Peças por caixa']) expect(pieces(h), h).toBe(25);
+    // "QTY/CTNS", no plural, pode ser o total de caixas: não vale como peças por caixa.
+    expect(pieces('QTY/CTNS')).toBeNull();
+    const derived = parseShipmentFile(
+      [{ name: 'PL', rows: [pad(['TITLE', 'QTY', 'CTNS']), pad(['A Odisseia', '10000', '250']), pad(['Ilíada', '5000', '84'])] }],
+      'PL.xlsx',
+    );
+    if ('error' in derived) throw new Error(derived.error);
+    // 10.000 em 250 caixas: 40 por caixa; 5.000 em 84 caixas não dá conta exata (tem caixa de sobra).
+    expect(derived.packing!.lines.map((l) => [l.description, l.piecesPerCarton, l.cartons])).toEqual([
+      ['A Odisseia', 40, 250],
+      ['Ilíada', null, 84],
+    ]);
+    // A invoice, com preço, não ganha peças por caixa pelas caixas: continua sendo invoice.
+    const invoice = parseShipmentFile([{ name: 'CI', rows: [pad(['TITLE', 'QTY', 'UNIT PRICE', 'CTN QTY.']), pad(['A Odisseia', '10000', '1.12', '250'])] }], 'CI.xlsx');
+    if ('error' in invoice) throw new Error(invoice.error);
+    expect([invoice.packing, invoice.invoice!.lines[0]!.piecesPerCarton]).toEqual([null, null]);
+  });
+
   it('findContainer', () => {
     expect(findContainer('Container NO.: YMLU 5449045')).toBe('YMLU5449045');
     expect(findContainer('sem container')).toBeNull();

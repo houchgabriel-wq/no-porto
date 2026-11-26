@@ -104,7 +104,15 @@ const ROLE_TESTS: Record<Exclude<Role, 'description'>, (l: string) => boolean> =
   price: (l) => (l.includes('price') || /^rate\b/.test(l) || l.includes('preco') || l === 'unit' || l === 'unit usd') && !l.includes('amount') && !l.includes('total'),
   isbn: (l) => l.includes('isbn'),
   order: (l) => /\border (no|number|n)\b/.test(l) || l === 'order' || l === 'po' || /^p ?o (no|number)\b/.test(l) || l === 'pedido',
-  pieces: (l) => l === 'pcs ctn' || /^per (ctn|carton)\b/.test(l) || l.includes('each ctn') || /\b(pcs|qty) per (ctn|carton)\b/.test(l) || l.includes('pecas por caixa'),
+  // Cada fornecedor escreve de um jeito: "PCS/CTN", "Qty per Ctn", "Qty. in each Ctn", "PER CTN." e, na
+  // packing list da Ricky (26/11/2026), "QTY/CARTON". "QTY/CTNS", no plural, fica de fora: pode ser o total de caixas.
+  pieces: (l) =>
+    l === 'pcs ctn' ||
+    /^per (ctn|carton)\b/.test(l) ||
+    l.includes('each ctn') ||
+    /\b(pcs|qty) per (ctn|carton)\b/.test(l) ||
+    l.includes('pecas por caixa') ||
+    /^(pcs|pc|qty|q ty|quantity|units?|copies|books|pieces?|pecas|unidades|exemplares) (per |in each |each |in |por )?(ctn|carton|box|caixa|cx)$/.test(l),
   comments: (l) => /^(comment|remark|observ)/.test(l),
   // "Specifications" na PO da editora (a "DESCRIPTION & SPECIFICATION" da Nicola também serve).
   specification: (l) => l.includes('specification') || l === 'specs' || l === 'spec' || l.startsWith('especifica'),
@@ -143,7 +151,14 @@ function columnsOf(labels: string[], data: readonly string[][]): Partial<Record<
     const values = data.map((r) => clean(r[c])).filter(Boolean).slice(0, 8);
     return values.length === 0 || values.filter((v) => NUMBER_ONLY.test(v)).length * 2 < values.length;
   };
-  const chosen = candidates.find((x) => textual(x.c)) ?? candidates[0];
+  let chosen = candidates.find((x) => textual(x.c)) ?? candidates[0];
+  // Cabeçalho mesclado sobre duas colunas (na packing list da Ricky, "DESCRIPTION" sobre a categoria, que se
+  // repete em todas as linhas, e o título): o mesmo nome nas duas, e vale a de mais valores diferentes.
+  if (chosen) {
+    const distinct = (c: number) => new Set(data.map((r) => clean(r[c])).filter(Boolean)).size;
+    const twins = candidates.filter((x) => x.score === chosen!.score && labels[x.c] === labels[chosen!.c] && textual(x.c));
+    if (twins.length > 1) chosen = [...twins].sort((a, b) => distinct(b.c) - distinct(a.c) || a.c - b.c)[0]!;
+  }
   if (chosen) cols.description = chosen.c;
   for (const [role, test] of Object.entries(ROLE_TESTS) as [Exclude<Role, 'description'>, (l: string) => boolean][]) {
     const c = labels.findIndex((l, i) => l !== '' && i !== cols.description && test(l));
@@ -324,6 +339,10 @@ function readLines(rows: readonly string[][], header: Header, warnings: Document
     if (withShipPlan) line.shipPlan = linePlan(clean(cell(row, 'shipDate')), notes, quantity, (message) => warnings.push({ row: rowNumber, message }));
     // Caixas e peso bruto da linha, quando a planilha traz (a packing list).
     if (cols.cartons !== undefined) line.cartons = parseQuantity(cell(row, 'cartons'));
+    // Packing list sem a coluna das peças por caixa, mas com as caixas: a quantidade dividida pelas caixas,
+    // quando a conta é exata (com uma caixa de sobra, não dá para saber a caixa padrão). Invoice, com
+    // preço, não entra: ela fica sendo invoice.
+    if (cols.pieces === undefined && cols.price === undefined && line.cartons && quantity % line.cartons === 0) line.piecesPerCarton = quantity / line.cartons;
     if (cols.grossTotal !== undefined) line.grossWeightGrams = gramsOf(cell(row, 'grossTotal'));
     else if (cols.grossEach !== undefined) {
       const each = gramsOf(cell(row, 'grossEach'));
