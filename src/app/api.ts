@@ -194,6 +194,8 @@ export const api = {
   /** Grava a unidade (o container) de cada invoice do BL, lida do PDF do BL (25/11/2026). */
   saveBillUnits: (billId: string, units: { invoiceId: string; unit: BillUnit | null }[]) =>
     request<{ updated: number }>('POST', `/api/bills/${encodeURIComponent(billId)}/units`, { units }),
+  /** Marca ou tira a prioridade do container no desembaraço e no transporte (26/11/2026). */
+  setPriority: (invoiceId: string, priority: boolean) => request<{ changed: boolean }>('PUT', `/api/invoices/${encodeURIComponent(invoiceId)}/priority`, { priority }),
   /** Registra a packing list de um container já gravado (26/11/2026): as peças por caixa que mudam. */
   savePackingList: (invoiceId: string, body: { fileName: string; items: { itemId: string; piecesPerCarton: number }[]; container: string | null; cartons: number | null; weightGrams: number | null }) =>
     request<{ updated: number }>('POST', `/api/invoices/${encodeURIComponent(invoiceId)}/packing-list`, body),

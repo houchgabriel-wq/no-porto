@@ -323,6 +323,13 @@ function Row({ row, ctx }: { row: ShippedRow; ctx: Ctx }) {
           <span className="t-isbn">
             Invoice {row.invoice.number}
             {row.invoice.unit && ` · ${row.invoice.unit.container}`}
+            {row.invoice.priority && row.state.kind !== 'chegou' && (
+              <span className="item-prio">
+                {' · '}
+                <Icon name="flag" />
+                prioridade
+              </span>
+            )}
           </span>
         )}
       </td>
@@ -402,6 +409,13 @@ function Card({ row, ctx }: { row: ShippedRow; ctx: Ctx }) {
           )}
           {row.unitLabel}
           {row.invoice?.unit && ` · ${row.invoice.unit.container}`} · {row.eta ? `chega ${formatDay(row.eta)}` : 'sem previsão'}
+          {row.invoice?.priority && row.state.kind !== 'chegou' && (
+            <span className="item-prio">
+              {' · '}
+              <Icon name="flag" />
+              prioridade
+            </span>
+          )}
         </span>
         <span className="item-cartao-num">
           <span>

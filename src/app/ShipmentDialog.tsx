@@ -421,6 +421,8 @@ function InvoiceSection({
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const invoiceArrived = arrived || Boolean(invoice.arrivedAt);
+  // A prioridade no desembaraço e no transporte vale enquanto o container não chega (26/11/2026).
+  const priority = Boolean(invoice.priority) && !invoiceArrived;
 
   async function act(action: () => Promise<unknown>, done: string) {
     setError(null);
@@ -443,6 +445,24 @@ function InvoiceSection({
         </h3>
         {data.seeSuppliers && <span className="mudo">{supplier}</span>}
         {pay && <span className={`pilula pag ${pay.status}`}>{PAYMENT_LABELS[pay.status]}</span>}
+        {priority && (
+          <span className="pilula prioridade">
+            <Icon name="flag" />
+            Prioridade
+          </span>
+        )}
+        {canEdit && !invoiceArrived && (
+          <button
+            type="button"
+            className="btn-texto"
+            aria-pressed={priority}
+            onClick={() => void act(() => api.setPriority(invoice.id, !priority), priority ? `Prioridade tirada do container da invoice ${invoice.number}.` : `Container da invoice ${invoice.number} marcado com prioridade.`)}
+          >
+            <Icon name="flag" />
+            {priority ? 'Tirar prioridade' : 'Marcar prioridade'}
+            <span className="so-leitor"> da invoice {invoice.number}</span>
+          </button>
+        )}
         {canEdit && !editing && (
           <button type="button" className="btn-texto" onClick={() => setEditing(true)}>
             Alterar
@@ -465,6 +485,12 @@ function InvoiceSection({
         />
       )}
       {editing && <InvoiceForm invoice={invoice} data={data} onCancel={() => setEditing(false)} onSave={async (body) => (await act(() => api.updateInvoice(invoice.id, body), 'Invoice salva.')) && setEditing(false)} />}
+      {priority && invoice.priority && (
+        <p className="emb-prioridade">
+          Prioridade no desembaraço e no transporte
+          {invoice.priority.by ? `, marcada por ${invoice.priority.by}` : ''} em {formatDay(spDate(new Date(invoice.priority.at)), true)}.
+        </p>
+      )}
       {invoice.unit && (
         <p className="emb-unidade">
           <Icon name="container" />
