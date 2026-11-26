@@ -108,6 +108,8 @@ const receiveBody = z
           ref: text(60, 'Ref.').default(''),
           container: text(20, 'Container').default(''),
           unit: unitSchema.nullable().default(null),
+          /** O arquivo da packing list do container (26/11/2026); vazio sem packing list. */
+          packingList: text(200, 'Arquivo da packing list').default(''),
           lines: z.array(receiveLine).min(1, 'Um dos containers não tem itens.'),
         }),
       )
@@ -473,8 +475,9 @@ async function receiveShipment(request: Request, env: Env, session: Session, now
     statements.push(
       env.DB.prepare(
         `INSERT INTO invoices (id, number, ref, supplier_id, bill_of_lading_id, eta, notes, created_at,
-                               container, container_seal, container_kind, container_cartons, container_weight_grams, container_volume_liters)
-         VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)`,
+                               container, container_seal, container_kind, container_cartons, container_weight_grams, container_volume_liters,
+                               packing_list_name, packing_list_at, packing_list_by)
+         VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         invoices[i]!.id,
         v.number,
@@ -490,6 +493,9 @@ async function receiveShipment(request: Request, env: Env, session: Session, now
         v.unit?.cartons ?? null,
         v.unit?.weightGrams ?? null,
         v.unit?.volumeLiters ?? null,
+        v.packingList,
+        v.packingList ? at : null,
+        v.packingList ? session.user.id : null,
       ),
     );
   });
@@ -801,6 +807,74 @@ async function saveBillUnits(request: Request, env: Env, billId: string): Promis
   return json({ updated: body.units.length });
 }
 
+// ---------- Packing list de um container já registrado ----------
+
+const packingListBody = z.object({
+  fileName: text(200, 'Arquivo da packing list').pipe(z.string().min(1, 'Informe o arquivo da packing list.')),
+  items: z
+    .array(
+      z.object({
+        itemId: z.string({ error: 'Item inválido.' }).min(1).max(100),
+        piecesPerCarton: z.number({ error: 'Peças por caixa inválidas.' }).int('Peças por caixa inválidas.').positive('Peças por caixa inválidas.').max(1_000_000, 'Peças por caixa inválidas.'),
+      }),
+      { error: 'Informe os itens.' },
+    )
+    .max(IMPORT_BATCH, 'Itens demais para um container.'),
+  /** O número do container, as caixas e o peso, da packing list: só preenchem o que estiver vazio. */
+  container: unitSchema.shape.container.nullable().default(null),
+  cartons: unitSchema.shape.cartons,
+  weightGrams: unitSchema.shape.weightGrams,
+});
+
+/**
+ * Registra a packing list de um container (pedido do Gabriel em 26/11/2026): grava as peças por caixa
+ * dos itens que a tela ligou (src/core/packingList.ts), com a mudança no histórico de cada item, e anota o
+ * arquivo, quando e quem registrou. O número do container, as caixas e o peso entram só onde estão
+ * vazios (os do BL valem mais). A quantidade e o preço não mudam.
+ */
+async function savePackingList(request: Request, env: Env, session: Session, invoiceId: string, now: Date): Promise<Response> {
+  checkMutation(request);
+  const body = await readBody(request, packingListBody);
+  const invoice = await env.DB.prepare('SELECT id, number, container, container_cartons, container_weight_grams FROM invoices WHERE id = ?')
+    .bind(invoiceId)
+    .first<{ id: string; number: string; container: string; container_cartons: number | null; container_weight_grams: number | null }>();
+  if (!invoice) return error(404, 'Invoice não encontrada.');
+  const { results } = await env.DB.prepare('SELECT id, pieces_per_carton FROM order_items WHERE invoice_id = ? AND deleted_at IS NULL')
+    .bind(invoiceId)
+    .all<{ id: string; pieces_per_carton: number | null }>();
+  const before = new Map(results.map((r) => [r.id, r.pieces_per_carton]));
+  if (new Set(body.items.map((i) => i.itemId)).size !== body.items.length) return error(400, 'O mesmo item apareceu duas vezes.');
+  if (body.items.some((i) => !before.has(i.itemId))) return error(400, 'Um dos itens não é deste container.');
+  const at = now.toISOString();
+  const statements: D1PreparedStatement[] = [];
+  let updated = 0;
+  for (const change of body.items) {
+    const from = before.get(change.itemId) ?? null;
+    if (from === change.piecesPerCarton) continue;
+    updated++;
+    statements.push(
+      env.DB.prepare('UPDATE order_items SET pieces_per_carton = ?, updated_at = ? WHERE id = ?').bind(change.piecesPerCarton, at, change.itemId),
+      eventStatement(env, change.itemId, session.user.id, 'changed', { changes: [{ field: 'Peças por caixa', from, to: change.piecesPerCarton }], source: 'packing-list', invoice: invoice.number, file: body.fileName }, at),
+    );
+  }
+  statements.push(
+    env.DB.prepare(
+      `UPDATE invoices SET packing_list_name = ?, packing_list_at = ?, packing_list_by = ?, container = ?, container_cartons = ?, container_weight_grams = ?
+        WHERE id = ?`,
+    ).bind(
+      body.fileName,
+      at,
+      session.user.id,
+      invoice.container || body.container || '',
+      invoice.container_cartons ?? body.cartons,
+      invoice.container_weight_grams ?? body.weightGrams,
+      invoiceId,
+    ),
+  );
+  await env.DB.batch(statements);
+  return json({ updated });
+}
+
 // ---------- Roteador ----------
 
 export async function routeShipments(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {
@@ -825,6 +899,8 @@ export async function routeShipments(request: Request, env: Env, session: Sessio
   m = /^\/api\/invoices\/([^/]+)$/.exec(path);
   if (m && request.method === 'PATCH') return onlyEdit() ?? updateInvoice(request, env, session, decodeURIComponent(m[1]!), now);
   if (m && request.method === 'DELETE') return onlyAdmin() ?? deleteInvoice(request, env, session, decodeURIComponent(m[1]!), now);
+  m = /^\/api\/invoices\/([^/]+)\/packing-list$/.exec(path);
+  if (m && request.method === 'POST') return onlyEdit() ?? savePackingList(request, env, session, decodeURIComponent(m[1]!), now);
   m = /^\/api\/invoices\/([^/]+)\/payments$/.exec(path);
   if (m && request.method === 'POST') {
     // Pagamento é valor: quem não vê valores também não registra.

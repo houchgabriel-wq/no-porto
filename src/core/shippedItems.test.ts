@@ -138,7 +138,7 @@ describe('withoutSuppliers (24/11/2026)', () => {
   it('sem a lista de fornecedores, sem o fornecedor de itens e invoices e sem as observações', () => {
     const data = {
       items: [item('a', 'v1', { notes: 'Não estava na produção da Sara. Confira.' })],
-      invoices: [{ ...invoices[0]!, notes: 'Pago pela Sara' }],
+      invoices: [{ ...invoices[0]!, notes: 'Pago pela Sara', packingList: { name: 'PL Sara CTNR01.xlsx', at: '2026-11-26T12:00:00Z', by: 'Gabriel' } }],
       bills: [{ ...bills[0]!, notes: 'Saiu com a Sara' }],
       orders: [{ id: 'o1', code: 'PO-001', orderedAt: null, notes: 'Combinado com a Sara' }],
       suppliers,
@@ -148,6 +148,8 @@ describe('withoutSuppliers (24/11/2026)', () => {
     expect(view.suppliers).toEqual([]);
     expect(view.items.map((i) => [i.id, i.supplierId, i.notes, i.quantity])).toEqual([['a', null, '', data.items[0]!.quantity]]);
     expect(view.invoices.map((v) => [v.number, v.supplierId, v.notes])).toEqual([[invoices[0]!.number, null, '']]);
+    // A packing list continua registrada, sem o nome do arquivo.
+    expect(view.invoices[0]!.packingList).toEqual({ name: '', at: '2026-11-26T12:00:00Z', by: 'Gabriel' });
     expect(view.bills.map((b) => [b.number, b.notes])).toEqual([[bills[0]!.number, '']]);
     expect(view.orders.map((o) => [o.code, o.notes])).toEqual([['PO-001', '']]);
     expect(view.seeValues).toBe(false);

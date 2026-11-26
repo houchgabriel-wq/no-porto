@@ -194,16 +194,17 @@ export function onlyShipped<T extends { items: Item[]; invoices: Invoice[]; bill
 }
 
 type Noted = { notes: string };
-type FromSupplier = Noted & { supplierId: string | null };
+type FromSupplier = Noted & { supplierId: string | null; packingList?: { name: string } | null };
 
 /**
  * Os dados para quem não vê os fornecedores (o perfil Embarques, que o marketing usa: pedido do Gabriel
  * em 24/11/2026). Sai a lista de fornecedores e o fornecedor de cada item e invoice; saem também as
  * observações dos itens, das invoices, dos BLs e das POs, porque podem citar o fornecedor (o próprio
- * sistema escreve "Não estava na produção da Claire"). Vale para /api/data e para /api/history.
+ * sistema escreve "Não estava na produção da Claire"), e o nome do arquivo da packing list, pelo mesmo
+ * motivo. Vale para /api/data e para /api/history.
  */
 export function withoutSuppliers<T extends { suppliers: Supplier[]; items: FromSupplier[]; invoices: FromSupplier[]; bills?: Noted[]; orders?: Noted[] }>(data: T): T {
-  const anonymous = <U extends FromSupplier>(x: U): U => ({ ...x, supplierId: null, notes: '' });
+  const anonymous = <U extends FromSupplier>(x: U): U => ({ ...x, supplierId: null, notes: '', ...(x.packingList ? { packingList: { ...x.packingList, name: '' } } : {}) });
   const quiet = <U extends Noted>(x: U): U => ({ ...x, notes: '' });
   const out = { ...data, suppliers: [], items: data.items.map(anonymous), invoices: data.invoices.map(anonymous) };
   if (data.bills) out.bills = data.bills.map(quiet);
