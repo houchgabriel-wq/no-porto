@@ -48,8 +48,8 @@ describe('can', () => {
     for (const role of ['consulta', 'leitor', 'embarques', 'vendas', 'agente'] as const) expect(can(role, 'edit')).toBe(false);
   });
 
-  it('só o admin faz a carga, exclui e cuida dos usuários', () => {
-    for (const action of ['import', 'delete', 'manage_users'] as const) {
+  it('só o admin faz a carga, exclui, cuida dos usuários e muda as configurações', () => {
+    for (const action of ['import', 'delete', 'manage_users', 'settings'] as const) {
       expect(can('admin', action)).toBe(true);
       for (const role of ['editor', 'consulta', 'leitor', 'embarques', 'vendas', 'agente'] as const) expect(can(role, action)).toBe(false);
     }

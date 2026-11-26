@@ -19,6 +19,7 @@ import { routeBillDocuments } from './billDocuments';
 import { routeBookings } from './bookings';
 import { routeStock } from './stock';
 import { routeNewOrder } from './newOrder';
+import { routeSettings } from './settings';
 
 // ---------- Esquemas de entrada ----------
 
@@ -410,6 +411,8 @@ async function routeLoggedIn(
   if (stock) return stock;
   const newOrder = await routeNewOrder(env, session, key);
   if (newOrder) return newOrder;
+  const settings = await routeSettings(request, env, session, key, now);
+  if (settings) return settings;
 
   return error(404, 'Rota não encontrada.');
 }
