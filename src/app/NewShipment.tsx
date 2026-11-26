@@ -300,6 +300,8 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
             ref: c.ref.trim(),
             container: (chosenUnits[i]?.container ?? c.container).trim(),
             unit: chosenUnits[i] ?? null,
+            // O arquivo da packing list fica anotado no container (26/11/2026): o dela, ou o da invoice que traz as duas abas.
+            packingList: c.packing ? c.packing.fileName : c.invoice?.packing ? c.invoice.fileName : '',
             lines: merged[i]!.lines,
           })),
         });
