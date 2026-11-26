@@ -1,6 +1,21 @@
+import { WorkerEntrypoint } from 'cloudflare:workers';
+import type { StockArrival } from '../core/stockArrivals';
 import { handleApi } from './api';
 import type { Env } from './env';
+import { arrivalsSince } from './noEstoque';
 import { syncNoPrelo } from './noPrelo';
+
+/**
+ * A porta interna do No Estoque (SPEC.md, seção 8): o Worker "no-estoque", na mesma conta da Cloudflare,
+ * busca aqui as chegadas de container a partir de um dia, para montar as entradas previstas. A porta não
+ * tem endereço na internet: só um Worker da conta com a ligação no wrangler.jsonc dele alcança. Só lê, e
+ * não manda valores. Mudou o formato? O No Estoque precisa mudar junto.
+ */
+export class NoEstoqueApi extends WorkerEntrypoint<Env> {
+  async arrivals(since: string): Promise<StockArrival[]> {
+    return arrivalsSince(this.env, since);
+  }
+}
 
 export default {
   async fetch(request, env): Promise<Response> {
