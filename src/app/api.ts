@@ -38,6 +38,14 @@ export interface StockData {
   holdings: TitleHolding[];
 }
 
+/** As configurações da editora (26/11/2026): por enquanto, o prazo da chegada prevista pelo BL. */
+export interface Settings {
+  /** Dias da data do BL até a chegada prevista (35 por padrão). */
+  arrivalDays: number;
+  arrivalDaysUpdatedAt: string | null;
+  arrivalDaysUpdatedBy: string | null;
+}
+
 export interface UserSummary {
   id: string;
   name: string;
@@ -186,6 +194,9 @@ export const api = {
   /** Grava a unidade (o container) de cada invoice do BL, lida do PDF do BL (25/11/2026). */
   saveBillUnits: (billId: string, units: { invoiceId: string; unit: BillUnit | null }[]) =>
     request<{ updated: number }>('POST', `/api/bills/${encodeURIComponent(billId)}/units`, { units }),
+  /** O prazo da chegada prevista pelo BL (26/11/2026): admin e editor leem; só o admin muda. */
+  settings: () => request<Settings>('GET', '/api/settings'),
+  saveSettings: (body: { arrivalDays: number }) => request<Settings>('PUT', '/api/settings', body),
   deleteInvoice: (id: string) => request<{ back: number; merged: number; removed: number; billRemoved: boolean }>('DELETE', `/api/invoices/${encodeURIComponent(id)}`),
   deleteBill: (id: string) => request<{ back: number; merged: number; removed: number; invoices: number }>('DELETE', `/api/bills/${encodeURIComponent(id)}`),
   itemSpecification: (id: string) =>
