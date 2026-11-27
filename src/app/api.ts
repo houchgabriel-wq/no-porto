@@ -194,12 +194,27 @@ export const api = {
   /** Grava a unidade (o container) de cada invoice do BL, lida do PDF do BL (25/11/2026). */
   saveBillUnits: (billId: string, units: { invoiceId: string; unit: BillUnit | null }[]) =>
     request<{ updated: number }>('POST', `/api/bills/${encodeURIComponent(billId)}/units`, { units }),
+  /** Guarda a invoice ou a packing list de um container (27/11/2026); anexar de novo substitui. */
+  putInvoiceDocument: (invoiceId: string, kind: 'invoice' | 'packing', body: { name: string; contentType: string; data: string }) =>
+    request<{ document: { name: string; size: number } }>('PUT', `/api/invoices/${encodeURIComponent(invoiceId)}/documents/${kind}`, body),
+  deleteInvoiceDocument: (invoiceId: string, kind: 'invoice' | 'packing') => request<{ ok: true }>('DELETE', `/api/invoices/${encodeURIComponent(invoiceId)}/documents/${kind}`),
   /** Os títulos da curva ABC para os ISBNs de um embarque, para a prévia do Novo embarque (27/11/2026). */
   curveTitles: (isbns: string[]) => request<{ stockDate: string | null; titles: Record<string, string> }>('POST', '/api/stock/titles', { isbns }),
   /** Marca ou tira a prioridade do container no desembaraço e no transporte (26/11/2026). */
   setPriority: (invoiceId: string, priority: boolean) => request<{ changed: boolean }>('PUT', `/api/invoices/${encodeURIComponent(invoiceId)}/priority`, { priority }),
   /** Registra a packing list de um container já gravado (26/11/2026): as peças por caixa que mudam. */
-  savePackingList: (invoiceId: string, body: { fileName: string; items: { itemId: string; piecesPerCarton: number }[]; container: string | null; cartons: number | null; weightGrams: number | null }) =>
+  savePackingList: (
+    invoiceId: string,
+    body: {
+      fileName: string;
+      items: { itemId: string; piecesPerCarton: number }[];
+      container: string | null;
+      cartons: number | null;
+      weightGrams: number | null;
+      /** O arquivo, guardado junto (27/11/2026); sem ele, sai o que estava guardado. */
+      document: { contentType: string; data: string } | null;
+    },
+  ) =>
     request<{ updated: number }>('POST', `/api/invoices/${encodeURIComponent(invoiceId)}/packing-list`, body),
   /** O prazo da chegada prevista pelo BL (26/11/2026): admin e editor leem; só o admin muda. */
   settings: () => request<Settings>('GET', '/api/settings'),
