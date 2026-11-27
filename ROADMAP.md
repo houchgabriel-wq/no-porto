@@ -54,6 +54,11 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
   *Ajustada em 26/11/2026:* também os containers em liberação (pedido do Gabriel), com a previsão, o peso e o volume do container.
   *Fechado em 26/11/2026:* no ar; o Gabriel conferiu os containers em liberação nas Chegadas do No Estoque de teste.
 
+- [ ] **Marco 9: produção no Brasil.**
+  Os orçamentos com as gráficas do Brasil (várias propostas por produto, fechar com uma), a produção até a entrega no estoque, em uma ou mais entregas, e a visão junto com a importação no painel, no terminal de consulta e na previsão de estoque (decidido pelo Gabriel em 27/11/2026; SPEC, seções 2 e 3).
+  Em duas partes: primeiro a sub-aba Brasil em Produção, com orçamentos, propostas, pedidos e entregas; depois a visão junto com a importação.
+  *Teste do Gabriel:* o Marcelo cadastra os próximos orçamentos com as propostas das gráficas, fecha um, registra as entregas, e o Gabriel confere tudo junto com a importação.
+
 ## Depois
 
 Sem prazo: o resto da ligação com o No Prelo pelo ISBN (a aprovação do arquivo já vem de lá, desde 19/11/2026), custo final em reais por exemplar, conferência das solicitações com os embarques (avisar de embarque sem aprovação ou com mais containers que o aprovado).
