@@ -1,7 +1,7 @@
 // Chamadas à API. Erros viram ApiError com a mensagem em português vinda do servidor.
 
 import type { BillUnit } from '../core/billUnits';
-import type { BrOrder, Paper, PaperBy, PaperPart, Printer, Quote } from '../core/brazil';
+import type { BrOrder, Paper, PaperBy, PaperPart, Printer, ProductBrazilOrder, Quote } from '../core/brazil';
 import type { DocumentLine } from '../core/documents';
 import type { CatalogEntry } from '../core/newOrder';
 import type { SalesArrival } from '../core/shippedItems';
@@ -266,6 +266,8 @@ export const api = {
       invoices: InvoiceInfo[];
       orders: { id: string; code: string }[];
       specification: { specification: string; createdAt: string; orderCode: string | null } | null;
+      /** Os pedidos no Brasil com o mesmo ISBN (27/11/2026); o total só para quem vê valores. */
+      brazil: ProductBrazilOrder[];
       seeValues: boolean;
     }>(
       'GET',

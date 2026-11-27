@@ -13,6 +13,7 @@ import {
   type BrOrder,
   type BrOrderSummary,
   type Delivery,
+  type ProductBrazilOrder,
   type Offer,
   type OfferItem,
   type OfferPaper,
@@ -345,9 +346,6 @@ export async function readBrazilOrders(env: Env): Promise<BrOrderSummary[]> {
     deliveries: deliveries.get(r.id) ?? [],
   }));
 }
-
-/** Um pedido no Brasil na ficha do produto: o total (gráfica + papel nosso, em centavos) só para quem vê valores. */
-export type ProductBrazilOrder = BrOrderSummary & { totalCents: number | null };
 
 /** Os pedidos no Brasil com o ISBN do produto (o ISBN-10 casa com o ISBN-13), para a ficha do produto. */
 export async function brazilOrdersForIsbn(env: Env, isbn: string, seeValues: boolean): Promise<ProductBrazilOrder[]> {

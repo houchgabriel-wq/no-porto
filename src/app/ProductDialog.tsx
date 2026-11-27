@@ -1,17 +1,19 @@
 // Ficha do produto (SPEC.md, seção 5): todas as compras de um produto desde 2023 (em produção,
 // embarcadas e entregues), com fornecedor, PO ou invoice, quantidade e preço, e a variação do preço.
+// Desde 27/11/2026, também os pedidos nas gráficas do Brasil com o mesmo ISBN.
 
 import { useEffect, useState } from 'react';
+import { dueText, formatBrl, formatBrlUnit, orderState, type ProductBrazilOrder } from '../core/brazil';
 import { priceStats, purchaseDate } from '../core/history';
 import { NO_SUPPLIER, STATUS_HUES, STATUS_LABELS, type Item, type Supplier } from '../core/items';
 import { formatQuantity, formatUnitPrice, formatUsd } from '../core/money';
 import { formatDay } from '../core/shipments';
 import { api, ApiError } from './api';
-import { Dialog, FormError, hueStyle } from './components';
+import { BRAZIL_HUE, Dialog, FormError, hueStyle } from './components';
 
 type Product = Awaited<ReturnType<typeof api.product>>;
 
-export function ProductDialog({ productId, suppliers, onClose }: { productId: string | null; suppliers: Supplier[]; onClose: () => void }) {
+export function ProductDialog({ productId, suppliers, today, onClose }: { productId: string | null; suppliers: Supplier[]; today: string; onClose: () => void }) {
   const [data, setData] = useState<Product | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -142,6 +144,7 @@ export function ProductDialog({ productId, suppliers, onClose }: { productId: st
                 </tbody>
               </table>
             </div>
+            {data.brazil.length > 0 && <BrazilOrders orders={data.brazil} seeValues={data.seeValues} today={today} />}
           </>
         )}
       </div>
@@ -151,5 +154,61 @@ export function ProductDialog({ productId, suppliers, onClose }: { productId: st
         </button>
       </div>
     </Dialog>
+  );
+}
+
+/** Os pedidos do produto nas gráficas do Brasil, do mais novo para o mais antigo; o custo, só para quem vê valores. */
+function BrazilOrders({ orders, seeValues, today }: { orders: ProductBrazilOrder[]; seeValues: boolean; today: string }) {
+  return (
+    <section className="prod-brasil" aria-label="Produção no Brasil">
+      <h3>Produção no Brasil</h3>
+      <div className="tabela-caixa resumo-caixa prod-caixa" tabIndex={0} role="region" aria-label="Pedidos nas gráficas do Brasil">
+        <table className="tabela-produto tabela-produto-br">
+          <thead>
+            <tr>
+              <th>Pedido em</th>
+              <th>Gráfica</th>
+              <th>Situação</th>
+              <th className="num">Entregue</th>
+              {seeValues && (
+                <>
+                  <th className="num">Custo por ex.</th>
+                  <th className="num">Total</th>
+                </>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {[...orders].reverse().map((o) => {
+              const state = orderState(o, today);
+              const due = dueText(state, o.dueAt, today);
+              return (
+                <tr key={o.id}>
+                  <td className="nowrap">{formatDay(o.orderedAt, true)}</td>
+                  <td>{o.printer}</td>
+                  <td>
+                    <span className="etapa-pilula h" style={hueStyle(state.stage === 'entregue' ? STATUS_HUES.entregue : BRAZIL_HUE)}>
+                      {state.stage === 'entregue' ? 'Entregue' : state.stage === 'parcial' ? 'Entregue em parte' : 'Em produção'}
+                    </span>
+                    <span className={state.late ? 't-isbn alerta-texto' : 't-isbn'}>
+                      {state.stage === 'entregue' ? `em ${formatDay(state.finishedAt!, true)}` : due.charAt(0).toLowerCase() + due.slice(1)}
+                    </span>
+                  </td>
+                  <td className="num nowrap">
+                    {formatQuantity(state.delivered)} de {formatQuantity(o.quantity)}
+                  </td>
+                  {seeValues && (
+                    <>
+                      <td className="num">{o.totalCents === null ? <span className="mudo">—</span> : formatBrlUnit(Math.round((o.totalCents * 100) / o.quantity))}</td>
+                      <td className="num">{o.totalCents === null ? <span className="mudo">—</span> : formatBrl(o.totalCents)}</td>
+                    </>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }

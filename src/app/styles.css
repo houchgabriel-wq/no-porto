@@ -1126,6 +1126,12 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
 .prod-caixa { max-height: min(420px, 55dvh); }
 .tabela-produto { min-width: 680px; }
 .tabela-produto td { vertical-align: top; }
+.tabela-produto.tabela-produto-br { min-width: 560px; }
+.tabela-produto-br .etapa-pilula { white-space: nowrap; }
+/* O nome da gráfica quebra a linha (a regra geral deixa a segunda coluna inteira numa linha). */
+.tabela-produto-br td:nth-child(2) { white-space: normal; min-width: 120px; }
+.prod-brasil { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.prod-brasil h3 { margin: 0; font-size: 15px; }
 
 @media (max-width: 600px) {
   .hist-anos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
