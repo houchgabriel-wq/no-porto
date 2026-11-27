@@ -19,6 +19,16 @@ describe('itemOrigin', () => {
       previousPieces: undefined,
     });
     expect(itemOrigin([])).toEqual({ kind: 'outside' });
+    // O embarque trocou o nome pelo da curva ABC: o nome de antes volta junto (27/11/2026).
+    expect(itemOrigin([{ type: 'shipped', detail: { invoice: 'A1', previousPriceMicros: null, previousPieces: 20, previousDescription: 'Livro como na PO' } }])).toEqual({
+      kind: 'production',
+      previousPriceMicros: null,
+      previousPieces: 20,
+      previousDescription: 'Livro como na PO',
+    });
+    expect(planShipmentUndo([{ id: 'x', quantity: 1, origin: { kind: 'production', previousPieces: 20, previousDescription: 'Livro como na PO' } }], () => false).back).toEqual([
+      { id: 'x', priceMicros: undefined, pieces: 20, description: 'Livro como na PO' },
+    ]);
   });
 });
 
