@@ -1,5 +1,6 @@
 // Ficha do embarque: o BL (ou a invoice sem BL) com a chegada prevista e a real, as invoices com os
-// itens e os pagamentos de cada uma (data, valor em dólar e câmbio). O leitor só acompanha.
+// itens e os pagamentos de cada uma (data, valor em dólar e câmbio). O leitor só acompanha. Os arquivos
+// do BL, da invoice e da packing list de cada container ficam guardados para baixar (27/11/2026).
 
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { ARRIVAL_DAYS_DEFAULT, arrivalFromBill, arrivalText as arrivalAfter, billDateProblem, billDateText, type BillDate } from '../core/billArrival';
@@ -25,6 +26,7 @@ import {
 import { api, ApiError, type Me, type ProductionData } from './api';
 import { Dialog, FormError } from './components';
 import { readFile } from './Documents';
+import { fileSizeText, MAX_FILE_BYTES, sheetContentType, toBase64 } from './fileUpload';
 import { Icon } from './icons';
 import { readBillPdf } from './pdfText';
 import type { Production } from './production';
@@ -42,6 +44,13 @@ interface Props {
 /** "a, b e c". */
 function listPt(parts: string[]): string {
   return parts.length <= 1 ? (parts[0] ?? '') : `${parts.slice(0, -1).join(', ')} e ${parts.at(-1)}`;
+}
+
+/** Os arquivos guardados que saem com o embarque, para a confirmação de excluir. */
+function storedFiles(bill: Bill | null, invoices: Invoice[]): string[] {
+  const containers = invoices.some((v) => v.documents);
+  if (bill?.document) return [containers ? 'os arquivos do BL e dos containers' : 'o arquivo do BL'];
+  return containers ? ['os arquivos dos containers'] : [];
 }
 
 const reais = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -194,7 +203,7 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
         <div className="dlg-corpo confirma-corpo">
           <ConfirmDelete
             title={unit.bill ? `Excluir o BL ${unit.bill.number} e ${unit.invoices.length === 1 ? 'a invoice' : `as ${unit.invoices.length} invoices`}?` : `Excluir a invoice ${unit.invoices[0]!.number}?`}
-            text={`O que saiu da produção volta para a produção. ${listPt(['O que não estava na produção', ...(data.seeValues ? ['os pagamentos'] : []), ...(unit.bill?.document ? ['o arquivo do BL'] : [])])} são apagados.`}
+            text={`O que saiu da produção volta para a produção. ${listPt(['O que não estava na produção', ...(data.seeValues ? ['os pagamentos'] : []), ...storedFiles(unit.bill, unit.invoices)])} são apagados.`}
             busy={busy}
             onCancel={() => setConfirming(false)}
             onConfirm={() => void removeUnit()}
@@ -423,6 +432,8 @@ function InvoiceSection({
   const invoiceArrived = arrived || Boolean(invoice.arrivedAt);
   // A prioridade no desembaraço e no transporte vale enquanto o container não chega (26/11/2026).
   const priority = Boolean(invoice.priority) && !invoiceArrived;
+  // O que sai junto ao excluir a invoice.
+  const gone = [...(pay ? ['os pagamentos'] : []), ...(invoice.documents ? ['os arquivos'] : [])];
 
   async function act(action: () => Promise<unknown>, done: string) {
     setError(null);
@@ -478,7 +489,7 @@ function InvoiceSection({
       {confirming && (
         <ConfirmDelete
           title={`Excluir a invoice ${invoice.number}?`}
-          text={`O que saiu da produção volta para a produção. O que não estava na produção${pay ? ' e os pagamentos desta invoice' : ''} são apagados.${lastOfBill ? ' É a única invoice do BL: o BL sai junto.' : ''}`}
+          text={`O que saiu da produção volta para a produção. ${listPt(['O que não estava na produção', ...gone])}${gone.length ? ' desta invoice' : ''} são apagados.${lastOfBill ? ' É a única invoice do BL: o BL sai junto.' : ''}`}
           busy={false}
           onCancel={() => setConfirming(false)}
           onConfirm={() => void act(() => api.deleteInvoice(invoice.id), 'Invoice excluída. O que tinha saído da produção voltou para ela.').then(() => setConfirming(false))}
@@ -500,7 +511,8 @@ function InvoiceSection({
           </span>
         </p>
       )}
-      <PackingListBlock invoice={invoice} items={items} canEdit={canEdit} act={act} />
+      {data.seeValues && <InvoiceFile invoice={invoice} canEdit={canEdit} act={act} onError={setError} />}
+      <PackingListBlock invoice={invoice} items={items} canEdit={canEdit} canDownload={data.seeValues} act={act} />
 
       <ul className="emb-itens">
         {items.map((item) => (
@@ -555,6 +567,89 @@ function InvoiceSection({
 
 const SHEETS = '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel';
 
+/** O endereço para baixar o arquivo guardado da invoice ou da packing list. */
+const documentUrl = (invoiceId: string, kind: 'invoice' | 'packing') => `/api/invoices/${encodeURIComponent(invoiceId)}/documents/${kind}`;
+
+/**
+ * O arquivo da invoice do container (pedido do Gabriel em 27/11/2026): só para quem vê valores, porque a
+ * invoice traz os preços. Baixar; e, para admin e editor, anexar, trocar e tirar. O Novo embarque já
+ * guarda o arquivo; aqui se anexa o dos embarques gravados antes.
+ */
+function InvoiceFile({
+  invoice,
+  canEdit,
+  act,
+  onError,
+}: {
+  invoice: Invoice;
+  canEdit: boolean;
+  act: (action: () => Promise<unknown>, done: string) => Promise<boolean>;
+  onError: (msg: string | null) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const doc = invoice.documents?.invoice ?? null;
+  if (!doc && !canEdit) return null;
+
+  async function attach(f: File | undefined) {
+    if (!f) return;
+    onError(null);
+    const contentType = sheetContentType(f.name);
+    if (!contentType) return onError('Envie a invoice em Excel (.xlsx ou .xls) ou PDF.');
+    if (f.size > MAX_FILE_BYTES) return onError('O arquivo da invoice pode ter no máximo 5 MB.');
+    setBusy(true);
+    await act(async () => api.putInvoiceDocument(invoice.id, 'invoice', { name: f.name, contentType, data: await toBase64(f) }), doc ? 'Arquivo da invoice trocado.' : 'Arquivo da invoice anexado.');
+    setBusy(false);
+  }
+
+  async function remove() {
+    setBusy(true);
+    await act(() => api.deleteInvoiceDocument(invoice.id, 'invoice'), 'Arquivo da invoice tirado.');
+    setBusy(false);
+  }
+
+  return (
+    <p className="emb-pl-linha emb-arquivo">
+      <Icon name="arquivo" />
+      <span>
+        {doc ? (
+          <>
+            Arquivo da invoice{' '}
+            <a href={documentUrl(invoice.id, 'invoice')} download={doc.name}>
+              {doc.name}
+            </a>
+            <span className="mudo"> · {fileSizeText(doc.size)}</span>
+          </>
+        ) : (
+          'Sem o arquivo da invoice'
+        )}
+      </span>
+      {canEdit && (
+        <>
+          <label className="btn-texto arquivo">
+            {busy ? 'Gravando…' : doc ? 'Trocar' : 'Anexar'}
+            <span className="so-leitor"> o arquivo da invoice {invoice.number}</span>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+              disabled={busy}
+              onChange={(e) => {
+                void attach(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
+          </label>
+          {doc && (
+            <button type="button" className="btn-texto" disabled={busy} onClick={() => void remove()}>
+              Tirar
+              <span className="so-leitor"> o arquivo da invoice {invoice.number}</span>
+            </button>
+          )}
+        </>
+      )}
+    </p>
+  );
+}
+
 /** O item diante da packing list: as caixas com as peças por caixa novas e o que mudou. */
 function packingRowText(r: PackingRow): string {
   if (!r.found) return `${formatQuantity(r.quantity)} ex. · não está na packing list`;
@@ -573,20 +668,29 @@ function PackingListBlock({
   invoice,
   items,
   canEdit,
+  canDownload,
   act,
 }: {
   invoice: Invoice;
   items: Item[];
   canEdit: boolean;
+  /** Quem vê valores baixa o arquivo guardado (27/11/2026). */
+  canDownload: boolean;
   act: (action: () => Promise<unknown>, done: string) => Promise<boolean>;
 }) {
   const ids = useId();
-  const [read, setRead] = useState<{ fileName: string; container: string | null; plan: PackingPlan } | null>(null);
+  const [read, setRead] = useState<{ file: File; fileName: string; container: string | null; plan: PackingPlan } | null>(null);
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const pl = invoice.packingList;
   const missing = missingPieces(items);
+  const file = canDownload ? (invoice.documents?.packing ?? null) : null;
+  const fileLink = file && (
+    <a href={documentUrl(invoice.id, 'packing')} download={file.name}>
+      {file.name}
+    </a>
+  );
 
   async function choose(f: File | undefined) {
     if (!f) return;
@@ -598,7 +702,7 @@ function PackingListBlock({
       const parsed = parseShipmentFile(await readFile(f), f.name);
       if ('error' in parsed) return setNote(`${f.name}: ${parsed.error}`);
       if (!parsed.packing) return setNote(`${f.name}: não achei as peças por caixa. Escolha a packing list do container.`);
-      setRead({ fileName: f.name, container: parsed.container, plan: packingPlan(items, parsed.packing.lines) });
+      setRead({ file: f, fileName: f.name, container: parsed.container, plan: packingPlan(items, parsed.packing.lines) });
     } catch {
       setNote(`Não foi possível ler ${f.name}.`);
     } finally {
@@ -610,9 +714,21 @@ function PackingListBlock({
     if (!read) return;
     setSaving(true);
     const n = read.plan.changes.length;
+    // O arquivo fica guardado na mesma gravação (27/11/2026); o que passa de 5 MB fica de fora.
+    const contentType = sheetContentType(read.file.name);
+    const keep = contentType !== null && read.file.size <= MAX_FILE_BYTES;
     const ok = await act(
-      () => api.savePackingList(invoice.id, { fileName: read.fileName, items: read.plan.changes, container: read.container, cartons: read.plan.cartons, weightGrams: read.plan.weightGrams }),
-      n ? `Packing list registrada: ${n === 1 ? '1 item ficou' : `${n} itens ficaram`} com as peças por caixa da packing list.` : 'Packing list registrada.',
+      async () =>
+        api.savePackingList(invoice.id, {
+          fileName: read.fileName,
+          items: read.plan.changes,
+          container: read.container,
+          cartons: read.plan.cartons,
+          weightGrams: read.plan.weightGrams,
+          document: keep ? { contentType, data: await toBase64(read.file) } : null,
+        }),
+      (n ? `Packing list registrada: ${n === 1 ? '1 item ficou' : `${n} itens ficaram`} com as peças por caixa da packing list.` : 'Packing list registrada.') +
+        (keep ? '' : ' O arquivo passa de 5 MB e não ficou guardado.'),
     );
     setSaving(false);
     if (ok) setRead(null);
@@ -629,9 +745,11 @@ function PackingListBlock({
         <span>
           {pl ? (
             <>
-              Packing list {pl.name && <b>{pl.name}</b>} registrada{pl.at ? ` em ${formatDay(spDate(new Date(pl.at)), true)}` : ''}
+              Packing list {fileLink ?? (pl.name && <b>{pl.name}</b>)} registrada{pl.at ? ` em ${formatDay(spDate(new Date(pl.at)), true)}` : ''}
               {pl.by ? ` por ${pl.by}` : ''}
             </>
+          ) : fileLink ? (
+            <>Packing list {fileLink} não registrada</>
           ) : (
             'Sem packing list registrada'
           )}
@@ -884,16 +1002,8 @@ function BillFile({
   function attach(f: File | undefined) {
     if (!f) return;
     if (!BL_TYPES.includes(f.type)) return onError('Envie o BL em PDF, PNG ou JPG.');
-    if (f.size > 5_000_000) return onError('O arquivo do BL pode ter no máximo 5 MB.');
-    void run(async () => {
-      const data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
-        reader.onerror = () => reject(new Error('Não foi possível ler o arquivo.'));
-        reader.readAsDataURL(f);
-      });
-      await api.putBillDocument(bill.id, { name: f.name, contentType: f.type, data });
-    }, doc ? 'Arquivo do BL trocado.' : 'Arquivo do BL anexado.');
+    if (f.size > MAX_FILE_BYTES) return onError('O arquivo do BL pode ter no máximo 5 MB.');
+    void run(async () => api.putBillDocument(bill.id, { name: f.name, contentType: f.type, data: await toBase64(f) }), doc ? 'Arquivo do BL trocado.' : 'Arquivo do BL anexado.');
   }
 
   return (
@@ -909,7 +1019,7 @@ function BillFile({
           ) : (
             doc.name
           )}
-          <span className="mudo">{Math.max(1, Math.round(doc.size / 1024))} KB</span>
+          <span className="mudo">{fileSizeText(doc.size)}</span>
         </span>
       ) : (
         <span className="mudo">Nenhum arquivo anexado.</span>

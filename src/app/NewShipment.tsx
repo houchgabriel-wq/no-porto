@@ -7,6 +7,7 @@
 // container pelo número do container da packing list ou pelas caixas e pelo peso (25/11/2026). A data do
 // BL preenche a chegada prevista: a data mais o prazo, de 35 dias por padrão, que o admin muda (26/11/2026).
 // Os produtos com o ISBN na curva ABC ficam com o título dela, no lugar do nome da invoice (27/11/2026).
+// Os arquivos da invoice e da packing list de cada container ficam guardados, para baixar depois (27/11/2026).
 
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import { allocateInvoices, guessSupplier, type LineAllocation } from '../core/allocation';
@@ -21,6 +22,7 @@ import { mergePackingList, pairShipmentFiles, piecesLabel } from '../core/shipme
 import { api, ApiError, type Me, type ProductionData } from './api';
 import { Dialog, FormError } from './components';
 import { linesValue, Notes, readFile } from './Documents';
+import { MAX_FILE_BYTES, sheetContentType, toBase64 } from './fileUpload';
 import { Icon } from './icons';
 import { readBillPdf } from './pdfText';
 import type { Production } from './production';
@@ -59,15 +61,6 @@ async function readShipmentFile(f: File): Promise<ShipmentFile> {
   return parsed;
 }
 
-function toBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
-    reader.onerror = () => reject(new Error('Não foi possível ler o arquivo do BL.'));
-    reader.readAsDataURL(file);
-  });
-}
-
 let nextKey = 0;
 
 interface Props {
@@ -94,6 +87,8 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
   const [billDate, setBillDate] = useState<BillDate | null>(null);
   const [dateNote, setDateNote] = useState<string | null>(null);
   const autoEta = useRef<string | null>(null);
+  // O arquivo de onde veio cada invoice e packing list lida, para guardar depois de gravar.
+  const rawFiles = useRef(new WeakMap<ShipmentFile, File>());
   const [containers, setContainers] = useState<Container[]>([]);
   const [reading, setReading] = useState(false);
   const [readErrors, setReadErrors] = useState<string[]>([]);
@@ -160,7 +155,9 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
     const parsed: ShipmentFile[] = [];
     for (const f of Array.from(list)) {
       try {
-        parsed.push(await readShipmentFile(f));
+        const sf = await readShipmentFile(f);
+        rawFiles.current.set(sf, f);
+        parsed.push(sf);
       } catch (e) {
         errors.push(e instanceof Error ? e.message : `${f.name}: não foi possível ler.`);
       }
@@ -188,6 +185,7 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
     setError(null);
     try {
       const file = await readShipmentFile(f);
+      rawFiles.current.set(file, f);
       setContainers((cs) =>
         cs.map((c) => {
           if (c.key !== key) return c;
@@ -323,20 +321,49 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
             lines: merged[i]!.lines,
           })),
         });
+        let blFailed = false;
         if (blFile && r.billId) {
           try {
             await api.putBillDocument(r.billId, { name: blFile.name, contentType: blFile.type, data: await toBase64(blFile) });
           } catch {
-            return { ...r, blFailed: true };
+            blFailed = true;
           }
         }
-        return { ...r, blFailed: false };
+        // A invoice e a packing list de cada container ficam guardadas; o arquivo com as duas abas vale para as duas.
+        let filesFailed = 0;
+        for (const [i, c] of containers.entries()) {
+          const invoiceId = r.invoiceIds[i];
+          if (!invoiceId) continue;
+          const packingSource = c.packing ?? (c.invoice?.packing ? c.invoice : null);
+          for (const [kind, source] of [
+            ['invoice', c.invoice],
+            ['packing', packingSource],
+          ] as const) {
+            const f = source ? rawFiles.current.get(source) : undefined;
+            const contentType = f ? sheetContentType(f.name) : null;
+            if (!f || !contentType) continue;
+            if (f.size > MAX_FILE_BYTES) {
+              filesFailed++;
+              continue;
+            }
+            try {
+              await api.putInvoiceDocument(invoiceId, kind, { name: f.name, contentType, data: await toBase64(f) });
+            } catch {
+              filesFailed++;
+            }
+          }
+        }
+        return { ...r, blFailed, filesFailed };
       });
       const n = containers.length;
+      const lost = [
+        res.blFailed ? 'o arquivo do BL' : null,
+        res.filesFailed ? (res.filesFailed === 1 ? '1 arquivo de container' : `${res.filesFailed} arquivos de containers`) : null,
+      ].filter(Boolean);
       onDone(
         `${n === 1 ? '1 container embarcado' : `${n} containers embarcados`}: ${formatQuantity(res.taken)} ex. saíram da produção` +
           (res.extra ? `; ${formatQuantity(res.extra)} ex. não estavam na produção e entraram para conferir` : '') +
-          (res.blFailed ? '. O arquivo do BL não foi anexado: anexe pela ficha do embarque.' : '.'),
+          (lost.length ? `. Não foi possível guardar ${lost.join(' e ')}: anexe pela ficha do embarque.` : '.'),
       );
       onClose();
     } catch (err) {
