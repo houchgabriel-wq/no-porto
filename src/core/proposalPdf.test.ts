@@ -2,7 +2,7 @@
 // Curso Básico de Desenho com o avulso do Mangá, papel da gráfica) e da Assahi (103896.04, Meditações, papel nosso),
 // sem os telefones e os nomes de pessoas.
 import { describe, expect, it } from 'vitest';
-import { matchItemsToProducts, matchPaper, matchPrinter, paperDisplayName, parseCount, productsFromItems, readProposal } from './proposalPdf';
+import { matchItemsToProducts, matchPaper, matchPrinter, paperDisplayName, parseCount, productsFromItems, readProposal, specificationFromItems } from './proposalPdf';
 
 const GRAFILAR = `Warning: UnknownErrorException: Ensure that the \`standardFontDataUrl\` API parameter is provided.
 Warning: UnknownErrorException: Ensure that the \`standardFontDataUrl\` API parameter is provided.
@@ -141,6 +141,20 @@ describe('a proposta da Grafilar (a tabela com quantidade, descrição, unitári
     expect(matchItemsToProducts(read.items, products)).toEqual([0, 1, 2, 3, 4]);
     // Num orçamento de um produto só, tudo vai para ele.
     expect(matchItemsToProducts(read.items, [products[0]!])).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it('a especificação do orçamento: as iguais viram um parágrafo só, e o limite não corta um parágrafo no meio', () => {
+    const spec = specificationFromItems(read.items);
+    const paragraphs = spec.split('\n\n');
+    expect(paragraphs.map((p) => p.slice(0, p.indexOf(':')))).toEqual([
+      'Box - Curso Básico de Desenho',
+      'Livro PUR Curso Básico de Desenho - Básico, Mangá e Rosto',
+      'Livro PUR Curso Básico de Desenho Mangá',
+    ]);
+    expect(spec.length).toBeLessThanOrEqual(2000);
+    // Com pouco espaço, ficam só os parágrafos inteiros que cabem.
+    expect(specificationFromItems(read.items, 500).split('\n\n')).toHaveLength(1);
+    expect(specificationFromItems([{ description: 'A', specification: 'palavra '.repeat(50) }], 40)).toBe('A: palavra palavra palavra palavra…');
   });
 
   it('os produtos de um orçamento novo: os livros com a quantidade do box vão dentro dele; o avulso, não', () => {

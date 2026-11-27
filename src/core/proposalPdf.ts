@@ -413,3 +413,35 @@ export function productsFromItems(items: readonly Pick<ProposalItemRead, 'descri
     inBox: !!box && i !== box && i.quantity === box.quantity,
   }));
 }
+
+/** Junta nomes do mesmo jeito ("Livro X - Básico", "Livro X - Mangá" → "Livro X - Básico e Mangá"); senão, com ";". */
+function joinNames(names: readonly string[]): string {
+  if (names.length === 1) return names[0]!;
+  const dash = names.map((n) => n.lastIndexOf(' - '));
+  const base = names[0]!.slice(0, Math.max(0, dash[0]!));
+  if (dash.every((d) => d > 0) && names.every((n, k) => n.slice(0, dash[k]) === base)) {
+    const models = names.map((n, k) => n.slice(dash[k]! + 3));
+    return `${base} - ${models.slice(0, -1).join(', ')} e ${models.at(-1)}`;
+  }
+  return names.join('; ');
+}
+
+/**
+ * A especificação do orçamento a partir dos itens lidos: um parágrafo por especificação diferente, com os itens que a
+ * usam (os 3 livros iguais do kit viram um parágrafo só), até o limite, sem cortar um parágrafo no meio.
+ */
+export function specificationFromItems(items: readonly Pick<ProposalItemRead, 'description' | 'specification'>[], max = 2000): string {
+  const bySpec = new Map<string, string[]>();
+  for (const i of items) if (i.specification) bySpec.set(i.specification, [...(bySpec.get(i.specification) ?? []), i.description]);
+  let out = '';
+  for (const [spec, names] of bySpec) {
+    const paragraph = `${joinNames(names)}: ${spec}`;
+    const next = out ? `${out}\n\n${paragraph}` : paragraph;
+    if (next.length > max) {
+      if (!out) out = `${paragraph.slice(0, paragraph.lastIndexOf(' ', max - 1))}…`;
+      break;
+    }
+    out = next;
+  }
+  return out;
+}
