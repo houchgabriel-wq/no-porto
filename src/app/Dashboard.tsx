@@ -4,7 +4,7 @@
 // destaque, o que falta as gráficas entregarem (em reais), e a lista das próximas entregas.
 
 import { useMemo } from 'react';
-import { brazilSummary, dueText, formatBrlWhole, producingOrders } from '../core/brazil';
+import { brazilSummary, countedProducts, dueText, formatBrlWhole, producingOrders } from '../core/brazil';
 import { NO_SUPPLIER, totals, totalsByOrder, totalsBySupplier } from '../core/items';
 import { formatQuantity, formatUsdWhole } from '../core/money';
 import { arrivalState, arrivalText, daysBetween, formatDay, shipmentUnits, totalDue } from '../core/shipments';
@@ -335,7 +335,9 @@ function BrazilCard({ brazil, onBrazil }: { brazil: BrazilData; onBrazil: (query
                   <span className="barra-nome">{o.title}</span>
                   <span className="barra-sub">
                     {printers.get(o.printerId) ?? 'Gráfica'} ·{' '}
-                    {state.delivered > 0 ? `faltam ${formatQuantity(state.remaining)} de ${formatQuantity(o.quantity)} ex.` : `${formatQuantity(o.quantity)} ex.`}
+                    {state.delivered > 0
+                      ? `faltam ${formatQuantity(state.remaining)} de ${formatQuantity(countedProducts(o).reduce((n, p) => n + p.quantity, 0))} ex.`
+                      : `${formatQuantity(state.remaining)} ex.`}
                   </span>
                 </span>
                 <span className={state.late ? 'pilula alerta' : o.dueAt ? 'pilula chegada previsto' : 'pilula'}>

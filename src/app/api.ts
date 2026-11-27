@@ -237,7 +237,7 @@ export const api = {
   registerArrival: (invoiceIds: string[], arrivedAt: string) => request<{ invoices: number }>('POST', '/api/arrivals', { invoiceIds, arrivedAt }),
   // Produção no Brasil (27/11/2026): orçamentos, propostas das gráficas, pedidos e entregas.
   brazil: () => request<BrazilData>('GET', '/api/brasil'),
-  createQuote: (body: QuoteInput) => request<{ id: string }>('POST', '/api/brasil/quotes', body),
+  createQuote: (body: QuoteInput) => request<{ id: string; products: { id: string; title: string }[] }>('POST', '/api/brasil/quotes', body),
   updateQuote: (id: string, body: Partial<QuoteInput> & { status?: 'aberto' | 'cancelado' }) => request<{ ok: true }>('PATCH', `/api/brasil/quotes/${encodeURIComponent(id)}`, body),
   addOffer: (quoteId: string, body: OfferInput) => request<{ id: string }>('POST', `/api/brasil/quotes/${encodeURIComponent(quoteId)}/offers`, body),
   updateOffer: (id: string, body: OfferInput) => request<{ ok: true }>('PATCH', `/api/brasil/offers/${encodeURIComponent(id)}`, body),
@@ -245,7 +245,7 @@ export const api = {
   closeQuote: (quoteId: string, body: { offerId: string; orderedAt: string; dueAt: string | null }) => request<{ id: string }>('POST', `/api/brasil/quotes/${encodeURIComponent(quoteId)}/close`, body),
   reopenOrder: (id: string) => request<{ ok: true }>('POST', `/api/brasil/orders/${encodeURIComponent(id)}/reopen`, {}),
   updateOrder: (id: string, body: { dueAt?: string | null; notes?: string }) => request<{ ok: true }>('PATCH', `/api/brasil/orders/${encodeURIComponent(id)}`, body),
-  addDelivery: (orderId: string, body: { deliveredAt: string; quantity: number; last: boolean; notes: string }) =>
+  addDelivery: (orderId: string, body: { deliveredAt: string; parts: { productId: string; quantity: number }[]; last: boolean; notes: string }) =>
     request<{ id: string }>('POST', `/api/brasil/orders/${encodeURIComponent(orderId)}/deliveries`, body),
   deleteDelivery: (id: string) => request<{ ok: true }>('DELETE', `/api/brasil/deliveries/${encodeURIComponent(id)}`),
   createPaper: (body: { name: string; pricePerKgE4: number; notes?: string }) => request<{ id: string }>('POST', '/api/brasil/papers', body),
@@ -324,10 +324,17 @@ export interface BrazilData {
   orders: BrOrder[];
 }
 
-export interface QuoteInput {
+/** Um produto do orçamento ao gravar; o id, para o produto que já existia. */
+export interface QuoteProductInput {
+  id?: string;
   title: string;
   isbn: string | null;
   quantity: number;
+  inBox: boolean;
+}
+
+export interface QuoteInput {
+  products: QuoteProductInput[];
   specification: string;
   notes: string;
 }
@@ -337,8 +344,10 @@ export interface OfferInput {
   /** Quantos produtos prontos a proposta entrega (o kit conta como um). */
   quantity: number;
   paperBy: PaperBy;
-  items: { description: string; quantity: number; unitPriceE4: number }[];
-  papers: { part: PaperPart; paper: string; grams: number; pricePerKgE4: number }[];
+  /** Com vários produtos, cada item diz qual produto cobra. */
+  items: { productId: string | null; description: string; specification: string; quantity: number; unitPriceE4: number }[];
+  /** O papel pode ser de um produto; sem produto, é da proposta toda. */
+  papers: { productId: string | null; part: PaperPart; paper: string; grams: number; pricePerKgE4: number }[];
   leadDays: number | null;
   proposalNumber: string;
   proposalDate: string | null;
