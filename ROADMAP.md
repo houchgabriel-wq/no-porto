@@ -58,6 +58,7 @@ Cada marco termina com o sistema funcionando no ar e algo que o Gabriel consegue
   Os orçamentos com as gráficas do Brasil (várias propostas por produto, fechar com uma), a produção até a entrega no estoque, em uma ou mais entregas, e a visão junto com a importação no painel, no terminal de consulta e na previsão de estoque (decidido pelo Gabriel em 27/11/2026; SPEC, seções 2 e 3).
   Em duas partes: primeiro a sub-aba Brasil em Produção, com orçamentos, propostas, pedidos e entregas; depois a visão junto com a importação.
   *Teste do Gabriel:* o Marcelo cadastra os próximos orçamentos com as propostas das gráficas, fecha um, registra as entregas, e o Gabriel confere tudo junto com a importação.
+  *Primeira parte pronta para o teste em 27/11/2026:* Produção › Brasil com o resumo, os orçamentos e as propostas das gráficas (a de menor preço em destaque), fechar com uma, os pedidos em produção e as entregas em partes (migração `0021`). O leitor vê sem os valores; Embarques, Vendas e o Agente de cargas são recusados. Auditoria de acessibilidade sem violações na sub-aba e nas janelas, nos dois temas, no computador e no celular.
 
 ## Depois
 
