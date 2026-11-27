@@ -186,17 +186,25 @@ function BrazilOrders({ orders, seeValues, today }: { orders: ProductBrazilOrder
                 <tr key={o.id}>
                   <td className="nowrap">{formatDay(o.orderedAt, true)}</td>
                   <td>{o.printer}</td>
-                  <td>
-                    <span className="etapa-pilula h" style={hueStyle(state.stage === 'entregue' ? STATUS_HUES.entregue : BRAZIL_HUE)}>
-                      {state.stage === 'entregue' ? 'Entregue' : state.stage === 'parcial' ? 'Entregue em parte' : 'Em produção'}
-                    </span>
-                    <span className={state.late ? 't-isbn alerta-texto' : 't-isbn'}>
-                      {state.stage === 'entregue' ? `em ${formatDay(state.finishedAt!, true)}` : due.charAt(0).toLowerCase() + due.slice(1)}
-                    </span>
-                  </td>
-                  <td className="num nowrap">
-                    {formatQuantity(state.delivered)} de {formatQuantity(o.quantity)}
-                  </td>
+                  {o.inBox ? (
+                    // O livro que vai dentro do box vem com ele: não tem entrega própria nem conta no estoque.
+                    <td>
+                      <span className="etapa-pilula h" style={hueStyle(BRAZIL_HUE)}>
+                        Dentro do box
+                      </span>
+                      <span className="t-isbn">vem com o box; não conta no estoque do livro</span>
+                    </td>
+                  ) : (
+                    <td>
+                      <span className="etapa-pilula h" style={hueStyle(state.stage === 'entregue' ? STATUS_HUES.entregue : BRAZIL_HUE)}>
+                        {state.stage === 'entregue' ? 'Entregue' : state.stage === 'parcial' ? 'Entregue em parte' : 'Em produção'}
+                      </span>
+                      <span className={state.late ? 't-isbn alerta-texto' : 't-isbn'}>
+                        {state.stage === 'entregue' ? `em ${formatDay(state.finishedAt!, true)}` : due.charAt(0).toLowerCase() + due.slice(1)}
+                      </span>
+                    </td>
+                  )}
+                  <td className="num nowrap">{o.inBox ? `${formatQuantity(o.quantity)} no box` : `${formatQuantity(state.delivered)} de ${formatQuantity(o.quantity)}`}</td>
                   {seeValues && (
                     <>
                       <td className="num">{o.totalCents === null ? <span className="mudo">—</span> : formatBrlUnit(Math.round((o.totalCents * 100) / o.quantity))}</td>
