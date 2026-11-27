@@ -6,6 +6,7 @@
 // Com o BL em PDF, as unidades (container, lacre, caixas, peso) são lidas dele e ligadas a cada
 // container pelo número do container da packing list ou pelas caixas e pelo peso (25/11/2026). A data do
 // BL preenche a chegada prevista: a data mais o prazo, de 35 dias por padrão, que o admin muda (26/11/2026).
+// Os produtos com o ISBN na curva ABC ficam com o título dela, no lugar do nome da invoice (27/11/2026).
 
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import { allocateInvoices, guessSupplier, type LineAllocation } from '../core/allocation';
@@ -206,6 +207,23 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
   const update = (key: string, patch: Partial<Container>) => setContainers((cs) => cs.map((c) => (c.key === key ? { ...c, ...patch } : c)));
 
   const merged = useMemo(() => containers.map(containerLines), [containers]);
+  // Os títulos da curva ABC para os ISBNs dos arquivos: a prévia mostra o nome que vai ficar (o servidor
+  // grava o mesmo, pela mesma curva).
+  const isbnList = useMemo(() => [...new Set(merged.flatMap((m) => m.lines.map((l) => l.isbn).filter((x): x is string => Boolean(x))))].sort().join(','), [merged]);
+  const [curve, setCurve] = useState<{ stockDate: string | null; titles: Record<string, string> } | null>(null);
+  useEffect(() => {
+    if (!isbnList) return setCurve(null);
+    let alive = true;
+    api.curveTitles(isbnList.split(',')).then(
+      (r) => alive && setCurve(r),
+      () => alive && setCurve(null),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [isbnList]);
+  const curveTitles = curve?.titles ?? {};
+  const renamed = merged.flatMap((m) => m.lines).filter((l) => l.isbn && curveTitles[l.isbn] && curveTitles[l.isbn] !== l.description).length;
   const ready = containers.every((c, i) => c.supplierId && merged[i]!.lines.length > 0);
   const allocation = useMemo(
     () => (containers.length && ready ? allocateInvoices(containers.map((c, i) => ({ supplierId: c.supplierId, lines: merged[i]!.lines })), data.items, data.orders) : null),
@@ -463,6 +481,7 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
               data={data}
               names={names}
               lines={merged[i]!.lines}
+              curveTitles={curveTitles}
               warnings={merged[i]!.warnings}
               allocation={allocation?.[i] ?? null}
               units={units}
@@ -479,6 +498,18 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
             />
           ))}
 
+          {containers.length > 0 && curve && (
+            <p className="dica nomes-curva">
+              <Icon name="livro" />
+              <span>
+                {curve.stockDate === null
+                  ? 'Sem curva ABC carregada: os produtos ficam com o nome da invoice.'
+                  : renamed > 0
+                    ? `${renamed === 1 ? '1 produto fica' : `${renamed} produtos ficam`} com o nome da curva ABC (estoque de ${formatDay(curve.stockDate, true)}), no lugar do nome da invoice. Confira em "De onde sai cada item".`
+                    : `Nenhum nome muda pela curva ABC (estoque de ${formatDay(curve.stockDate, true)}).`}
+              </span>
+            </p>
+          )}
           {containers.length > 0 && (
             <p className={`aviso ${extra ? 'alerta' : 'ok'}`}>
               <Icon name={extra ? 'alerta' : 'check'} />
@@ -653,6 +684,7 @@ function ContainerCard({
   data,
   names,
   lines,
+  curveTitles,
   warnings,
   allocation,
   units,
@@ -672,6 +704,8 @@ function ContainerCard({
   data: ProductionData;
   names: Map<string, string>;
   lines: DocumentLine[];
+  /** Os títulos da curva ABC pelos ISBNs (27/11/2026). */
+  curveTitles: Record<string, string>;
   warnings: DocumentNote[];
   allocation: LineAllocation[] | null;
   /** As unidades lidas do BL (null sem BL em PDF). */
@@ -693,6 +727,7 @@ function ContainerCard({
   const qty = lines.reduce((s, l) => s + l.quantity, 0);
   const withPieces = lines.filter((l) => l.piecesPerCarton !== null).length;
   const extra = allocation ? allocation.reduce((s, a) => s + a.extra, 0) : 0;
+  const renamedHere = lines.filter((l) => l.isbn && curveTitles[l.isbn] && curveTitles[l.isbn] !== l.description).length;
   return (
     <section className="conteiner" aria-labelledby={`${ids}-t`}>
       <div className="conteiner-topo">
@@ -812,8 +847,9 @@ function ContainerCard({
           <summary>
             De onde sai cada item
             {extra > 0 && <span className="alerta-texto"> · {formatQuantity(extra)} ex. fora da produção</span>}
+            {renamedHere > 0 && <span className="mudo"> · {renamedHere === 1 ? '1 nome da curva ABC' : `${renamedHere} nomes da curva ABC`}</span>}
           </summary>
-          <AllocationTable lines={lines} allocation={allocation} data={data} />
+          <AllocationTable lines={lines} allocation={allocation} data={data} curveTitles={curveTitles} />
         </details>
       ) : (
         !c.supplierId && <p className="dica">Não deu para saber o fornecedor pelos arquivos: escolha acima.</p>
@@ -823,7 +859,7 @@ function ContainerCard({
   );
 }
 
-function AllocationTable({ lines, allocation, data }: { lines: DocumentLine[]; allocation: LineAllocation[]; data: ProductionData }) {
+function AllocationTable({ lines, allocation, data, curveTitles }: { lines: DocumentLine[]; allocation: LineAllocation[]; data: ProductionData; curveTitles: Record<string, string> }) {
   const items = useMemo(() => new Map(data.items.map((i) => [i.id, i])), [data.items]);
   const codes = useMemo(() => new Map(data.orders.map((o) => [o.id, o.code])), [data.orders]);
   return (
@@ -843,7 +879,8 @@ function AllocationTable({ lines, allocation, data }: { lines: DocumentLine[]; a
             return (
               <tr key={`${l.row}-${index}`}>
                 <td>
-                  {l.description}
+                  {(l.isbn && curveTitles[l.isbn]) || l.description}
+                  {l.isbn && curveTitles[l.isbn] && curveTitles[l.isbn] !== l.description && <span className="t-isbn">na invoice: {l.description}</span>}
                   <span className="t-isbn">
                     {l.isbn ?? 'Sem ISBN'}
                     {l.orderCode && ` · a invoice cita a ${l.orderCode}`}
