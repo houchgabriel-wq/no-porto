@@ -2,7 +2,10 @@
 // curva ABC (estoque e vendas de cada título) com o que o No Porto sabe de cada um (o que está
 // embarcado e o que está em produção nos fornecedores) e calcula a cobertura em meses, a sugestão de
 // reimpressão e o aviso de embarque. Só quantidades: nada de valores em dinheiro.
+// Desde 27/11/2026, a produção no Brasil entra junto, pelo ISBN: o que falta entregar das gráficas vai direto
+// para o estoque, sem viagem, e conta como o embarcado (na cobertura, na reimpressão e no prazo do embarque).
 
+import { finishedAt, type BrOrderSummary } from './brazil';
 import { toIsbn13 } from './isbn';
 import type { ItemStatus } from './items';
 import { daysBetween, formatDay } from './shipments';
@@ -60,6 +63,18 @@ export interface TitleOrder {
   quantity: number;
 }
 
+/** Um pedido do título numa gráfica do Brasil, ainda não entregue. */
+export interface BrazilTitleOrder {
+  id: string;
+  printer: string;
+  /** O que falta entregar. */
+  remaining: number;
+  dueAt: string | null;
+}
+
+/** Antes de qual chegada o estoque físico acaba: a do embarcado ou a entrega do Brasil. */
+export type GapBefore = 'embarcado' | 'brasil';
+
 /** Sugestão de reimpressão por uma das médias. */
 export type ReprintAdvice =
   /** Não precisa reimprimir agora (ou o título não vende). */
@@ -97,6 +112,12 @@ export interface ForecastRow extends CurveRow {
   arrivedAfter: number;
   /** A chegada prevista mais próxima do que está a caminho. */
   nextEta: string | null;
+  /** No Brasil: o que falta as gráficas entregarem mais o que entregaram depois da data da curva. */
+  brazil: number;
+  /** Parte do Brasil que já foi entregue, mas depois da data do estoque da curva. */
+  brazilArrivedAfter: number;
+  /** Os pedidos no Brasil ainda não entregues, da entrega prevista mais próxima para a mais distante. */
+  brazilOrders: BrazilTitleOrder[];
   production: number;
   /** As POs em produção, da mais antiga para a mais nova. */
   orders: TitleOrder[];
@@ -109,26 +130,31 @@ export interface ForecastRow extends CurveRow {
   cover: { stock3: number | null; stock6: number | null; total3: number | null; total6: number | null };
   reprint3: ReprintAdvice;
   reprint6: ReprintAdvice;
-  /** O dia em que físico + embarcado acabam, pela maior das duas médias; null sem venda. */
+  /** O dia em que físico + embarcado + Brasil acabam, pela maior das duas médias; null sem venda. */
   runsOutAt: string | null;
   ship: ShipAdvice | null;
-  /** O estoque físico acaba antes da chegada prevista do que está a caminho. */
-  gapBeforeArrival: boolean;
+  /** O estoque físico acaba antes da chegada prevista do que está a caminho ou da entrega do Brasil; null quando dura. */
+  gapBefore: GapBefore | null;
   /** Só vendeu nos últimos 3 meses (vendas de 3 meses = de 6 meses): a média de 6 meses fica baixa. */
   recentOnly: boolean;
   /** Precisa de alguma coisa: reimpressão, embarque nos próximos 30 dias (ou atrasado) ou algum aviso. */
   needsAction: boolean;
 }
 
-/** Título com quantidade em produção ou a caminho no No Porto que não está na curva. */
+/** Título com quantidade em produção, a caminho ou no Brasil no No Porto que não está na curva. */
 export interface MissingTitle {
-  productId: string;
+  key: string;
+  /** null para o título que só tem produção no Brasil. */
+  productId: string | null;
   isbn: string | null;
   title: string;
   atSea: number;
   production: number;
   nextEta: string | null;
   orders: TitleOrder[];
+  /** O que falta as gráficas do Brasil entregarem. */
+  brazil: number;
+  brazilOrders: BrazilTitleOrder[];
 }
 
 export interface Forecast {
@@ -138,9 +164,10 @@ export interface Forecast {
 
 /** O que o No Porto tem de um título (o servidor junta os itens; a tela calcula a previsão). */
 export interface TitleHolding {
-  /** O ISBN-13 (o ISBN-10 vira ISBN-13), ou "produto:<id>" para o produto sem ISBN. */
+  /** O ISBN-13 (o ISBN-10 vira ISBN-13); "produto:<id>" para o produto sem ISBN; "brasil:<id>" para o pedido no Brasil sem ISBN. */
   key: string;
-  productId: string;
+  /** null quando o título só tem pedidos no Brasil. */
+  productId: string | null;
   isbn: string | null;
   title: string;
   /** A caminho, mais o que chegou depois da data do estoque da curva. */
@@ -151,6 +178,11 @@ export interface TitleHolding {
   production: number;
   orders: TitleOrder[];
   nextPlan: string | null;
+  /** O que falta as gráficas do Brasil entregarem, mais o que entregaram depois da data do estoque da curva. */
+  brazil: number;
+  /** O que o Brasil entregou depois da data do estoque da curva. */
+  brazilArrivedAfter: number;
+  brazilOrders: BrazilTitleOrder[];
 }
 
 export function addDays(iso: string, days: number): string {
@@ -161,18 +193,35 @@ export function addDays(iso: string, days: number): string {
 
 const RANK: Record<ItemStatus, number> = { producao: 3, embarcado: 2, entregue: 1 };
 
+const newHolding = (key: string, productId: string | null, isbn: string | null, title: string): TitleHolding => ({
+  key,
+  productId,
+  isbn,
+  title,
+  atSea: 0,
+  arrivedAfter: 0,
+  nextEta: null,
+  production: 0,
+  orders: [],
+  nextPlan: null,
+  brazil: 0,
+  brazilArrivedAfter: 0,
+  brazilOrders: [],
+});
+
 /**
  * O que o No Porto tem de cada título, pela chave do código de barras (ISBN-13), na ordem em que os
- * produtos aparecem. `items` na ordem em que entraram.
+ * produtos aparecem. `items` na ordem em que entraram; `brazil`, os pedidos no Brasil, do mais antigo para o
+ * mais novo: o que falta entregar e o que foi entregue depois da data do estoque da curva, que ela ainda não conta.
  */
-export function titleHoldings(items: readonly ForecastItem[], stockDate: string): TitleHolding[] {
+export function titleHoldings(items: readonly ForecastItem[], stockDate: string, brazil: readonly BrOrderSummary[] = []): TitleHolding[] {
   const map = new Map<string, TitleHolding>();
   const rank = new Map<string, number>();
   for (const item of items) {
     const key = item.isbn ? toIsbn13(item.isbn) : `produto:${item.productId}`;
     let h = map.get(key);
     if (!h) {
-      h = { key, productId: item.productId, isbn: item.isbn, title: item.description, atSea: 0, arrivedAfter: 0, nextEta: null, production: 0, orders: [], nextPlan: null };
+      h = newHolding(key, item.productId, item.isbn, item.description);
       map.set(key, h);
     }
     // O nome atual: o do item em produção que entrou por último; sem produção, o do que está a caminho.
@@ -196,8 +245,28 @@ export function titleHoldings(items: readonly ForecastItem[], stockDate: string)
       h.arrivedAfter += item.quantity;
     }
   }
+  for (const o of brazil) {
+    const key = o.isbn ? toIsbn13(o.isbn) : `brasil:${o.id}`;
+    let h = map.get(key);
+    if (!h) {
+      h = newHolding(key, null, o.isbn, o.title);
+      map.set(key, h);
+    } else if (h.productId === null) {
+      // Só do Brasil: vale o nome do pedido mais novo.
+      h.title = o.title;
+    }
+    const after = o.deliveries.filter((d) => d.deliveredAt > stockDate).reduce((n, d) => n + d.quantity, 0);
+    h.brazil += after;
+    h.brazilArrivedAfter += after;
+    if (finishedAt(o)) continue;
+    const remaining = Math.max(0, o.quantity - o.deliveries.reduce((n, d) => n + d.quantity, 0));
+    if (remaining === 0) continue;
+    h.brazil += remaining;
+    h.brazilOrders.push({ id: o.id, printer: o.printer, remaining, dueAt: o.dueAt });
+  }
   for (const h of map.values()) {
     h.orders.sort((a, b) => (a.orderedAt ?? '9999').localeCompare(b.orderedAt ?? '9999') || (a.code ?? '').localeCompare(b.code ?? ''));
+    h.brazilOrders.sort((a, b) => (a.dueAt ?? '9999-12-31').localeCompare(b.dueAt ?? '9999-12-31'));
   }
   return [...map.values()];
 }
@@ -222,6 +291,25 @@ function daysOf(quantity: number, monthly: number): number {
 }
 
 /**
+ * O estoque físico (com o que chegou depois da curva) acaba antes de alguma chegada? As chegadas vão em ordem de
+ * data: o que está a caminho, todo na chegada prevista mais próxima (como sempre foi), e cada pedido no Brasil na
+ * entrega prevista dele (o pedido sem entrega prevista não entra na conta). Devolve antes de qual o estoque acaba.
+ */
+function gapBefore(h: TitleHolding, physical: number, monthly: number, stockDate: string): GapBefore | null {
+  const arrivals: { date: string; quantity: number; kind: GapBefore }[] = [];
+  const inTransit = h.atSea - h.arrivedAfter;
+  if (inTransit > 0 && h.nextEta) arrivals.push({ date: h.nextEta, quantity: inTransit, kind: 'embarcado' });
+  for (const o of h.brazilOrders) if (o.dueAt) arrivals.push({ date: o.dueAt, quantity: o.remaining, kind: 'brasil' });
+  arrivals.sort((a, b) => a.date.localeCompare(b.date));
+  let level = physical;
+  for (const a of arrivals) {
+    if (addDays(stockDate, daysOf(level, monthly)) < a.date) return a.kind;
+    level += a.quantity;
+  }
+  return null;
+}
+
+/**
  * Calcula a previsão de cada título da curva, na ordem de urgência, e lista os títulos do No Porto fora
  * dela. `holdings` vem de titleHoldings, com a mesma data do estoque da curva.
  */
@@ -233,14 +321,18 @@ export function stockForecast(curve: { stockDate: string; rows: readonly CurveRo
     const h = held.get(row.isbn);
     const atSea = h?.atSea ?? 0;
     const arrivedAfter = h?.arrivedAfter ?? 0;
+    const brazil = h?.brazil ?? 0;
+    const brazilArrivedAfter = h?.brazilArrivedAfter ?? 0;
     const production = h?.production ?? 0;
     const { m3, m6 } = row.sales;
     const monthly3 = m3 / 3;
     const monthly6 = m6 / 6;
     const top = Math.max(monthly3, monthly6);
     const cover = (quantity: number, monthly: number) => (monthly > 0 ? quantity / monthly : null);
-    const have = row.stock + atSea + production;
-    const runsOutAt = top > 0 ? addDays(curve.stockDate, daysOf(row.stock + atSea, top)) : null;
+    // O que vem: o embarcado e o Brasil, que vai direto para o estoque.
+    const coming = atSea + brazil;
+    const have = row.stock + coming + production;
+    const runsOutAt = top > 0 ? addDays(curve.stockDate, daysOf(row.stock + coming, top)) : null;
 
     let ship: ShipAdvice | null = null;
     if (production > 0 && runsOutAt) {
@@ -259,32 +351,34 @@ export function stockForecast(curve: { stockDate: string; rows: readonly CurveRo
       };
     }
 
-    // O físico (com o que chegou depois da curva) acaba antes de chegar o que está a caminho?
-    const inTransit = atSea - arrivedAfter;
-    const gapBeforeArrival = inTransit > 0 && !!h?.nextEta && top > 0 && addDays(curve.stockDate, daysOf(row.stock + arrivedAfter, top)) < h.nextEta;
+    // O físico (com o que chegou depois da curva) acaba antes de chegar o que está a caminho ou o que vem do Brasil?
+    const gap = h && top > 0 ? gapBefore(h, row.stock + arrivedAfter + brazilArrivedAfter, top, curve.stockDate) : null;
 
     const reprint3 = reprintAdvice(m3, 3, have);
     const reprint6 = reprintAdvice(m6, 6, have);
-    const needsAction = needsReprint({ reprint3, reprint6 }) || gapBeforeArrival || shipNeedsAttention(ship, today) || !!ship?.planLate;
+    const needsAction = needsReprint({ reprint3, reprint6 }) || gap !== null || shipNeedsAttention(ship, today) || !!ship?.planLate;
 
     return {
       ...row,
-      imported: !!h,
+      imported: !!h?.productId,
       productId: h?.productId ?? null,
       atSea,
       arrivedAfter,
       nextEta: h?.nextEta ?? null,
+      brazil,
+      brazilArrivedAfter,
+      brazilOrders: h?.brazilOrders ?? [],
       production,
       orders: h?.orders ?? [],
       nextPlan: h?.nextPlan ?? null,
       monthly3,
       monthly6,
-      cover: { stock3: cover(row.stock, monthly3), stock6: cover(row.stock, monthly6), total3: cover(row.stock + atSea, monthly3), total6: cover(row.stock + atSea, monthly6) },
+      cover: { stock3: cover(row.stock, monthly3), stock6: cover(row.stock, monthly6), total3: cover(row.stock + coming, monthly3), total6: cover(row.stock + coming, monthly6) },
       reprint3,
       reprint6,
       runsOutAt,
       ship,
-      gapBeforeArrival,
+      gapBefore: gap,
       recentOnly: m3 > 0 && m3 === m6,
       needsAction,
     };
@@ -295,17 +389,29 @@ export function stockForecast(curve: { stockDate: string; rows: readonly CurveRo
   for (const [key, h] of held) {
     if (inCurve.has(key)) continue;
     const inTransit = h.atSea - h.arrivedAfter;
-    if (h.production === 0 && inTransit === 0) continue;
-    missing.push({ productId: h.productId, isbn: h.isbn, title: h.title, atSea: inTransit, production: h.production, nextEta: h.nextEta, orders: h.orders });
+    const brazilPending = h.brazil - h.brazilArrivedAfter;
+    if (h.production === 0 && inTransit === 0 && brazilPending === 0) continue;
+    missing.push({
+      key,
+      productId: h.productId,
+      isbn: h.isbn,
+      title: h.title,
+      atSea: inTransit,
+      production: h.production,
+      nextEta: h.nextEta,
+      orders: h.orders,
+      brazil: brazilPending,
+      brazilOrders: h.brazilOrders,
+    });
   }
   missing.sort((a, b) => a.title.localeCompare(b.title, 'pt-BR'));
   return { rows, missing };
 }
 
-/** Só o que a previsão usa: os títulos da curva e os que têm produção ou algo a caminho. */
+/** Só o que a previsão usa: os títulos da curva e os que têm produção, algo a caminho ou algo por entregar no Brasil. */
 export function holdingsFor(curveRows: readonly CurveRow[], holdings: readonly TitleHolding[]): TitleHolding[] {
   const keys = new Set(curveRows.map((r) => r.isbn));
-  return holdings.filter((h) => keys.has(h.key) || h.production > 0 || h.atSea - h.arrivedAfter > 0);
+  return holdings.filter((h) => keys.has(h.key) || h.production > 0 || h.atSea - h.arrivedAfter > 0 || h.brazil - h.brazilArrivedAfter > 0);
 }
 
 /**
@@ -328,7 +434,8 @@ export function forecastAlerts(row: ForecastRow): string[] {
   if (s?.overdue) out.push('Embarcar já: o prazo passou');
   if (s?.late && s.readyAt) out.push(`Pode faltar: a PO fica pronta em ${formatDay(s.readyAt, true)}`);
   if (s?.planLate && row.nextPlan) out.push(`Envio programado para ${formatMonth(row.nextPlan)}, depois do prazo`);
-  if (row.gapBeforeArrival) out.push('O estoque acaba antes de o embarcado chegar');
+  if (row.gapBefore === 'embarcado') out.push('O estoque acaba antes de o embarcado chegar');
+  if (row.gapBefore === 'brasil') out.push('O estoque acaba antes da entrega do Brasil');
   if (s?.short) out.push('A produção não cobre 3 meses de venda');
   return out;
 }
@@ -362,7 +469,7 @@ export interface ForecastSummary {
   shipSoon: number;
   /** Títulos em que a PO fica pronta depois do "embarcar até": pode faltar. */
   late: number;
-  /** Títulos em que o estoque acaba antes de o embarcado chegar. */
+  /** Títulos em que o estoque acaba antes de o embarcado chegar (ou antes da entrega do Brasil). */
   gaps: number;
 }
 
@@ -377,7 +484,7 @@ export function forecastSummary(rows: readonly ForecastRow[], today: string): Fo
     if (shipNeedsAttention(r.ship, today)) s.ship++;
     if (shipDueSoon(r.ship, today)) s.shipSoon++;
     if (r.ship?.late) s.late++;
-    if (r.gapBeforeArrival) s.gaps++;
+    if (r.gapBefore) s.gaps++;
   }
   return s;
 }

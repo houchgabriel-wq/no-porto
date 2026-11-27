@@ -1,7 +1,11 @@
 // Terminal de consulta do painel (pedido do Gabriel em 19/11/2026): digita-se o nome do produto ou o
 // ISBN e aparece o resumo de cada produto que bate: quanto está em produção, quanto está embarcado (a
 // caminho) e a última chegada, com a quantidade que chegou naquele dia. Só quantidades, sem valores.
+// Desde 27/11/2026, também a produção no Brasil, pelo ISBN: o que falta as gráficas entregarem, e as entregas
+// delas contam na última chegada. O que só tem pedidos no Brasil aparece como um produto à parte.
 
+import { finishedAt, type BrOrderSummary } from './brazil';
+import { toIsbn13 } from './isbn';
 import { compareOrderCodes, searchKey, type ItemStatus } from './items';
 import { sortPlan, type ShipPlan } from './shipPlan';
 
@@ -21,7 +25,10 @@ export interface LookupItem {
 }
 
 export interface ProductSummary {
-  productId: string;
+  /** Para a lista: o produto, ou "brasil:<ISBN ou nome>" para o que só tem pedidos no Brasil. */
+  key: string;
+  /** O produto no No Porto, para abrir a ficha; null para o que só tem pedidos no Brasil. */
+  productId: string | null;
   isbn: string | null;
   /**
    * O nome atual do produto: o do item em produção que entrou por último; sem produção, o do que está a
@@ -43,8 +50,17 @@ export interface ProductSummary {
     /** A previsão de chegada mais próxima entre os embarques a caminho. */
     nextEta: string | null;
   };
-  /** A chegada mais recente, com o total do produto que chegou naquele dia. */
-  lastArrival: { date: string; quantity: number } | null;
+  /** Produção no Brasil: o que falta as gráficas entregarem, as gráficas e a entrega prevista mais próxima. */
+  brazil: {
+    quantity: number;
+    printers: string[];
+    nextDue: string | null;
+  };
+  /**
+   * A chegada mais recente, da importação ou entrega do Brasil, com o total do produto que chegou naquele dia e as
+   * gráficas do Brasil que entregaram nele (nenhuma, quando só chegou importação).
+   */
+  lastArrival: { date: string; quantity: number; printers: string[] } | null;
 }
 
 /** Quanto um item diz do nome atual: em produção, depois a caminho, depois pela data da chegada. */
@@ -53,22 +69,39 @@ function nameWeight(item: LookupItem): string {
   return `${rank}|${item.status === 'entregue' ? (item.arrivedAt ?? '') : ''}`;
 }
 
-/** Resumo de cada produto. `items` na ordem em que entraram. */
-export function productSummaries(items: readonly LookupItem[]): ProductSummary[] {
+const newSummary = (key: string, productId: string | null, isbn: string | null, title: string): ProductSummary => ({
+  key,
+  productId,
+  isbn,
+  title,
+  names: [],
+  production: { quantity: 0, orders: [], nextShip: null },
+  atSea: { quantity: 0, nextEta: null },
+  brazil: { quantity: 0, printers: [], nextDue: null },
+  lastArrival: null,
+});
+
+/** Conta uma chegada (ou entrega do Brasil, com a gráfica) na última chegada do produto. */
+function arrive(s: ProductSummary, date: string, quantity: number, printer: string | null) {
+  const last = s.lastArrival;
+  if (!last || date > last.date) s.lastArrival = { date, quantity, printers: printer ? [printer] : [] };
+  else if (date === last.date) {
+    last.quantity += quantity;
+    if (printer && !last.printers.includes(printer)) last.printers.push(printer);
+  }
+}
+
+/**
+ * Resumo de cada produto. `items` na ordem em que entraram; `brazil`, os pedidos no Brasil, do mais antigo para o
+ * mais novo, que se juntam ao produto pelo ISBN (o ISBN-10 vira ISBN-13).
+ */
+export function productSummaries(items: readonly LookupItem[], brazil: readonly BrOrderSummary[] = []): ProductSummary[] {
   const byProduct = new Map<string, ProductSummary>();
   const titleWeight = new Map<string, string>();
   for (const item of items) {
     let s = byProduct.get(item.productId);
     if (!s) {
-      s = {
-        productId: item.productId,
-        isbn: item.isbn,
-        title: item.description,
-        names: [],
-        production: { quantity: 0, orders: [], nextShip: null },
-        atSea: { quantity: 0, nextEta: null },
-        lastArrival: null,
-      };
+      s = newSummary(item.productId, item.productId, item.isbn, item.description);
       byProduct.set(item.productId, s);
     }
     // No empate, vale o que entrou depois.
@@ -87,12 +120,34 @@ export function productSummaries(items: readonly LookupItem[]): ProductSummary[]
       s.atSea.quantity += item.quantity;
       if (item.eta && (s.atSea.nextEta === null || item.eta < s.atSea.nextEta)) s.atSea.nextEta = item.eta;
     } else if (item.arrivedAt) {
-      const last = s.lastArrival;
-      if (!last || item.arrivedAt > last.date) s.lastArrival = { date: item.arrivedAt, quantity: item.quantity };
-      else if (item.arrivedAt === last.date) last.quantity += item.quantity;
+      arrive(s, item.arrivedAt, item.quantity, null);
     }
   }
   for (const s of byProduct.values()) s.production.orders.sort(compareOrderCodes);
+
+  // A produção no Brasil: no produto com o mesmo ISBN, ou num produto só do Brasil (sem ISBN, pelo nome).
+  const byIsbn = new Map<string, ProductSummary>();
+  for (const s of byProduct.values()) if (s.isbn && !byIsbn.has(toIsbn13(s.isbn))) byIsbn.set(toIsbn13(s.isbn), s);
+  for (const o of brazil) {
+    const isbn = o.isbn ? toIsbn13(o.isbn) : null;
+    const key = `brasil:${isbn ?? searchKey(o.title)}`;
+    let s = (isbn ? byIsbn.get(isbn) : undefined) ?? byProduct.get(key);
+    if (!s) {
+      s = newSummary(key, null, o.isbn, o.title);
+      byProduct.set(key, s);
+      if (isbn) byIsbn.set(isbn, s);
+    }
+    // Só do Brasil: vale o nome do pedido mais novo. No produto importado, o nome segue o da importação.
+    if (s.productId === null) s.title = o.title;
+    if (!s.names.includes(o.title)) s.names.push(o.title);
+    for (const d of o.deliveries) arrive(s, d.deliveredAt, d.quantity, o.printer);
+    if (finishedAt(o)) continue;
+    const remaining = Math.max(0, o.quantity - o.deliveries.reduce((n, d) => n + d.quantity, 0));
+    if (remaining === 0) continue;
+    s.brazil.quantity += remaining;
+    if (!s.brazil.printers.includes(o.printer)) s.brazil.printers.push(o.printer);
+    if (o.dueAt && (s.brazil.nextDue === null || o.dueAt < s.brazil.nextDue)) s.brazil.nextDue = o.dueAt;
+  }
   return [...byProduct.values()];
 }
 
@@ -114,7 +169,7 @@ function isbnQuery(query: string): string | null {
  * maiúscula, em qualquer ordem) ou pelo ISBN (o ISBN inteiro ou parte dele; só números também
  * procuram no nome, como o livro "1984"). A ordem: o ISBN exato; depois, no nome, a palavra inteira vale
  * mais que o começo de uma palavra, que vale mais que um pedaço dela, e o nome que começa com o que foi
- * digitado ganha um pouco. No empate, o que está em produção ou a caminho, depois a chegada mais recente.
+ * digitado ganha um pouco. No empate, o que está em produção (aqui ou no Brasil) ou a caminho, depois a chegada mais recente.
  */
 export function searchProducts(products: readonly ProductSummary[], query: string, limit = 8): LookupResult {
   const q = searchKey(query);
@@ -133,7 +188,7 @@ export function searchProducts(products: readonly ProductSummary[], query: strin
       score = Math.max(score, byName);
     }
     if (score < 0) continue;
-    scored.push({ product, score, active: product.production.quantity > 0 || product.atSea.quantity > 0 });
+    scored.push({ product, score, active: product.production.quantity > 0 || product.atSea.quantity > 0 || product.brazil.quantity > 0 });
   }
   scored.sort(
     (a, b) =>

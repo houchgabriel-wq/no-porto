@@ -83,8 +83,8 @@ export function LookupTerminal({ today, onProduct }: { today: string; onProduct:
       {result && result.products.length > 0 && (
         <ul className="consulta-lista" aria-label="Produtos encontrados">
           {result.products.map((p) => (
-            <li key={p.productId}>
-              <ProductCard product={p} today={today} onOpen={() => onProduct(p.productId)} />
+            <li key={p.key}>
+              <ProductCard product={p} today={today} onOpen={() => p.productId && onProduct(p.productId)} />
             </li>
           ))}
         </ul>
