@@ -399,6 +399,15 @@ async function updateInvoice(request: Request, env: Env, session: Session, id: s
   } else if (billId) {
     billArrived = (await env.DB.prepare('SELECT arrived_at FROM bills_of_lading WHERE id = ?').bind(billId).first<{ arrived_at: string | null }>())?.arrived_at ?? null;
   }
+  // A chegada é de cada container (27/11/2026). O BL com a chegada gravada nele (o jeito de antes) passa o dia para
+  // os containers sem chegada própria antes de este mudar: cada um segue com o seu dia, e o BL fica sem.
+  if (body.arrivedAt !== undefined && billId && billArrived) {
+    statements.push(
+      env.DB.prepare('UPDATE invoices SET arrived_at = ? WHERE bill_of_lading_id = ? AND arrived_at IS NULL AND id <> ?').bind(billArrived, billId, id),
+      env.DB.prepare('UPDATE bills_of_lading SET arrived_at = NULL WHERE id = ?').bind(billId),
+    );
+    billArrived = null;
+  }
   const next = {
     number: body.number ?? invoice.number,
     ref: body.ref ?? invoice.ref,
