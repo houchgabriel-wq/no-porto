@@ -13,6 +13,7 @@ import { cleanSpecification, latestSpecification, SPECIFICATION_MAX } from '../c
 import { readStoredPlan, shipPlanProblem } from '../core/shipPlan';
 import { withoutSuppliers } from '../core/shippedItems';
 import type { Session } from './auth';
+import { brazilOrdersForIsbn, readBrazilOrders } from './brazil';
 import type { Env } from './env';
 import { checkMutation, error, json, readBody } from './http';
 import { eventStatement, insertItem, itemDay, ITEM_SELECT, loadRefs, shipPlanSchema, toItem, type ItemRow } from './orders';
@@ -123,6 +124,8 @@ async function getProduct(env: Env, session: Session, id: string): Promise<Respo
     invoices: (v!.results as InvoiceInfoRow[]).map(invoiceInfo),
     orders: o!.results as { id: string; code: string }[],
     specification,
+    // A produção no Brasil com o mesmo ISBN (27/11/2026); o total só para quem vê valores.
+    brazil: product.isbn ? await brazilOrdersForIsbn(env, product.isbn, seeValues) : [],
     seeValues,
   });
 }
@@ -130,7 +133,8 @@ async function getProduct(env: Env, session: Session, id: string): Promise<Respo
 /**
  * Terminal de consulta do painel (19/11/2026): o resumo de cada produto (em produção, embarcado e a
  * última chegada), numa consulta só, para a busca correr no navegador enquanto a pessoa digita. Só
- * quantidades; a chegada é a da invoice ou do BL, como em arrivalOf.
+ * quantidades; a chegada é a da invoice ou do BL, como em arrivalOf. Desde 27/11/2026, com a produção no
+ * Brasil, juntada pelo ISBN (só quantidades, datas e o nome da gráfica).
  */
 async function getLookup(env: Env): Promise<Response> {
   const { results } = await env.DB.prepare(
@@ -166,6 +170,7 @@ async function getLookup(env: Env): Promise<Response> {
       eta: r.eta,
       arrivedAt: r.arrived_at,
     })),
+    await readBrazilOrders(env),
   );
   return json({ products });
 }

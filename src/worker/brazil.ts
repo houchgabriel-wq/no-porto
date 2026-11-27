@@ -11,6 +11,7 @@ import {
   offerCost,
   PAPER_PARTS,
   type BrOrder,
+  type BrOrderSummary,
   type Delivery,
   type Offer,
   type OfferItem,
@@ -22,7 +23,7 @@ import {
   type Quote,
   type QuoteStatus,
 } from '../core/brazil';
-import { isbnDigits, isbnProblem } from '../core/isbn';
+import { isbnDigits, isbnProblem, toIsbn13 } from '../core/isbn';
 import { can } from '../core/roles';
 import { spDate } from '../core/shipments';
 import type { Session } from './auth';
@@ -316,6 +317,49 @@ async function getBrazil(env: Env, session: Session, now: Date): Promise<Respons
   }));
   const orders = orderRows.map((row) => toOrder(row, deliveries.get(row.id) ?? [], price));
   return json({ today: spDate(now), seeValues, printers: p!.results as unknown as Printer[], papers, quotes, orders });
+}
+
+/**
+ * Os pedidos no Brasil só com as quantidades, as datas e o nome da gráfica, do mais antigo para o mais novo: o que o
+ * terminal de consulta e a previsão de estoque juntam à importação pelo ISBN (27/11/2026). Nada de valores sai daqui.
+ */
+export async function readBrazilOrders(env: Env): Promise<BrOrderSummary[]> {
+  const [o, d] = await env.DB.batch([
+    env.DB.prepare(
+      'SELECT o.id, o.isbn, o.title, o.quantity, o.ordered_at, o.due_at, p.name AS printer FROM br_orders o JOIN printers p ON p.id = o.printer_id ORDER BY o.ordered_at, o.created_at, o.rowid',
+    ),
+    env.DB.prepare('SELECT order_id, delivered_at, quantity, is_last FROM br_deliveries ORDER BY delivered_at, created_at'),
+  ]);
+  const deliveries = new Map<string, BrOrderSummary['deliveries']>();
+  for (const r of d!.results as { order_id: string; delivered_at: string; quantity: number; is_last: number }[]) {
+    deliveries.set(r.order_id, [...(deliveries.get(r.order_id) ?? []), { deliveredAt: r.delivered_at, quantity: r.quantity, last: r.is_last === 1 }]);
+  }
+  return (o!.results as { id: string; isbn: string | null; title: string; quantity: number; ordered_at: string; due_at: string | null; printer: string }[]).map((r) => ({
+    id: r.id,
+    isbn: r.isbn,
+    title: r.title,
+    printer: r.printer,
+    quantity: r.quantity,
+    orderedAt: r.ordered_at,
+    dueAt: r.due_at,
+    deliveries: deliveries.get(r.id) ?? [],
+  }));
+}
+
+/** Um pedido no Brasil na ficha do produto: o total (gráfica + papel nosso, em centavos) só para quem vê valores. */
+export type ProductBrazilOrder = BrOrderSummary & { totalCents: number | null };
+
+/** Os pedidos no Brasil com o ISBN do produto (o ISBN-10 casa com o ISBN-13), para a ficha do produto. */
+export async function brazilOrdersForIsbn(env: Env, isbn: string, seeValues: boolean): Promise<ProductBrazilOrder[]> {
+  const key = toIsbn13(isbn);
+  const orders = (await readBrazilOrders(env)).filter((o) => o.isbn && toIsbn13(o.isbn) === key);
+  if (!orders.length) return [];
+  const totals = new Map<string, number>();
+  if (seeValues) {
+    const { results } = await env.DB.prepare('SELECT id, printer_cents + paper_cents AS total FROM br_orders WHERE isbn IS NOT NULL').all<{ id: string; total: number }>();
+    for (const r of results) totals.set(r.id, r.total);
+  }
+  return orders.map((o) => ({ ...o, totalCents: seeValues ? (totals.get(o.id) ?? null) : null }));
 }
 
 async function findQuote(env: Env, id: string) {
