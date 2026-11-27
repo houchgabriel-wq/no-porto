@@ -10,6 +10,8 @@ type Value = string | number | null;
 
 export function createTestD1(): D1Database {
   const sqlite = new DatabaseSync(':memory:');
+  // Confere as chaves estrangeiras, como o D1 da Cloudflare.
+  sqlite.exec('PRAGMA foreign_keys = ON');
   const dir = fileURLToPath(new URL('../../migrations', import.meta.url).href);
   for (const file of readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) {
     sqlite.exec(readFileSync(join(dir, file), 'utf8'));
