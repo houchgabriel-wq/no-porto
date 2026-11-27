@@ -12,7 +12,7 @@ import type { InvoiceInfo } from '../core/history';
 import type { Amount, SupplierSummary } from '../core/suppliers';
 import type { CopyInput } from '../core/fullCopy';
 import type { NfeStatus } from '../core/nfe';
-import type { Bill, Invoice, Payment } from '../core/shipments';
+import type { Bill, Invoice, Payment, ShipmentSlice } from '../core/shipments';
 import type { Item, PurchaseOrder, Supplier } from '../core/items';
 import type { Role } from '../core/roles';
 import type { BookingRequest, ContainerType, NewBookingLine } from '../core/bookings';
@@ -216,6 +216,8 @@ export const api = {
       document: { name: string; size: number; key: string | null; number: string | null; series: string | null; issuedAt: string | null; status: NfeStatus | null };
     }>('PUT', `/api/${owner}/${encodeURIComponent(id)}/fiscal/${kind}`, body),
   deleteFiscalDocument: (owner: 'invoices' | 'bills', id: string, kind: 'pdf' | 'xml') => request<{ ok: true }>('DELETE', `/api/${owner}/${encodeURIComponent(id)}/fiscal/${kind}`),
+  /** O embarque inteiro pela chave (bl:<id> ou inv:<id>), também o que já saiu da tela de embarques (27/11/2026). */
+  shipment: (key: string) => request<ShipmentSlice>('GET', `/api/shipments/${encodeURIComponent(key)}`),
   /** Os títulos da curva ABC para os ISBNs de um embarque, para a prévia do Novo embarque (27/11/2026). */
   curveTitles: (isbns: string[]) => request<{ stockDate: string | null; titles: Record<string, string> }>('POST', '/api/stock/titles', { isbns }),
   /** Marca ou tira a prioridade do container no desembaraço e no transporte (26/11/2026). */

@@ -1,8 +1,9 @@
 // Tela Histórico (SPEC.md, seção 5): tudo o que chegou desde 2023, com busca, filtros por fornecedor
-// e ano, totais por ano e a ficha de cada produto. Os dados são carregados ao abrir a tela.
+// e ano, totais por ano e a ficha de cada produto. Os dados são carregados ao abrir a tela. Desde 27/11/2026, a
+// invoice e o BL abrem a ficha do embarque, com os arquivos, mesmo depois dos 60 dias da tela de embarques.
 
 import { useMemo, useState } from 'react';
-import { EMPTY_HISTORY_FILTERS, filterHistory, historyRows, NO_DATE, totalsByYear, type HistoryFilters, type HistoryRow, type InvoiceInfo } from '../core/history';
+import { EMPTY_HISTORY_FILTERS, filterHistory, historyRows, NO_DATE, shipmentKeyOf, totalsByYear, type HistoryFilters, type HistoryRow, type InvoiceInfo } from '../core/history';
 import { NO_SUPPLIER, totals, type Item, type Supplier } from '../core/items';
 import { formatQuantity, formatUnitPrice, formatUsd, formatUsdWhole } from '../core/money';
 import { formatDay } from '../core/shipments';
@@ -28,6 +29,8 @@ interface Props {
   suppliers: Supplier[];
   /** Abre a ficha do produto; ausente para quem não vê fichas (o perfil Embarques). */
   onProduct?: (productId: string) => void;
+  /** Abre a ficha do embarque pela chave (bl:<id> ou inv:<id>); ausente para quem não vê fichas (o perfil Embarques). */
+  onShipment?: (key: string) => void;
   /** Mostra o recebido por ano no topo (o perfil Embarques não vê). */
   showYears: boolean;
   onExport: (rows: HistoryRow[]) => void;
@@ -37,7 +40,7 @@ interface Props {
 
 const yearLabel = (y: string) => (y === NO_DATE ? 'Sem data' : y);
 
-export function HistoryView({ history, suppliers, onProduct, showYears, onExport, exporting, actions }: Props) {
+export function HistoryView({ history, suppliers, onProduct, onShipment, showYears, onExport, exporting, actions }: Props) {
   const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
   const [shownCount, setShownCount] = useState(PAGE);
   const { seeValues, seeSuppliers } = history;
@@ -187,8 +190,18 @@ export function HistoryView({ history, suppliers, onProduct, showYears, onExport
                       </td>
                     )}
                     <td data-rot="Invoice">
-                      {invoice?.number ?? '—'}
-                      {invoice?.billNumber && <span className="t-isbn">BL {invoice.billNumber}</span>}
+                      {invoice && onShipment ? (
+                        <button type="button" className="abrir-item abrir-emb" onClick={() => onShipment(shipmentKeyOf(invoice))}>
+                          <span className="so-leitor">Abrir o embarque da invoice </span>
+                          <span className="abrir-emb-num">{invoice.number}</span>
+                          {invoice.billNumber && <span className="t-isbn">BL {invoice.billNumber}</span>}
+                        </button>
+                      ) : (
+                        <>
+                          {invoice?.number ?? '—'}
+                          {invoice?.billNumber && <span className="t-isbn">BL {invoice.billNumber}</span>}
+                        </>
+                      )}
                     </td>
                     <td className="num" data-rot="Quantidade">{formatQuantity(item.quantity)}</td>
                     {seeValues && (

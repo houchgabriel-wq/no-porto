@@ -1716,6 +1716,10 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 .emb-nota-aviso { margin: 2px 0 0 24px; }
 .emb-nota-aviso .ic, .emb-nota-avisos .ic { width: 15px; height: 15px; flex: none; margin-top: 2px; }
 .emb-nota-avisos { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--alerta-suave); }
+/* No Histórico e na ficha do produto, a invoice abre a ficha do embarque (27/11/2026): o número sublinhado de leve. */
+.abrir-item.abrir-emb { font-weight: 500; }
+.abrir-emb-num { text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); text-underline-offset: 3px; }
+.abrir-emb:hover .abrir-emb-num { text-decoration-color: currentColor; }
 .pl-leitura h4 { font-family: var(--f-display); font-size: 15px; margin: 0; overflow-wrap: anywhere; }
 .pl-leitura .dica { margin: 0; }
 .pl-itens { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }

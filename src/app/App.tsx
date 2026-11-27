@@ -6,6 +6,7 @@ import { copySheets, DELIVERED_HEADER, PRODUCTION_HEADER, SHIPMENTS_HEADER } fro
 import type { Amount, SupplierSummary } from '../core/suppliers';
 import { EMPTY_FILTERS, filterItems, sortItems, type ItemFilters, type ItemSort } from '../core/items';
 import { can, ROLE_LABELS } from '../core/roles';
+import { withShipment, type ShipmentSlice } from '../core/shipments';
 import { api, ApiError, setUnauthorizedHandler, type BrazilData, type Me, type StockData } from './api';
 import { Avatar, Brand, Dialog, FormError, hueStyle, setSupplierHues, STATUS_PREVIEW, useToast } from './components';
 import { Dashboard } from './Dashboard';
@@ -17,7 +18,7 @@ import { FullImportDialog } from './FullImport';
 import { ImportDialog, type ImportSheet } from './ImportDialog';
 import { UpdateSheetDialog } from './UpdateSheet';
 import { ItemDialog, type ItemDialogState } from './ItemDialog';
-import { useProduction } from './production';
+import { useProduction, type Production } from './production';
 import { ProductionView } from './Production';
 import { BrazilView } from './Brazil';
 import { HistoryView, type HistoryData } from './History';
@@ -539,6 +540,20 @@ function AgentBookings({ user, onToast }: { user: Me; onToast: (msg: string) => 
   );
 }
 
+/** A produção com mais uma coisa a recarregar depois de cada gravação (o embarque carregado à parte). */
+function withRefresh(production: Production, after: () => Promise<void>): Production {
+  return {
+    ...production,
+    write: async <T,>(action: () => Promise<T>): Promise<T> => {
+      try {
+        return await production.write(action);
+      } finally {
+        await after();
+      }
+    },
+  };
+}
+
 function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [view, setView] = useState<View>(viewFromHash);
   const [viewSub, setViewSub] = useState(subFromHash);
@@ -554,6 +569,9 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [shipping, setShipping] = useState<string[] | null>(null);
   const [shipment, setShipment] = useState<string | null>(null);
+  // O embarque aberto pelo Histórico ou pela ficha do produto (27/11/2026), carregado à parte: o que já saiu da tela
+  // de embarques (chegou faz mais de 60 dias) também abre, com os arquivos.
+  const [shipmentSlice, setShipmentSlice] = useState<{ key: string; slice: ShipmentSlice } | null>(null);
   const [upload, setUpload] = useState<'pedido' | 'embarque' | null>(null);
   // Nova PO pelo sistema (24/11/2026): o formulário que cadastra a PO e baixa o Excel para o fornecedor.
   const [creatingOrder, setCreatingOrder] = useState(false);
@@ -581,6 +599,8 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const data = production.data;
   // Cores dos fornecedores, dos que têm mais itens para os que têm menos (antes de desenhar as telas).
   if (data) setSupplierHues(data.suppliers, data.items);
+  // A ficha do embarque recebe os dados da tela com o embarque carregado à parte, quando ele é o aberto.
+  const shipmentData = useMemo(() => (data && shipmentSlice && shipmentSlice.key === shipment ? withShipment(data, shipmentSlice.slice) : data), [data, shipmentSlice, shipment]);
   // A tela Produção só mostra o que está em produção; as outras telas usam tudo.
   const productionData = useMemo(() => (data ? { ...data, items: data.items.filter((i) => i.status === 'producao') } : null), [data]);
   // Itens marcados que já não estão em produção (embarcados por outra pessoa) saem da marcação.
@@ -636,6 +656,36 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   useEffect(() => {
     if (current === 'historico') void loadHistory();
   }, [current, loadHistory]);
+
+  // A ficha do embarque pelo Histórico e pela ficha do produto (27/11/2026): abre na hora quando a tela já tem o
+  // embarque e, de todo jeito, busca o embarque inteiro, para abrir também o que já saiu da tela de embarques.
+  const openShipment = useCallback(
+    async (key: string) => {
+      setShipment(key);
+      try {
+        const slice = await api.shipment(key);
+        setShipmentSlice({ key, slice });
+      } catch (e) {
+        showToast(e instanceof ApiError ? e.message : 'Não foi possível abrir o embarque.');
+        setShipment((open) => (open === key && !production.data?.invoices.some((v) => (v.billId ? `bl:${v.billId}` : `inv:${v.id}`) === key) ? null : open));
+      }
+    },
+    [showToast, production.data],
+  );
+  /** Depois de gravar na ficha de um embarque carregado à parte: o embarque de novo e, no Histórico, a lista. */
+  const refreshShipment = useCallback(
+    async (key: string) => {
+      try {
+        const slice = await api.shipment(key);
+        setShipmentSlice((cur) => (cur?.key === key ? { key, slice } : cur));
+      } catch {
+        // O embarque saiu (foi excluído): a ficha fecha sozinha, porque não acha mais o embarque.
+        setShipmentSlice((cur) => (cur?.key === key ? null : cur));
+      }
+      if (current === 'historico') void loadHistory();
+    },
+    [current, loadHistory],
+  );
 
   // A previsão de estoque: a curva e o que o No Porto tem de cada título, ao abrir a aba.
   const loadStock = useCallback(async () => {
@@ -1041,6 +1091,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                   history={history}
                   suppliers={history.suppliers}
                   onProduct={seesAll ? setProduct : undefined}
+                  onShipment={seesAll ? (key) => void openShipment(key) : undefined}
                   showYears={can(user.role, 'see_year_totals')}
                   onExport={(rows) => void exportHistory(rows)}
                   exporting={exporting}
@@ -1230,7 +1281,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
           onToast={showToast}
         />
       )}
-      {data && <ProductDialog productId={product} suppliers={data.suppliers} today={data.today} onClose={() => setProduct(null)} />}
+      {data && <ProductDialog productId={product} suppliers={data.suppliers} today={data.today} onClose={() => setProduct(null)} onShipment={(key) => void openShipment(key)} />}
       <SupplierDialog
         supplier={supplier}
         all={suppliersData?.suppliers ?? []}
@@ -1286,13 +1337,16 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
           <ArrivalDialog open={arrival !== null} initial={arrival ?? []} data={data} production={production} onClose={() => setArrival(null)} onDone={showToast} />
         </>
       )}
-      {data && (
+      {shipmentData && (
         <ShipmentDialog
           unitKey={shipment}
           me={user}
-          data={data}
-          production={production}
-          onClose={() => setShipment(null)}
+          data={shipmentData}
+          production={shipmentSlice?.key === shipment && shipment ? withRefresh(production, () => refreshShipment(shipment)) : production}
+          onClose={() => {
+            setShipment(null);
+            setShipmentSlice(null);
+          }}
           onToast={showToast}
           onOpenItem={(item) => setDialog({ mode: 'edit', item })}
         />
