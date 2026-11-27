@@ -1,7 +1,8 @@
 // Previsão de estoque (pedido do Gabriel em 20/11/2026): guarda a curva ABC da semana e entrega, para a
 // tela calcular a previsão (src/core/stockForecast.ts), a curva e o que o No Porto tem de cada título (o
-// que está embarcado e o que está em produção). Veem admin, editor, consulta e leitor; carregam a curva
-// admin e editor. O perfil Embarques, Vendas e o Agente de cargas, que é de fora, não recebem nada daqui.
+// que está embarcado, o que está em produção e, desde 27/11/2026, o que está no Brasil). Veem admin,
+// editor, consulta e leitor; carregam a curva admin e editor. O perfil Embarques, Vendas e o Agente de
+// cargas, que é de fora, não recebem nada daqui.
 // Só quantidades: a curva chega sem os valores em dinheiro, e nada de preço sai daqui.
 
 import { z } from 'zod';
@@ -13,6 +14,7 @@ import { parseDate, spDate } from '../core/shipments';
 import { CURVE_MAX_ROWS, type CurveInfo, type CurveRow } from '../core/stockCurve';
 import { forecastSummary, holdingsFor, stockForecast, titleHoldings, type TitleHolding } from '../core/stockForecast';
 import type { Session } from './auth';
+import { readBrazilOrders } from './brazil';
 import type { Env } from './env';
 import { checkMutation, error, json, readBody } from './http';
 
@@ -71,7 +73,10 @@ export async function readCurve(env: Env): Promise<{ info: CurveInfo; rows: Curv
   };
 }
 
-/** O que o No Porto tem de cada título (todos os itens, como no terminal de consulta, com a data da PO). */
+/**
+ * O que o No Porto tem de cada título (todos os itens, como no terminal de consulta, com a data da PO), com a produção
+ * no Brasil (27/11/2026): o que falta as gráficas entregarem e o que entregaram depois da data do estoque da curva.
+ */
 async function readHoldings(env: Env, stockDate: string): Promise<TitleHolding[]> {
   const { results } = await env.DB.prepare(
     `SELECT i.product_id, p.isbn, i.description, i.status, i.quantity, o.code AS order_code, o.ordered_at, i.ship_plan,
@@ -109,6 +114,7 @@ async function readHoldings(env: Env, stockDate: string): Promise<TitleHolding[]
       arrivedAt: r.arrived_at,
     })),
     stockDate,
+    await readBrazilOrders(env),
   );
 }
 

@@ -27,13 +27,15 @@ describe('terminal de consulta', () => {
     expect(res.status).toBe(200);
     const alice = res.data.products.find((p: { isbn: string | null }) => p.isbn === ALICE);
     expect(alice).toEqual({
+      key: alice.productId,
       productId: expect.any(String),
       isbn: ALICE,
       title: 'Coleção Alice',
       names: ['Coleção Alice'],
       production: { quantity: 6500, orders: ['PO-061', 'PO-070'], nextShip: '2026-12' },
       atSea: { quantity: 1000, nextEta: '2026-12-20' },
-      lastArrival: { date: '2026-11-16', quantity: 500 },
+      brazil: { quantity: 0, printers: [], nextDue: null },
+      lastArrival: { date: '2026-11-16', quantity: 500, printers: [] },
     });
     expect(res.data.products.find((p: { title: string }) => p.title.startsWith('Meditações'))).toMatchObject({ production: { quantity: 30000, orders: ['PO-070'] }, lastArrival: null });
     expect(JSON.stringify(res.data)).not.toMatch(/price|cents|valor/i);
