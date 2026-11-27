@@ -1799,9 +1799,46 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 .br-papel-form .br-papel-preco { flex: 1 1 90px; }
 .br-papel-novo { display: flex; flex-direction: column; gap: 8px; }
 .br-papel-novo h3 { margin: 0; font-size: 15px; }
+/* Orçamento com vários produtos e o PDF da proposta (27/11/2026): as linhas de produto, o que foi lido do PDF, o
+   produto e a especificação de cada item, o custo por kit e por produto, a lista de produtos e a entrega de cada um. */
+.br-linha-produto { display: grid; grid-template-columns: minmax(0, 2.4fr) minmax(130px, 1fr) minmax(96px, 0.8fr) minmax(150px, auto) minmax(44px, auto); gap: 6px 10px; align-items: end; }
+.br-produto-nome .rotulo { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.br-dentro { min-height: 40px; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.selo.br-selo-box { margin-left: 6px; background: var(--acento-suave); color: var(--acento); border-color: transparent; }
+.br-ler-pdf { gap: 6px; }
+.br-ler-pdf .aviso { margin: 0; }
+.br-ler-acoes { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.br-lido { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.br-lido .aviso { margin: 0; }
+.br-item { display: flex; flex-direction: column; gap: 6px; padding-bottom: 10px; border-bottom: 1px dashed var(--fio); }
+.br-item:last-of-type { border-bottom: 0; padding-bottom: 0; }
+/* As janelas do orçamento e da proposta, com vários produtos e itens, são mais largas. */
+dialog.largo.dlg-br { width: min(880px, calc(100vw - 32px)); }
+.br-item-topo { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: center; }
+.br-item-topo .rotulo { margin: 0; white-space: nowrap; }
+.br-item-espec { font-size: 13px; }
+.br-item-espec summary { cursor: pointer; color: var(--tinta-2); padding: 4px 0; overflow-wrap: anywhere; }
+.br-item-espec textarea { margin-top: 4px; width: 100%; }
+.br-espec-dobra { font-size: 13px; }
+.br-espec-dobra summary { cursor: pointer; color: var(--tinta-2); font-weight: 600; overflow-wrap: anywhere; }
+.br-espec-dobra .br-espec { margin-top: 6px; }
+.br-custo-linha { display: block; }
+.br-custo .br-custo-linha + .br-custo-linha { margin-top: 2px; }
+.br-custo-celula .br-custo-linha { font-size: 13px; color: var(--tinta-2); }
+.br-custo-celula .br-custo-linha b { color: var(--tinta); }
+.br-produtos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--fio); }
+.br-produtos li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 10px; padding: 6px 0; border-bottom: 1px solid var(--fio); font-size: 13px; }
+.br-produtos li > span:first-child { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.br-produto-num { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--tinta-2); }
+.br-linha-entrega { display: grid; grid-template-columns: minmax(0, 1fr) minmax(110px, 160px); gap: 6px 12px; align-items: center; }
+.br-linha-entrega .rotulo { margin: 0; overflow-wrap: anywhere; }
+.br-campo-dia { max-width: 220px; }
 @media (max-width: 640px) {
   .grade-campos.tres { grid-template-columns: minmax(0, 1fr); }
-  .br-linha-item, .br-linha-papel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-bottom: 8px; border-bottom: 1px solid var(--fio); }
-  .br-linha-item .br-desc, .br-linha-papel .br-papel-campo { grid-column: 1 / -1; }
+  .br-linha-item, .br-linha-papel, .br-linha-produto { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-bottom: 8px; border-bottom: 1px solid var(--fio); }
+  .br-linha-item .br-desc, .br-linha-papel .br-papel-campo, .br-linha-produto .br-produto-nome { grid-column: 1 / -1; }
   .br-linha-total { justify-content: flex-start; min-height: 0; }
+  .br-dentro { min-height: 0; white-space: normal; }
+  .br-linha-entrega { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .br-item { border-bottom: 0; }
 }
