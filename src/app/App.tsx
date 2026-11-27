@@ -773,6 +773,9 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
 
   function goToProduction(f: Partial<ItemFilters>) {
     setFilters({ ...EMPTY_FILTERS, ...f });
+    // Os atalhos levam à produção da importação, mesmo com a visão Brasil lembrada neste navegador.
+    setProductionMode('importacao');
+    saveProductionMode('importacao');
     location.hash = 'producao';
   }
 
