@@ -20,6 +20,7 @@ import type { Env } from './env';
 import { checkMutation, error, HttpError, json, readBody } from './http';
 import { eventStatement, findItem, insertItem, itemDay, ITEM_SELECT, loadRefs, shipPlanSchema, toItem, type ItemRow } from './orders';
 import { deleteInvoiceDocumentsStatements, DOCUMENT_BODY_BYTES, documentContent, removeInvoiceDocumentStatements, storeInvoiceDocument } from './invoiceDocuments';
+import { deleteBillFiscalStatements, deleteInvoiceFiscalStatements } from './fiscalDocuments';
 import { readCurve } from './stock';
 import { mergePlans, readStoredPlan, shipPlanProblem, takeFromPlan, type ShipPlan } from '../core/shipPlan';
 
@@ -680,8 +681,9 @@ async function undoInvoices(env: Env, invoiceIds: string[], userId: string, at: 
   // Itens apagados antes ainda apontam para a invoice: soltam para ela poder ser excluída.
   statements.push(env.DB.prepare('UPDATE order_items SET invoice_id = NULL WHERE invoice_id IN (SELECT value FROM json_each(?))').bind(ids));
   statements.push(env.DB.prepare('DELETE FROM payments WHERE invoice_id IN (SELECT value FROM json_each(?))').bind(ids));
-  // Os arquivos da invoice e da packing list saem junto (27/11/2026).
+  // Os arquivos da invoice e da packing list saem junto (27/11/2026), e a nota fiscal do container também.
   statements.push(...deleteInvoiceDocumentsStatements(env, ids));
+  statements.push(...deleteInvoiceFiscalStatements(env, ids));
   statements.push(env.DB.prepare('DELETE FROM invoices WHERE id IN (SELECT value FROM json_each(?))').bind(ids));
   return { statements, back: plan.back.length, merged: plan.merge.length, removed: plan.remove.length };
 }
@@ -690,6 +692,8 @@ function deleteBillStatements(env: Env, billId: string): D1PreparedStatement[] {
   return [
     env.DB.prepare('DELETE FROM bill_document_parts WHERE document_id IN (SELECT id FROM bill_documents WHERE bill_of_lading_id = ?)').bind(billId),
     env.DB.prepare('DELETE FROM bill_documents WHERE bill_of_lading_id = ?').bind(billId),
+    // A nota master sai com o BL (27/11/2026).
+    ...deleteBillFiscalStatements(env, billId),
     env.DB.prepare('DELETE FROM bills_of_lading WHERE id = ?').bind(billId),
   ];
 }
@@ -713,7 +717,7 @@ async function deleteInvoice(request: Request, env: Env, session: Session, id: s
   return json({ back: undo.back, merged: undo.merged, removed: undo.removed, billRemoved });
 }
 
-/** Exclui o embarque inteiro: o BL, todas as suas invoices e o arquivo do BL. */
+/** Exclui o embarque inteiro: o BL, todas as suas invoices, o arquivo do BL e as notas fiscais. */
 async function deleteBill(request: Request, env: Env, session: Session, id: string, now: Date): Promise<Response> {
   checkMutation(request);
   const bill = await env.DB.prepare('SELECT id, number, eta, arrived_at FROM bills_of_lading WHERE id = ?').bind(id).first<BillRow>();

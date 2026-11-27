@@ -17,6 +17,7 @@ import { planAssignments, sameProduct } from '../core/allocation';
 import { parseDate, spDate, type Bill, type Invoice, type Payment } from '../core/shipments';
 import type { Session } from './auth';
 import type { Env } from './env';
+import { FISCAL_COLUMNS, fiscalNotes, type FiscalRow } from './fiscalDocuments';
 import { checkMutation, error, HttpError, json, readBody } from './http';
 
 // ---------- Esquemas de entrada ----------
@@ -429,7 +430,7 @@ async function loadData(env: Env, session: Session, now: Date) {
   const seeSuppliers = can(session.user.role, 'see_supplier_names');
   const today = spDate(now);
   const cutoff = new Date(Date.parse(`${today}T00:00:00Z`) - RECENT_ARRIVAL_DAYS * 86_400_000).toISOString().slice(0, 10);
-  const [s, o, i, b, v, pay, docs, invDocs] = await env.DB.batch([
+  const [s, o, i, b, v, pay, docs, invDocs, fis] = await env.DB.batch([
     env.DB.prepare('SELECT id, name FROM suppliers ORDER BY name COLLATE NOCASE'),
     env.DB.prepare('SELECT id, code, ordered_at, notes FROM purchase_orders'),
     env.DB.prepare(
@@ -454,7 +455,10 @@ async function loadData(env: Env, session: Session, now: Date) {
     env.DB.prepare('SELECT id, invoice_id, paid_at, amount_cents, exchange_rate_e4, notes FROM payments ORDER BY created_at, rowid'),
     env.DB.prepare('SELECT bill_of_lading_id, name, size FROM bill_documents'),
     env.DB.prepare('SELECT invoice_id, kind, name, size FROM invoice_documents'),
+    env.DB.prepare(`SELECT ${FISCAL_COLUMNS} FROM fiscal_documents`),
   ]);
+  // As notas fiscais (27/11/2026): a de cada container e a master de cada BL, só para quem vê valores.
+  const fiscal = fiscalNotes(fis!.results as FiscalRow[]);
   const documents = new Map((docs!.results as { bill_of_lading_id: string; name: string; size: number }[]).map((d) => [d.bill_of_lading_id, { name: d.name, size: d.size }]));
   const suppliers: Supplier[] = s!.results as Supplier[];
   const orders: PurchaseOrder[] = (o!.results as { id: string; code: string; ordered_at: string | null; notes: string }[]).map((r) => ({
@@ -491,6 +495,7 @@ async function loadData(env: Env, session: Session, now: Date) {
     arrivedAt: r.arrived_at,
     notes: r.notes,
     document: documents.get(r.id) ?? null,
+    ...(seeValues && fiscal.byBill.has(r.id) ? { fiscal: fiscal.byBill.get(r.id)! } : {}),
   }));
   const invoiceFiles = new Map<string, NonNullable<Invoice['documents']>>();
   for (const d of invDocs!.results as { invoice_id: string; kind: 'invoice' | 'packing'; name: string; size: number }[]) {
@@ -510,6 +515,7 @@ async function loadData(env: Env, session: Session, now: Date) {
     priority: r.priority_at ? { at: r.priority_at, by: r.priority_by } : null,
     // Os arquivos do container vão só para quem baixa (quem vê valores).
     ...(seeValues && invoiceFiles.has(r.id) ? { documents: invoiceFiles.get(r.id)! } : {}),
+    ...(seeValues && fiscal.byInvoice.has(r.id) ? { fiscal: fiscal.byInvoice.get(r.id)! } : {}),
   }));
   const shown = new Set(invoices.map((x) => x.id));
   const payments: Payment[] = seeValues

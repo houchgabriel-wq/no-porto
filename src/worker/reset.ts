@@ -1,7 +1,7 @@
 // Começar do zero (SPEC.md, seção 7): o admin apaga fornecedores, produtos, POs, itens, BLs, invoices,
-// pagamentos, arquivos dos BLs e o histórico de alterações, para fazer de novo a carga completa da planilha. Usuários,
-// sessões e as solicitações de embarque ficam (estas, sem a ligação com o fornecedor, só com o nome que tinham).
-// Pede a palavra APAGAR, para não acontecer por engano.
+// pagamentos, arquivos dos BLs e dos containers, notas fiscais e o histórico de alterações, para fazer de novo a
+// carga completa da planilha. Usuários, sessões e as solicitações de embarque ficam (estas, sem a ligação com o
+// fornecedor, só com o nome que tinham). Pede a palavra APAGAR, para não acontecer por engano.
 
 import { z } from 'zod';
 import { can } from '../core/roles';
@@ -16,6 +16,8 @@ const resetBody = z.object({ confirm: z.string().refine((s) => s.trim().toUpperC
 
 /** Na ordem das chaves: o que aponta para outra tabela sai antes dela. */
 const TABLES = [
+  'fiscal_document_parts',
+  'fiscal_documents',
   'bill_document_parts',
   'bill_documents',
   'invoice_document_parts',
