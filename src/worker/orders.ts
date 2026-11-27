@@ -429,7 +429,7 @@ async function loadData(env: Env, session: Session, now: Date) {
   const seeSuppliers = can(session.user.role, 'see_supplier_names');
   const today = spDate(now);
   const cutoff = new Date(Date.parse(`${today}T00:00:00Z`) - RECENT_ARRIVAL_DAYS * 86_400_000).toISOString().slice(0, 10);
-  const [s, o, i, b, v, pay, docs] = await env.DB.batch([
+  const [s, o, i, b, v, pay, docs, invDocs] = await env.DB.batch([
     env.DB.prepare('SELECT id, name FROM suppliers ORDER BY name COLLATE NOCASE'),
     env.DB.prepare('SELECT id, code, ordered_at, notes FROM purchase_orders'),
     env.DB.prepare(
@@ -453,6 +453,7 @@ async function loadData(env: Env, session: Session, now: Date) {
     ).bind(cutoff),
     env.DB.prepare('SELECT id, invoice_id, paid_at, amount_cents, exchange_rate_e4, notes FROM payments ORDER BY created_at, rowid'),
     env.DB.prepare('SELECT bill_of_lading_id, name, size FROM bill_documents'),
+    env.DB.prepare('SELECT invoice_id, kind, name, size FROM invoice_documents'),
   ]);
   const documents = new Map((docs!.results as { bill_of_lading_id: string; name: string; size: number }[]).map((d) => [d.bill_of_lading_id, { name: d.name, size: d.size }]));
   const suppliers: Supplier[] = s!.results as Supplier[];
@@ -491,6 +492,10 @@ async function loadData(env: Env, session: Session, now: Date) {
     notes: r.notes,
     document: documents.get(r.id) ?? null,
   }));
+  const invoiceFiles = new Map<string, NonNullable<Invoice['documents']>>();
+  for (const d of invDocs!.results as { invoice_id: string; kind: 'invoice' | 'packing'; name: string; size: number }[]) {
+    invoiceFiles.set(d.invoice_id, { ...invoiceFiles.get(d.invoice_id), [d.kind]: { name: d.name, size: d.size } });
+  }
   const invoices: Invoice[] = invoiceRows.map((r) => ({
     id: r.id,
     number: r.number,
@@ -503,6 +508,8 @@ async function loadData(env: Env, session: Session, now: Date) {
     unit: unitOf(r),
     packingList: r.packing_list_name ? { name: r.packing_list_name, at: r.packing_list_at, by: r.packing_list_by } : null,
     priority: r.priority_at ? { at: r.priority_at, by: r.priority_by } : null,
+    // Os arquivos do container vão só para quem baixa (quem vê valores).
+    ...(seeValues && invoiceFiles.has(r.id) ? { documents: invoiceFiles.get(r.id)! } : {}),
   }));
   const shown = new Set(invoices.map((x) => x.id));
   const payments: Payment[] = seeValues

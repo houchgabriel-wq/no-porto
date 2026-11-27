@@ -16,6 +16,7 @@ import { routeNoPrelo } from './noPrelo';
 import { routeExport } from './export';
 import { routeReset } from './reset';
 import { routeBillDocuments } from './billDocuments';
+import { routeInvoiceDocuments } from './invoiceDocuments';
 import { routeBookings } from './bookings';
 import { routeStock } from './stock';
 import { routeNewOrder } from './newOrder';
@@ -393,6 +394,8 @@ async function routeLoggedIn(
   if (orders) return orders;
   const billDocument = await routeBillDocuments(request, env, session, path, now);
   if (billDocument) return billDocument;
+  const invoiceDocument = await routeInvoiceDocuments(request, env, session, path, now);
+  if (invoiceDocument) return invoiceDocument;
   const shipments = await routeShipments(request, env, session, key, path, now);
   if (shipments) return shipments;
   const history = await routeHistory(request, env, session, key, path, now);

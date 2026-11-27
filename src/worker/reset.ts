@@ -15,7 +15,20 @@ export const RESET_WORD = 'APAGAR';
 const resetBody = z.object({ confirm: z.string().refine((s) => s.trim().toUpperCase() === RESET_WORD, `Digite ${RESET_WORD} para confirmar.`) });
 
 /** Na ordem das chaves: o que aponta para outra tabela sai antes dela. */
-const TABLES = ['bill_document_parts', 'bill_documents', 'payments', 'events', 'order_items', 'invoices', 'bills_of_lading', 'purchase_orders', 'products', 'suppliers'] as const;
+const TABLES = [
+  'bill_document_parts',
+  'bill_documents',
+  'invoice_document_parts',
+  'invoice_documents',
+  'payments',
+  'events',
+  'order_items',
+  'invoices',
+  'bills_of_lading',
+  'purchase_orders',
+  'products',
+  'suppliers',
+] as const;
 
 async function reset(request: Request, env: Env): Promise<Response> {
   checkMutation(request);

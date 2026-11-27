@@ -33,6 +33,8 @@ export interface Invoice {
   packingList?: PackingListInfo | null;
   /** Prioridade no desembaraço e no transporte (26/11/2026): quando e quem marcou; null sem a marca. */
   priority?: { at: string; by: string | null } | null;
+  /** Os arquivos guardados do container (27/11/2026); só para quem vê valores, que é quem baixa. */
+  documents?: { invoice?: { name: string; size: number }; packing?: { name: string; size: number } };
 }
 
 /** O registro da packing list de um container: o arquivo, quando e quem registrou. */
