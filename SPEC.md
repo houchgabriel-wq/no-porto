@@ -75,6 +75,7 @@ O que a planilha mostra sobre a relação entre os dados (conferido em 17/11/202
 | Chegada prevista pelo BL | Ao ler o BL, a chegada prevista já vem preenchida com 35 dias depois da data do BL. Os 35 dias são o padrão e podem ser mudados depois (26/11/2026) |
 | Packing list de cada container | Nos embarques já registrados, dá para registrar a packing list de cada container, porque as peças por caixa são fundamentais para a ligação com o No Estoque; a ficha mostra se cada container já tem a packing list (26/11/2026) |
 | Prioridade dos containers | Na aba Embarques, dá para marcar quais containers têm prioridade no desembaraço e no transporte (26/11/2026) |
+| Nomes da curva ABC no embarque | Ao importar um embarque, o sistema procura o ISBN de cada livro na curva ABC e troca o nome que o fornecedor escreveu na invoice pelo título como a editora cadastra, o da curva (27/11/2026) |
 
 ## 3. Fluxo (proposta)
 
@@ -134,6 +135,11 @@ Documentos dos fornecedores (feitos depois do marco 5; decisão de 17/11/2026, n
   - **Até a chegada:** a marca vale enquanto o container não chega. Registrada a chegada, ela deixa de aparecer e o botão some.
   - **Na aba Embarques:** o cartão ganha a etiqueta "Prioridade", ou "Prioridade em 1 de 2" quando só parte dos containers do BL tem a marca, e a bandeira no número do container. O embarque com prioridade vem primeiro no seu grupo de chegada (em liberação, nesta semana…). O botão "N containers com prioridade", ao lado da busca, mostra só esses, e some quando não há nenhum. Na visão por item, as linhas do container levam "prioridade".
   - **Quem vê:** todos os perfis que veem os embarques (admin, editor, Consulta, leitor e o perfil Embarques). A marca não vai para o No Estoque; dá para mandar, combinando com a conversa de lá.
+- **Nomes da curva ABC no embarque** (pedido do Gabriel em 27/11/2026; o que está na seção 2 é decisão, o resto é proposta; testado com o 57º embarque, em que 12 dos 13 títulos mudaram de nome):
+  - **No Novo embarque:** cada linha com o ISBN na curva ABC carregada fica com o título da curva, no lugar do nome que o fornecedor escreveu ("Livro Cartas a Milena - Franz Kafka - Camelot Editora" vira "Cartas a Milena - Franz Kafka - Camelot Editora"). O ISBN-10 da invoice acha o ISBN-13 da curva. Sem ISBN, ou com um ISBN fora da curva, fica o nome da invoice.
+  - **A prévia:** mostra o nome da curva, com "na invoice: …" embaixo, e o aviso "N produtos ficam com o nome da curva ABC (estoque de …)". Sem curva carregada, o aviso diz que ficam os nomes da invoice. Os títulos vêm de `POST /api/stock/titles`, que é de admin e editor e manda só os títulos.
+  - **Ao gravar:** o servidor usa a mesma curva. Os itens da invoice, tanto o que sai da produção quanto o que não estava nela, e o produto ficam com o título da curva; o que continua em produção mantém o nome de antes. Excluir o embarque devolve o nome de antes ao que volta para a produção, porque o nome fica no histórico do item.
+  - **Onde vale:** só no Novo embarque. A carga da planilha, o Novo pedido e os itens já cadastrados ficam como estão.
 - **Excluir embarque ou container** (pedido pelo Gabriel em 17/11/2026, para corrigir uma entrada errada): na ficha do embarque, "Excluir" em cada invoice (o container) e "Excluir embarque" (o BL com todas as invoices e o arquivo do BL), com confirmação que diz o que vai acontecer. Nada da produção se perde: o que saiu da produção volta para ela, com o preço e as peças por caixa de antes (a parte que tinha sido dividida se junta de novo ao saldo que ficou); o que não estava na produção (entrou pela invoice ou pela carga da aba Embarques) e os pagamentos da invoice são apagados. O BL que fica sem invoices sai junto. Só o admin exclui (como as outras exclusões, seção 4), e só o que ainda não chegou: para excluir algo que já chegou, apaga-se antes a data de chegada.
 - **Registrar chegada** (Embarques): marcam-se as invoices a caminho (agrupadas por BL) e o dia; os itens delas vão para "entregue" e aparecem no Histórico. Cada invoice de um BL pode chegar num dia diferente.
 
@@ -235,6 +241,7 @@ Em `src/core`, com teste, como no No Prelo:
 - Chegada prevista pelo BL (`src/core/billArrival.ts`): a data do BL (os rótulos, a posição e os jeitos de escrever a data), a conferência da data, o prazo (de 1 a 120 dias, 35 por padrão) e a chegada (a data do BL mais o prazo).
 - Packing list de um container (`src/core/packingList.ts`): a ligação das linhas da packing list aos itens da invoice, o que muda nas peças por caixa, os avisos e as caixas e o peso da packing list.
 - Prioridade do container (`hasPriority` e a ordem de `shipmentUnits`, em `src/core/shipments.ts`): vale enquanto o container não chega, e o embarque com prioridade vem antes no seu grupo de chegada.
+- Nomes da curva ABC (`src/core/curveNames.ts`): o título da curva pelo ISBN (o ISBN-10 vira ISBN-13), com os espaços acertados; sem ISBN ou fora da curva, fica o nome da invoice.
 - Chegadas para o No Estoque (`src/core/stockArrivals.ts`): o que vai (o container em liberação, pela regra da tela Embarques, e o que chegou a partir do dia pedido) e, de cada invoice, a previsão, a chegada, o fornecedor, o BL, o container (com as caixas, o peso e o volume) e os itens (o código de barras de 13 dígitos, com o ISBN-10 convertido, o título, a quantidade e as peças por caixa), sem valores.
 
 ## 7. Carga da planilha (proposta)
