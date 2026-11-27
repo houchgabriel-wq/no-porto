@@ -1530,7 +1530,7 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 .prev-cartao[aria-pressed="true"] .prev-cartao-sub { color: var(--tinta-2); }
 .prev-importados { align-self: center; min-height: 40px; }
 .prev-legenda { margin: -4px 0 10px; max-width: 90ch; }
-.tabela-estoque { min-width: 1180px; }
+.tabela-estoque { min-width: 1270px; }
 .tabela-estoque td { vertical-align: top; }
 .tabela-estoque th.num, .tabela-estoque td.num { text-align: right; }
 .tabela-estoque td.t-produto { min-width: 260px; max-width: 380px; }
