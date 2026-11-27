@@ -1,7 +1,8 @@
 // Aba Previsão de estoque (pedido do Gabriel em 20/11/2026): a curva ABC da semana cruzada com o que o
 // No Porto tem de cada título. A tela calcula a previsão (src/core/stockForecast.ts) com a curva e o que
-// está embarcado e em produção, que vêm do servidor; mostra cobertura, sugestão de reimpressão e aviso
-// de embarque, com filtros, a ficha de cada título e o Baixar .xlsx. Admin e editor carregam a curva.
+// está embarcado, em produção e, desde 27/11/2026, no Brasil, que vêm do servidor; mostra cobertura,
+// sugestão de reimpressão e aviso de embarque, com filtros, a ficha de cada título e o Baixar .xlsx.
+// Admin e editor carregam a curva.
 
 import { useId, useMemo, useState, type ReactNode } from 'react';
 import { searchKey } from '../core/items';
@@ -17,6 +18,7 @@ import {
   needsReprint,
   shipNeedsAttention,
   stockForecast,
+  type BrazilTitleOrder,
   type ForecastRow,
   type MissingTitle,
   type ReprintAdvice,
@@ -86,18 +88,28 @@ function sortRows(rows: ForecastRow[], sort: Sort): ForecastRow[] {
   return copy;
 }
 
+/** A entrega prevista mais próxima entre os pedidos no Brasil ainda não entregues. */
+const nextBrazilDue = (orders: readonly BrazilTitleOrder[]) => orders.find((o) => o.dueAt)?.dueAt ?? null;
+
+/** Os pedidos no Brasil em texto: "Gráfica Santa Marta, 3.000 para 05/12/2026". */
+function brazilOrdersText(orders: readonly BrazilTitleOrder[]): string {
+  return orders.map((o) => `${o.printer}, ${formatQuantity(o.remaining)} ${o.dueAt ? `para ${formatDay(o.dueAt, true)}` : 'sem entrega prevista'}`).join('; ');
+}
+
 interface Props {
   data: StockData;
   /** Carrega a curva ABC (admin e editor); ausente para quem só vê. */
   onLoad?: () => void;
   /** Abre a ficha do produto no No Porto. */
   onProduct?: (productId: string) => void;
+  /** Abre Produção › Brasil já com a busca, para o título que só tem pedidos no Brasil. */
+  onBrazil?: (query: string) => void;
   onToast: (msg: string) => void;
   /** O cartão já escolhido quando a aba abre por uma linha do painel (#estoque/embarcar). */
   initialShow?: string;
 }
 
-export function StockView({ data, onLoad, onProduct, onToast, initialShow }: Props) {
+export function StockView({ data, onLoad, onProduct, onBrazil, onToast, initialShow }: Props) {
   const ids = useId();
   const [filters, setFilters] = useState<Filters>(() => ({ ...EMPTY_FILTERS, show: initialShow && SHOWS.includes(initialShow) ? (initialShow as Show) : EMPTY_FILTERS.show }));
   const [shownCount, setShownCount] = useState(PAGE);
@@ -256,7 +268,7 @@ export function StockView({ data, onLoad, onProduct, onToast, initialShow }: Pro
       </p>
       <p className="dica prev-legenda">
         Nas colunas duplas, em cima é pela média de 3 meses e embaixo pela de 6. Cobertura em meses de venda. Prazos: produção de {FORECAST.productionDays} dias a partir da data da
-        PO e viagem de {FORECAST.shippingDays} dias.
+        PO e viagem de {FORECAST.shippingDays} dias. O que as gráficas do Brasil ainda vão entregar vai direto para o estoque e conta junto com o embarcado.
       </p>
 
       {shown.length === 0 ? (
@@ -270,10 +282,11 @@ export function StockView({ data, onLoad, onProduct, onToast, initialShow }: Pro
                   <th>Título</th>
                   <th className="num">Estoque</th>
                   <th className="num">Embarcado</th>
+                  <th className="num">Brasil</th>
                   <th className="num">Em produção</th>
                   <th className="num">Venda por mês</th>
                   <th className="num">Cobertura do físico</th>
-                  <th className="num">Cobertura com embarcado</th>
+                  <th className="num">Cobertura com embarcado e Brasil</th>
                   <th className="num">Reimpressão</th>
                   <th>Embarque</th>
                 </tr>
@@ -295,9 +308,9 @@ export function StockView({ data, onLoad, onProduct, onToast, initialShow }: Pro
         </>
       )}
 
-      {forecast.missing.length > 0 && <MissingList missing={forecast.missing} today={today} onProduct={onProduct} />}
+      {forecast.missing.length > 0 && <MissingList missing={forecast.missing} today={today} onProduct={onProduct} onBrazil={onBrazil} />}
 
-      <TitleDialog row={open} curve={curve} today={today} onClose={() => setOpen(null)} onProduct={onProduct} />
+      <TitleDialog row={open} curve={curve} today={today} onClose={() => setOpen(null)} onProduct={onProduct} onBrazil={onBrazil} />
     </>
   );
 }
@@ -342,6 +355,7 @@ function shipState(ship: ShipAdvice, today: string): { tone: 'critico' | 'alerta
 
 function Row({ row: r, today, onOpen }: { row: ForecastRow; today: string; onOpen: () => void }) {
   const state = r.ship ? shipState(r.ship, today) : null;
+  const brazilDue = nextBrazilDue(r.brazilOrders);
   return (
     <tr>
       <td className="t-produto">
@@ -356,7 +370,7 @@ function Row({ row: r, today, onOpen }: { row: ForecastRow; today: string; onOpe
         {r.gapBefore && (
           <span className="pilula critico prev-pilula">
             <Icon name="alerta" />
-            Acaba antes de o embarcado chegar
+            {r.gapBefore === 'brasil' ? 'Acaba antes da entrega do Brasil' : 'Acaba antes de o embarcado chegar'}
           </span>
         )}
       </td>
@@ -366,6 +380,10 @@ function Row({ row: r, today, onOpen }: { row: ForecastRow; today: string; onOpe
       <td className="num" data-rot="Embarcado">
         {r.atSea ? formatQuantity(r.atSea) : <span className="mudo">—</span>}
         {r.nextEta && <span className="t-isbn">chega {formatDay(r.nextEta)}</span>}
+      </td>
+      <td className="num" data-rot="No Brasil">
+        {r.brazil ? formatQuantity(r.brazil) : <span className="mudo">—</span>}
+        {brazilDue && <span className="t-isbn">entrega {formatDay(brazilDue)}</span>}
       </td>
       <td className="num" data-rot="Em produção">
         {r.production ? formatQuantity(r.production) : <span className="mudo">—</span>}
@@ -377,7 +395,7 @@ function Row({ row: r, today, onOpen }: { row: ForecastRow; today: string; onOpe
       <td className="num par" data-rot="Cobertura do físico (meses)">
         <Pair three={formatCover(r.cover.stock3)} six={formatCover(r.cover.stock6)} />
       </td>
-      <td className="num par" data-rot="Cobertura com embarcado (meses)">
+      <td className="num par" data-rot="Cobertura com embarcado e Brasil (meses)">
         <Pair three={formatCover(r.cover.total3)} six={formatCover(r.cover.total6)} />
       </td>
       <td className="num par" data-rot="Reimpressão">
@@ -403,42 +421,56 @@ function Row({ row: r, today, onOpen }: { row: ForecastRow; today: string; onOpe
   );
 }
 
-/** O que está em produção ou a caminho no No Porto e não aparece na curva. */
-function MissingList({ missing, today, onProduct }: { missing: MissingTitle[]; today: string; onProduct?: (productId: string) => void }) {
+/** O que está em produção, a caminho ou no Brasil no No Porto e não aparece na curva. */
+function MissingList({
+  missing,
+  today,
+  onProduct,
+  onBrazil,
+}: {
+  missing: MissingTitle[];
+  today: string;
+  onProduct?: (productId: string) => void;
+  onBrazil?: (query: string) => void;
+}) {
   return (
     <details className="bloco fora-curva">
       <summary>
-        {titulos(missing.length)} em produção ou a caminho no No Porto não {missing.length === 1 ? 'está' : 'estão'} na curva
+        {titulos(missing.length)} em produção, a caminho ou no Brasil no No Porto não {missing.length === 1 ? 'está' : 'estão'} na curva
       </summary>
       <p className="dica">Sem estoque nem vendas na curva, não há como calcular a previsão. Pode ser um lançamento, um título sem ISBN no No Porto ou com outro código na curva.</p>
       <ul className="fora-lista">
-        {missing.map((m) => (
-          <li key={m.key}>
-            {onProduct && m.productId ? (
-              <button type="button" className="abrir-item" onClick={() => onProduct(m.productId!)}>
-                {m.title}
-              </button>
-            ) : (
-              <span className="t-nome">{m.title}</span>
-            )}
-            <span className="t-isbn">
-              {m.isbn ?? 'Sem ISBN'}
-              {m.production > 0 && ` · ${formatQuantity(m.production)} em produção (${m.orders.map((o) => o.code ?? 'Sem PO').join(', ')})`}
-              {m.atSea > 0 && ` · ${formatQuantity(m.atSea)} a caminho${m.nextEta ? `, chega ${formatDay(m.nextEta)}` : ''}`}
-              {m.nextEta && m.nextEta < today && ' (previsão vencida)'}
-            </span>
-          </li>
-        ))}
+        {missing.map((m) => {
+          const open = m.productId ? (onProduct ? () => onProduct(m.productId!) : null) : onBrazil ? () => onBrazil(m.isbn ?? m.title) : null;
+          return (
+            <li key={m.key}>
+              {open ? (
+                <button type="button" className="abrir-item" onClick={open}>
+                  {m.title}
+                </button>
+              ) : (
+                <span className="t-nome">{m.title}</span>
+              )}
+              <span className="t-isbn">
+                {m.isbn ?? 'Sem ISBN'}
+                {m.production > 0 && ` · ${formatQuantity(m.production)} em produção (${m.orders.map((o) => o.code ?? 'Sem PO').join(', ')})`}
+                {m.atSea > 0 && ` · ${formatQuantity(m.atSea)} a caminho${m.nextEta ? `, chega ${formatDay(m.nextEta)}` : ''}`}
+                {m.nextEta && m.nextEta < today && ' (previsão vencida)'}
+                {m.brazil > 0 && ` · ${formatQuantity(m.brazil)} no Brasil (${brazilOrdersText(m.brazilOrders)})`}
+              </span>
+            </li>
+          );
+        })}
       </ul>
     </details>
   );
 }
 
-function reprintText(a: ReprintAdvice, sales: number, months: number, have: number): string {
+function reprintText(a: ReprintAdvice, sales: number, months: number, have: number, withBrazil: boolean): string {
   const per = Math.round(sales / months);
   if (sales <= 0) return 'Sem venda no período: sem sugestão.';
   if (a.kind === 'none') {
-    return `Não precisa agora: ${formatQuantity(have)} (físico + embarcado + produção) cobrem mais de ${LEAD_MONTHS + FORECAST.safetyMonths} meses de ${formatQuantity(per)} por mês.`;
+    return `Não precisa agora: ${formatQuantity(have)} (${withBrazil ? 'físico + embarcado + Brasil + produção' : 'físico + embarcado + produção'}) cobrem mais de ${LEAD_MONTHS + FORECAST.safetyMonths} meses de ${formatQuantity(per)} por mês.`;
   }
   if (a.kind === 'lowSales') {
     return `Venda baixa: a tiragem mínima (${formatQuantity(FORECAST.reprintMin)}) cobriria ${a.months} meses de venda, mais que ${FORECAST.lowSalesMonths}. Sem sugestão.`;
@@ -447,8 +479,23 @@ function reprintText(a: ReprintAdvice, sales: number, months: number, have: numb
 }
 
 /** A ficha de um título: as vendas, o que há de estoque, as contas e o porquê de cada sugestão. */
-function TitleDialog({ row: r, curve, today, onClose, onProduct }: { row: ForecastRow | null; curve: CurveInfo; today: string; onClose: () => void; onProduct?: (productId: string) => void }) {
-  const have = r ? r.stock + r.atSea + r.production : 0;
+function TitleDialog({
+  row: r,
+  curve,
+  today,
+  onClose,
+  onProduct,
+  onBrazil,
+}: {
+  row: ForecastRow | null;
+  curve: CurveInfo;
+  today: string;
+  onClose: () => void;
+  onProduct?: (productId: string) => void;
+  onBrazil?: (query: string) => void;
+}) {
+  const have = r ? r.stock + r.atSea + r.brazil + r.production : 0;
+  const withBrazil = !!r && r.brazil > 0;
   const alerts = r ? forecastAlerts(r) : [];
   const top = r ? Math.max(r.monthly3, r.monthly6) : 0;
   const sales: [string, number | null][] = r
@@ -518,6 +565,13 @@ function TitleDialog({ row: r, curve, today, onClose, onProduct }: { row: Foreca
                   </dd>
                 </div>
                 <div>
+                  <dt>No Brasil</dt>
+                  <dd>
+                    {formatQuantity(r.brazil)}
+                    {nextBrazilDue(r.brazilOrders) && <span className="dica">entrega {formatDay(nextBrazilDue(r.brazilOrders)!, true)}</span>}
+                  </dd>
+                </div>
+                <div>
                   <dt>Em produção</dt>
                   <dd>{formatQuantity(r.production)}</dd>
                 </div>
@@ -531,7 +585,7 @@ function TitleDialog({ row: r, curve, today, onClose, onProduct }: { row: Foreca
                   </dd>
                 </div>
                 <div>
-                  <dt>Cobertura com embarcado</dt>
+                  <dt>Cobertura com embarcado e Brasil</dt>
                   <dd>
                     <span>
                       {formatCover(r.cover.total3)} <span className="mudo">·</span> {formatCover(r.cover.total6)}
@@ -545,6 +599,21 @@ function TitleDialog({ row: r, curve, today, onClose, onProduct }: { row: Foreca
                   O embarcado inclui {formatQuantity(r.arrivedAfter)} que chegaram depois de {formatDay(curve.stockDate, true)}, a data do estoque da curva: a planilha ainda não os
                   conta.
                 </p>
+              )}
+              {r.brazilArrivedAfter > 0 && (
+                <p className="dica">
+                  O Brasil inclui {formatQuantity(r.brazilArrivedAfter)} que as gráficas entregaram depois de {formatDay(curve.stockDate, true)}: a planilha ainda não os conta.
+                </p>
+              )}
+              {r.brazilOrders.length > 0 && (
+                <ul className="prev-pos">
+                  {r.brazilOrders.map((o) => (
+                    <li key={o.id}>
+                      <b>{o.printer}</b> · faltam {formatQuantity(o.remaining)} ex. · {o.dueAt ? `entrega prevista para ${formatDay(o.dueAt, true)}` : 'sem entrega prevista'}
+                      {o.dueAt && o.dueAt < today && ' (atrasada)'}
+                    </li>
+                  ))}
+                </ul>
               )}
               {r.orders.length > 0 && (
                 <ul className="prev-pos">
@@ -561,10 +630,10 @@ function TitleDialog({ row: r, curve, today, onClose, onProduct }: { row: Foreca
             <section aria-label="Reimpressão">
               <h3>Reimpressão</h3>
               <p>
-                <b>Pela média de 3 meses.</b> {reprintText(r.reprint3, r.sales.m3, 3, have)}
+                <b>Pela média de 3 meses.</b> {reprintText(r.reprint3, r.sales.m3, 3, have, withBrazil)}
               </p>
               <p>
-                <b>Pela média de 6 meses.</b> {reprintText(r.reprint6, r.sales.m6, 6, have)}
+                <b>Pela média de 6 meses.</b> {reprintText(r.reprint6, r.sales.m6, 6, have, withBrazil)}
               </p>
             </section>
 
@@ -576,7 +645,7 @@ function TitleDialog({ row: r, curve, today, onClose, onProduct }: { row: Foreca
                     <b>
                       Embarcar até {formatDay(r.ship.shipBy, true)} pelo menos {formatQuantity(r.ship.quantity)} ex.
                     </b>{' '}
-                    Pela maior média ({monthly(top)} por mês), físico + embarcado acabam em {formatDay(r.runsOutAt, true)}; a viagem leva {FORECAST.shippingDays} dias. A quantidade
+                    Pela maior média ({monthly(top)} por mês), {withBrazil ? 'físico + embarcado + Brasil' : 'físico + embarcado'} acabam em {formatDay(r.runsOutAt, true)}; a viagem leva {FORECAST.shippingDays} dias. A quantidade
                     é de {FORECAST.shipMonths} meses de venda{r.ship.short ? ', mas a produção não chega a isso' : ''}.
                   </p>
                   <p className="dica">
@@ -608,6 +677,20 @@ function TitleDialog({ row: r, curve, today, onClose, onProduct }: { row: Foreca
                 Ficha do produto no No Porto
               </button>
             )}
+            {!r.productId && r.brazilOrders.length > 0 && onBrazil && (
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  const isbn = r.isbn;
+                  onClose();
+                  onBrazil(isbn);
+                }}
+              >
+                <Icon name="livro" />
+                Ver na produção no Brasil
+              </button>
+            )}
             <button type="button" className="btn primario" onClick={onClose}>
               Fechar
             </button>
@@ -633,6 +716,9 @@ function exportColumns(): ExportColumn<ForecastRow>[] {
     { header: 'Estoque físico', width: 13, value: (r) => r.stock, numFmt: n0 },
     { header: 'Embarcado', width: 12, value: (r) => r.atSea, numFmt: n0 },
     { header: 'Chegada prevista', width: 14, value: (r) => br(r.nextEta) },
+    { header: 'No Brasil', width: 12, value: (r) => r.brazil, numFmt: n0 },
+    { header: 'Entrega no Brasil', width: 14, value: (r) => br(nextBrazilDue(r.brazilOrders)) },
+    { header: 'Gráficas no Brasil', width: 24, value: (r) => [...new Set(r.brazilOrders.map((o) => o.printer))].join(', ') },
     { header: 'Em produção', width: 12, value: (r) => r.production, numFmt: n0 },
     { header: 'POs em produção', width: 18, value: (r) => r.orders.map((o) => o.code ?? 'Sem PO').join(', ') },
     { header: 'Vendas 1 mês', width: 12, value: (r) => r.sales.m1, numFmt: n0 },
@@ -644,8 +730,8 @@ function exportColumns(): ExportColumn<ForecastRow>[] {
     { header: 'Venda/mês (6 meses)', width: 15, value: (r) => Math.round(r.monthly6), numFmt: n0 },
     { header: 'Cobertura físico (3 meses)', width: 15, value: (r) => cover(r.cover.stock3), numFmt: '0.0' },
     { header: 'Cobertura físico (6 meses)', width: 15, value: (r) => cover(r.cover.stock6), numFmt: '0.0' },
-    { header: 'Cobertura com embarcado (3 meses)', width: 17, value: (r) => cover(r.cover.total3), numFmt: '0.0' },
-    { header: 'Cobertura com embarcado (6 meses)', width: 17, value: (r) => cover(r.cover.total6), numFmt: '0.0' },
+    { header: 'Cobertura com embarcado e Brasil (3 meses)', width: 19, value: (r) => cover(r.cover.total3), numFmt: '0.0' },
+    { header: 'Cobertura com embarcado e Brasil (6 meses)', width: 19, value: (r) => cover(r.cover.total6), numFmt: '0.0' },
     { header: 'Reimpressão (3 meses)', width: 16, value: (r) => reprint(r.reprint3), numFmt: n0 },
     { header: 'Reimpressão (6 meses)', width: 16, value: (r) => reprint(r.reprint6), numFmt: n0 },
     { header: 'Embarcar até', width: 13, value: (r) => br(r.ship?.shipBy) },

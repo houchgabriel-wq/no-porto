@@ -1063,6 +1063,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                   initialShow={viewSub}
                   onLoad={loadsStock ? () => setCurveOpen(true) : undefined}
                   onProduct={seesAll ? setProduct : undefined}
+                  onBrazil={seesAll ? goToBrazil : undefined}
                   onToast={showToast}
                 />
               ) : stockError ? (
