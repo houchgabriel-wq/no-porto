@@ -139,6 +139,9 @@ export interface BrOrderSummary {
   deliveries: DeliveredPart[];
 }
 
+/** Um pedido no Brasil na ficha do produto: o total (gráfica + papel nosso, em centavos) só para quem vê valores. */
+export type ProductBrazilOrder = BrOrderSummary & { totalCents: number | null };
+
 /** Preço por exemplar em reais, até quatro casas ("3,70", "0,1234", "R$ 2,5") → inteiro × 10.000; null se não servir. */
 export function parseBrlUnitPrice(text: string): number | null {
   const v = parseScaled(text.trim().replace(/^R\$/i, ''), 4);

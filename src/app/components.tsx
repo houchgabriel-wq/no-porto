@@ -12,6 +12,9 @@ export function hueStyle(hue: number): CSSProperties {
   return { '--h': String(hue) } as CSSProperties;
 }
 
+/** A cor da produção no Brasil, junto com as da importação (em produção, embarcado e entregue). */
+export const BRAZIL_HUE = 280;
+
 export function Brand({ subtitle = true }: { subtitle?: boolean }) {
   return (
     <div className="marca">

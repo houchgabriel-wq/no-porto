@@ -1196,7 +1196,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
           onToast={showToast}
         />
       )}
-      {data && <ProductDialog productId={product} suppliers={data.suppliers} onClose={() => setProduct(null)} />}
+      {data && <ProductDialog productId={product} suppliers={data.suppliers} today={data.today} onClose={() => setProduct(null)} />}
       <SupplierDialog
         supplier={supplier}
         all={suppliersData?.suppliers ?? []}
