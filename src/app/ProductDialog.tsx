@@ -1,10 +1,11 @@
 // Ficha do produto (SPEC.md, seção 5): todas as compras de um produto desde 2023 (em produção,
 // embarcadas e entregues), com fornecedor, PO ou invoice, quantidade e preço, e a variação do preço.
-// Desde 27/11/2026, também os pedidos nas gráficas do Brasil com o mesmo ISBN.
+// Desde 27/11/2026, também os pedidos nas gráficas do Brasil com o mesmo ISBN, e a invoice abre a ficha do
+// embarque, com os arquivos, mesmo depois dos 60 dias da tela de embarques.
 
 import { useEffect, useState } from 'react';
 import { dueText, formatBrl, formatBrlUnit, orderState, type ProductBrazilOrder } from '../core/brazil';
-import { priceStats, purchaseDate } from '../core/history';
+import { priceStats, purchaseDate, shipmentKeyOf } from '../core/history';
 import { NO_SUPPLIER, STATUS_HUES, STATUS_LABELS, type Item, type Supplier } from '../core/items';
 import { formatQuantity, formatUnitPrice, formatUsd } from '../core/money';
 import { formatDay } from '../core/shipments';
@@ -13,7 +14,20 @@ import { BRAZIL_HUE, Dialog, FormError, hueStyle } from './components';
 
 type Product = Awaited<ReturnType<typeof api.product>>;
 
-export function ProductDialog({ productId, suppliers, today, onClose }: { productId: string | null; suppliers: Supplier[]; today: string; onClose: () => void }) {
+export function ProductDialog({
+  productId,
+  suppliers,
+  today,
+  onClose,
+  onShipment,
+}: {
+  productId: string | null;
+  suppliers: Supplier[];
+  today: string;
+  onClose: () => void;
+  /** Abre a ficha do embarque da invoice (bl:<id> ou inv:<id>). */
+  onShipment: (key: string) => void;
+}) {
   const [data, setData] = useState<Product | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,7 +59,17 @@ export function ProductDialog({ productId, suppliers, today, onClose }: { produc
   const totalQty = purchases.reduce((s, p) => s + p.item.quantity, 0);
   const where = (item: Item) => {
     const invoice = item.invoiceId ? invoices.get(item.invoiceId) : undefined;
-    if (invoice) return `Invoice ${invoice.number}${invoice.billNumber ? ` · BL ${invoice.billNumber}` : ''}`;
+    if (invoice) {
+      return (
+        <button type="button" className="abrir-item abrir-emb" onClick={() => onShipment(shipmentKeyOf(invoice))}>
+          <span className="so-leitor">Abrir o embarque da </span>
+          <span className="abrir-emb-num">
+            Invoice {invoice.number}
+            {invoice.billNumber ? ` · BL ${invoice.billNumber}` : ''}
+          </span>
+        </button>
+      );
+    }
     return item.purchaseOrderId ? (orders.get(item.purchaseOrderId) ?? '') : 'Sem PO';
   };
 
