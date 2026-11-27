@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   addDays,
   bestOffer,
+  formatKg,
+  kgInput,
+  offerCost,
+  offerExpiry,
+  orderTotalCents,
+  paperCostCents,
+  parseKgGrams,
   brazilSummary,
   brlTotalCents,
   brlUnitInput,
@@ -17,7 +24,33 @@ import {
   type Offer,
 } from './brazil';
 
-const offer = (id: string, unitPriceE4: number | null, leadDays: number | null = null, quantity = 5000): Offer => ({ id, quoteId: 'q', printerId: id, quantity, unitPriceE4, leadDays, notes: '' });
+/** Proposta de um item só, com o papel da gráfica. */
+const offer = (id: string, unitPriceE4: number | null, leadDays: number | null = null, quantity = 5000): Offer => ({
+  id,
+  quoteId: 'q',
+  printerId: id,
+  quantity,
+  paperBy: 'grafica',
+  items: [{ description: 'Livro', quantity, unitPriceE4 }],
+  papers: [],
+  leadDays,
+  proposalNumber: '',
+  proposalDate: null,
+  validDays: null,
+  paymentTerms: '',
+  notes: '',
+  document: null,
+});
+/** A proposta da Assahi (orçamento 103896.04): 20.000 livros a R$ 1,18, com o papel nosso (capa e dois miolos). */
+const assahi = (): Offer => ({
+  ...offer('assahi', 11_800, 15, 20_000),
+  paperBy: 'editora',
+  papers: [
+    { part: 'capa', paperId: 'triplex', paperName: 'Triplex LD 230 g', grams: 707_000, pricePerKgE4: 85_000 },
+    { part: 'miolo', paperId: 'offwhite', paperName: 'Offwhite Rot 60 g', grams: 2_463_440, pricePerKgE4: 72_000 },
+    { part: 'miolo', paperId: 'offwhite', paperName: 'Offwhite Rot 60 g', grams: 846_810, pricePerKgE4: 72_000 },
+  ],
+});
 const order = (over: Partial<BrOrder> = {}): BrOrder => ({
   id: 'o',
   quoteId: 'q',
@@ -26,7 +59,8 @@ const order = (over: Partial<BrOrder> = {}): BrOrder => ({
   title: 'Cartas a Milena',
   isbn: '9786585168663',
   quantity: 5000,
-  unitPriceE4: 37_000,
+  printerCents: 1_850_000,
+  paperCents: 0,
   orderedAt: '2026-11-01',
   dueAt: '2026-11-20',
   specification: '',
@@ -51,10 +85,44 @@ describe('reais na produção no Brasil', () => {
     expect(addDays('2026-11-27', 20)).toBe('2026-12-17');
   });
 
-  it('a melhor proposta: o menor preço por exemplar; no empate, o menor prazo; sem preço, nenhuma', () => {
+  it('a melhor proposta: o menor custo por unidade; no empate, o menor prazo; sem preço, nenhuma', () => {
     expect(bestOffer([offer('a', 41_000, 15), offer('b', 37_000, 30), offer('c', 37_000, 20)])?.id).toBe('c');
     expect(bestOffer([offer('a', null), offer('b', null)])).toBeNull();
     expect(bestOffer([])).toBeNull();
+    // Com o papel nosso, a Assahi (R$ 1,18 + papel) sai mais cara que outra a R$ 2,50 com o papel dela.
+    expect(bestOffer([assahi(), offer('outra', 25_000, 20, 20_000)])?.id).toBe('outra');
+  });
+
+  it('o papel: peso em gramas, o custo pelo preço por kg', () => {
+    expect(['707', '2.463,44', '846,81', '1,5 kg'].map(parseKgGrams)).toEqual([707_000, 2_463_440, 846_810, 1500]);
+    expect(['', '0', 'abc', '1,2345'].map(parseKgGrams)).toEqual([null, null, null, null]);
+    expect([formatKg(2_463_440), kgInput(2_463_440), kgInput(707_000)]).toEqual(['2.463,44 kg', '2463,44', '707']);
+    expect(paperCostCents(707_000, 85_000)).toBe(600_950);
+  });
+
+  it('o custo da proposta: os itens da gráfica, o papel nosso e o custo por unidade', () => {
+    // Assahi: R$ 23.600,00 da gráfica + R$ 29.843,30 de papel = R$ 53.443,30, ou R$ 2,6722 por livro.
+    expect(offerCost(assahi())).toEqual({ printerCents: 2_360_000, paperCents: 2_984_330, totalCents: 5_344_330, unitCostE4: 26_722 });
+    // Grafilar (proposta 117.627): o kit de 15.000 com o box a R$ 3,46 e os três livros a R$ 3,29, papel deles.
+    const kit: Offer = {
+      ...offer('grafilar', null, null, 15_000),
+      items: [
+        { description: 'Box', quantity: 15_000, unitPriceE4: 34_600 },
+        { description: 'Livros Básico, Mangá e Rosto (15.000 de cada)', quantity: 45_000, unitPriceE4: 32_900 },
+      ],
+    };
+    expect(offerCost(kit)).toEqual({ printerCents: 19_995_000, paperCents: 0, totalCents: 19_995_000, unitCostE4: 133_300 });
+    // O papel só conta com o papel nosso; sem os valores, não há custo.
+    expect(offerCost({ ...assahi(), paperBy: 'grafica' })?.paperCents).toBe(0);
+    expect(offerCost({ ...assahi(), papers: [{ ...assahi().papers[0]!, pricePerKgE4: null }] })).toBeNull();
+    expect([orderTotalCents({ printerCents: 2_360_000, paperCents: 2_984_330 }), orderTotalCents({ printerCents: null, paperCents: null })]).toEqual([5_344_330, null]);
+  });
+
+  it('a validade da proposta: a data dela mais os dias', () => {
+    const o = { proposalDate: '2026-11-24', validDays: 10 };
+    expect(offerExpiry(o, '2026-11-27')).toEqual({ until: '2026-12-04', expired: false });
+    expect(offerExpiry(o, '2026-12-05')).toEqual({ until: '2026-12-04', expired: true });
+    expect(offerExpiry({ proposalDate: null, validDays: 10 }, '2026-11-27')).toBeNull();
   });
 });
 
@@ -91,17 +159,18 @@ describe('pedidos e entregas', () => {
     const today = '2026-11-27';
     const orders = [
       order({ id: 'a', deliveries: [delivery('2026-11-18', 3000)] }),
-      order({ id: 'b', quantity: 1000, unitPriceE4: 50_000, dueAt: '2026-12-10' }),
+      order({ id: 'b', quantity: 1000, printerCents: 400_000, paperCents: 100_000, dueAt: '2026-12-10' }),
       order({ id: 'c', deliveries: [delivery('2026-10-01', 5000)] }),
     ];
     expect(brazilSummary([{ status: 'aberto' }, { status: 'fechado' }, { status: 'aberto' }, { status: 'cancelado' }], orders, today)).toEqual({
       openQuotes: 2,
-      producing: { orders: 2, copies: 3000, valueCents: brlTotalCents(2000, 37_000) + brlTotalCents(1000, 50_000) },
+      // O que falta do primeiro (2.000 de 5.000) e o segundo inteiro, com o papel.
+      producing: { orders: 2, copies: 3000, valueCents: brlTotalCents(2000, 37_000) + 500_000 },
       late: 1,
       deliveredLast30: 3000,
     });
     // Sem os valores (o leitor), o valor fica de fora.
-    expect(brazilSummary([], [order({ unitPriceE4: null })], today).producing.valueCents).toBeNull();
+    expect(brazilSummary([], [order({ printerCents: null, paperCents: null })], today).producing.valueCents).toBeNull();
   });
 
   it('a busca: produto, ISBN ou gráfica, sem acento e em qualquer ordem', () => {
