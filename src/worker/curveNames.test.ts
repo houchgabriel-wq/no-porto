@@ -40,8 +40,8 @@ beforeEach(async () => {
   claire = (await app.call('GET', '/api/data', { cookie: who.admin.cookie })).data.suppliers[0].id;
 });
 
-/** O embarque com os nomes que o fornecedor escreveu na invoice. */
-const receive = () =>
+/** O embarque com os nomes que o fornecedor escreveu na invoice; `titles`, os nomes escritos na prévia. */
+const receive = (titles: (string | null)[] = []) =>
   app.call('POST', '/api/shipments', {
     cookie: who.editor.cookie,
     body: {
@@ -56,7 +56,7 @@ const receive = () =>
             line({ row: 8, description: '365 habits', isbn: HABITOS, quantity: 1000 }),
             line({ row: 9, description: 'Bluey boxset', isbn: BLUEY, quantity: 1000 }),
             line({ row: 10, description: 'The Kybalion', isbn: CAIBALION, quantity: 500 }),
-          ],
+          ].map((l, i) => (titles[i] === undefined ? l : { ...l, title: titles[i] })),
         },
       ],
     },
@@ -113,6 +113,44 @@ describe('nomes da curva ABC no Novo embarque', () => {
     const { items } = await data();
     expect(items.filter((i) => i.status === 'embarcado').map((i) => i.description)).toEqual(expect.arrayContaining(['Coleção Alice', '365 hábitos (PO)', 'Box Bluey', 'The Kybalion']));
     expect(await productTitle(CAIBALION)).toBe('The Kybalion');
+  });
+});
+
+describe('nome escrito na prévia do Novo embarque', () => {
+  it('vale no lugar do da curva e do da invoice, nos itens e no produto; a resposta traz o nome de cada linha', async () => {
+    await app.call('POST', '/api/stock', { cookie: who.admin.cookie, body: CURVE });
+    const res = await receive(['Alice no País das Maravilhas - Box de Colecionador', null, 'Bluey: Box com 4 Livros']);
+    expect(res.status).toBe(201);
+    expect(res.data.names).toEqual([['Alice no País das Maravilhas - Box de Colecionador', '365 Hábitos Simples e Poderosos', 'Bluey: Box com 4 Livros', 'O Caibalion - Os Três Iniciados']]);
+    const { items } = await data();
+    expect(items.filter((i) => i.status === 'embarcado').map((i) => i.description)).toEqual(
+      expect.arrayContaining(['Alice no País das Maravilhas - Box de Colecionador', '365 Hábitos Simples e Poderosos', 'Bluey: Box com 4 Livros', 'O Caibalion - Os Três Iniciados']),
+    );
+    // O que ficou em produção continua com o nome de antes.
+    expect(items.filter((i) => i.status === 'producao').map((i) => i.description)).toEqual(['Coleção Alice', 'Box Bluey']);
+    expect([await productTitle(ALICE), await productTitle(BLUEY)]).toEqual(['Alice no País das Maravilhas - Box de Colecionador', 'Bluey: Box com 4 Livros']);
+  });
+
+  it('excluir o embarque devolve o nome de antes também ao que teve o nome escrito', async () => {
+    await receive(['Alice no País das Maravilhas - Box de Colecionador', null, 'Bluey: Box com 4 Livros']);
+    const { invoices } = await data();
+    expect((await app.call('DELETE', `/api/invoices/${invoices[0]!.id}`, { cookie: who.admin.cookie })).status).toBe(200);
+    expect((await data()).items.map((i) => [i.description, i.status, i.quantity])).toEqual([
+      ['Coleção Alice', 'producao', 5000],
+      ['365 hábitos (PO)', 'producao', 1000],
+      ['Box Bluey', 'producao', 2000],
+    ]);
+  });
+
+  it('sem curva e sem nome escrito, a resposta diz que ficaram os nomes de sempre', async () => {
+    expect((await receive()).data.names).toEqual([[null, null, null, null]]);
+  });
+
+  it('recusa nome em branco ou longo demais', async () => {
+    const blank = await receive(['   ']);
+    expect([blank.status, blank.data.error]).toEqual([400, 'Informe o nome do produto.']);
+    expect((await receive(['x'.repeat(301)])).status).toBe(400);
+    expect((await data()).invoices).toHaveLength(0);
   });
 });
 

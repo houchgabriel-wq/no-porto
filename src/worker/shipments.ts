@@ -83,6 +83,8 @@ const receiveLine = z.object({
   piecesPerCarton: z.number().int().positive().max(1_000_000).nullable().default(null),
   unitPriceMicros: z.number().int().min(0).max(1_000_000_000).refine(isValidUnitPrice, 'O preço unitário tem no máximo três casas decimais.').nullable(),
   orderCode: z.string().max(20).nullable().default(null),
+  /** O nome escrito na prévia do Novo embarque (27/11/2026): vale no lugar do da curva ABC e do da invoice. */
+  title: text(300, 'Nome do produto').pipe(z.string().min(1, 'Informe o nome do produto.')).nullable().default(null),
 });
 
 /** A unidade do BL (o container) de uma invoice: lida do PDF do BL e ligada pela packing list (25/11/2026). */
@@ -232,7 +234,7 @@ function shipItemStatements(
 ): D1PreparedStatement[] {
   const price = override.priceMicros ?? item.unitPriceMicros ?? null;
   const pieces = override.piecesPerCarton ?? item.piecesPerCarton;
-  // O nome da curva ABC, no Novo embarque (27/11/2026); sem ele, fica o nome do item.
+  // O nome escolhido no Novo embarque, o escrito na prévia ou o da curva ABC (27/11/2026); sem ele, fica o do item.
   const description = override.description || item.description;
   if (quantity === item.quantity) {
     return [
@@ -524,9 +526,12 @@ async function receiveShipment(request: Request, env: Env, session: Session, now
   const allocation = allocateInvoices(body.invoices, production, orderRows!.results as { id: string; code: string }[]);
 
   const refs = await loadRefs(env, at);
-  // O nome de cada produto como na curva ABC carregada, pelo ISBN (27/11/2026); sem curva, ficam os da invoice.
-  const titles = body.invoices.some((v) => v.lines.some((l) => l.isbn)) ? curveTitles((await readCurve(env))?.rows ?? []) : new Map<string, string>();
+  // O nome de cada produto (27/11/2026): o escrito na prévia ou, sem ele, o da curva ABC carregada, pelo ISBN;
+  // sem nenhum dos dois, ficam os de sempre.
+  const titles = body.invoices.some((v) => v.lines.some((l) => l.isbn && !l.title)) ? curveTitles((await readCurve(env))?.rows ?? []) : new Map<string, string>();
   const renamedProducts = new Map<string, string>();
+  // O nome gravado de cada linha, para a tela guardar a invoice com os nomes novos; null mantém os de sempre.
+  const savedNames: (string | null)[][] = body.invoices.map(() => []);
   let takenQty = 0;
   let extra = 0;
   body.invoices.forEach((v, vi) => {
@@ -534,12 +539,13 @@ async function receiveShipment(request: Request, env: Env, session: Session, now
     const supplier = names.get(v.supplierId)!;
     v.lines.forEach((line, index) => {
       const { takes, extra: missing } = allocation[vi]![index]!;
-      const curveName = curveTitleFor(line.isbn, titles);
-      if (curveName && line.isbn) renamedProducts.set(line.isbn, curveName);
+      const chosenName = line.title ?? curveTitleFor(line.isbn, titles);
+      savedNames[vi]!.push(chosenName);
+      if (chosenName && line.isbn) renamedProducts.set(line.isbn, chosenName);
       for (const take of takes) {
         const item = byId.get(take.itemId)!;
         statements.push(
-          ...shipItemStatements(env, item, take.quantity, invoice, 'embarcado', { priceMicros: line.unitPriceMicros, piecesPerCarton: line.piecesPerCarton, description: curveName }, userId, at),
+          ...shipItemStatements(env, item, take.quantity, invoice, 'embarcado', { priceMicros: line.unitPriceMicros, piecesPerCarton: line.piecesPerCarton, description: chosenName }, userId, at),
         );
         // O item segue com o saldo: a próxima linha (ou o próximo container) parte do que sobrou.
         byId.set(item.id, { ...item, quantity: item.quantity - take.quantity });
@@ -553,8 +559,8 @@ async function receiveShipment(request: Request, env: Env, session: Session, now
           insertItem(
             env,
             id,
-            { description: curveName ?? line.description, quantity: missing, piecesPerCarton: line.piecesPerCarton, unitPriceMicros: line.unitPriceMicros, notes },
-            { productId: refs.product(line.isbn, curveName ?? line.description), supplierId: v.supplierId, orderId: null, invoiceId: invoice.id, status: 'embarcado' },
+            { description: chosenName ?? line.description, quantity: missing, piecesPerCarton: line.piecesPerCarton, unitPriceMicros: line.unitPriceMicros, notes },
+            { productId: refs.product(line.isbn, chosenName ?? line.description), supplierId: v.supplierId, orderId: null, invoiceId: invoice.id, status: 'embarcado' },
             userId,
             at,
           ),
@@ -564,12 +570,12 @@ async function receiveShipment(request: Request, env: Env, session: Session, now
     });
   });
   // Produtos novos, o BL e as invoices antes dos itens, que apontam para eles.
-  // O produto também fica com o título da curva (o No Estoque e as fichas usam o título do produto).
+  // O produto também fica com o nome escolhido (o No Estoque e as fichas usam o título do produto).
   for (const [isbn, title] of renamedProducts) {
     statements.push(env.DB.prepare('UPDATE products SET title = ?, title_key = ? WHERE isbn = ? AND title <> ?').bind(title, titleKey(title), isbn, title));
   }
   await env.DB.batch([...refs.statements, ...statements]);
-  return json({ billId, invoiceIds: invoices.map((v) => v.id), taken: takenQty, extra }, 201);
+  return json({ billId, invoiceIds: invoices.map((v) => v.id), taken: takenQty, extra, names: savedNames }, 201);
 }
 
 // ---------- Container entregue ----------
