@@ -1,7 +1,8 @@
 // Ficha do embarque: o BL (ou a invoice sem BL) com a chegada prevista e a real, as invoices com os
 // itens e os pagamentos de cada uma (data, valor em dólar e câmbio). O leitor só acompanha. Os arquivos
 // do BL, da invoice e da packing list de cada container ficam guardados para baixar (27/11/2026). A chegada é
-// de cada container: no BL com vários, cada um chega no seu dia (27/11/2026).
+// de cada container: no BL com vários, cada um chega no seu dia (27/11/2026). A nota fiscal, o PDF e o XML, é
+// de cada container, e o BL com mais de um container tem também a nota master, com o embarque todo (27/11/2026).
 
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { ARRIVAL_DAYS_DEFAULT, arrivalFromBill, arrivalText as arrivalAfter, billDateProblem, billDateText, type BillDate } from '../core/billArrival';
@@ -9,6 +10,7 @@ import { cartonsOf, formatWeight, matchUnits, unitSummary, type BillUnit } from 
 import { parseShipmentFile } from '../core/documents';
 import { cartonsText, missingPieces, packingPlan, type PackingPlan, type PackingRow } from '../core/packingList';
 import { NO_SUPPLIER, type Item } from '../core/items';
+import { fiscalProblems, NFE_STATUS_WARNINGS, noteName, type FiscalNote } from '../core/nfe';
 import { formatQuantity, formatUsd, parseExchangeRate, parseMoneyCents } from '../core/money';
 import { can } from '../core/roles';
 import {
@@ -30,8 +32,9 @@ import { api, ApiError, type Me, type ProductionData } from './api';
 import { Dialog, FormError } from './components';
 import { readFile } from './Documents';
 import { fileSizeText, MAX_FILE_BYTES, sheetContentType, toBase64 } from './fileUpload';
+import { prepareFiscalFiles } from './fiscalFile';
 import { Icon } from './icons';
-import { readBillPdf } from './pdfText';
+import { readBillPdf, readDanfeKey } from './pdfText';
 import type { Production } from './production';
 
 interface Props {
@@ -49,11 +52,16 @@ function listPt(parts: string[]): string {
   return parts.length <= 1 ? (parts[0] ?? '') : `${parts.slice(0, -1).join(', ')} e ${parts.at(-1)}`;
 }
 
-/** Os arquivos guardados que saem com o embarque, para a confirmação de excluir. */
+/** Os arquivos guardados que saem com o embarque, para a confirmação de excluir (as notas fiscais também). */
 function storedFiles(bill: Bill | null, invoices: Invoice[]): string[] {
-  const containers = invoices.some((v) => v.documents);
-  if (bill?.document) return [containers ? 'os arquivos do BL e dos containers' : 'o arquivo do BL'];
+  const containers = invoices.some((v) => v.documents || v.fiscal);
+  if (bill?.document || bill?.fiscal) return [containers ? 'os arquivos do BL e dos containers' : bill.document && !bill.fiscal ? 'o arquivo do BL' : 'os arquivos do BL'];
   return containers ? ['os arquivos dos containers'] : [];
+}
+
+/** O container como a ficha o chama: pela unidade do BL ou, sem ela, pela invoice. */
+function containerLabel(invoice: Invoice): string {
+  return invoice.unit?.container ? `container ${invoice.unit.container}` : `container da invoice ${invoice.number}`;
 }
 
 const reais = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -181,6 +189,10 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
           )}
         </form>
         {unit.bill && <BillFile bill={unit.bill} canEdit={canEdit} canDownload={data.seeValues} busy={busy} run={run} onError={setError} />}
+        {unit.bill && data.seeValues && (unit.invoices.length > 1 || unit.bill.fiscal) && (
+          <FiscalNoteBlock owner="bills" ownerId={unit.bill.id} note={unit.bill.fiscal} subject={`do BL ${unit.bill.number}`} canEdit={canEdit} act={run} onError={setError} />
+        )}
+        {data.seeValues && <FiscalWarnings master={unit.bill?.fiscal} invoices={unit.invoices} />}
         {unit.bill && canEdit && unit.bill.document && /\.pdf$/i.test(unit.bill.document.name) && (
           <BillReading key={unit.bill.id} bill={unit.bill} invoices={unit.invoices} data={data} busy={busy} run={run} />
         )}
@@ -435,7 +447,7 @@ function InvoiceSection({
   // A prioridade no desembaraço e no transporte vale enquanto o container não chega (26/11/2026).
   const priority = Boolean(invoice.priority) && !invoiceArrived;
   // O que sai junto ao excluir a invoice.
-  const gone = [...(pay ? ['os pagamentos'] : []), ...(invoice.documents ? ['os arquivos'] : [])];
+  const gone = [...(pay ? ['os pagamentos'] : []), ...(invoice.documents || invoice.fiscal ? ['os arquivos'] : [])];
 
   async function act(action: () => Promise<unknown>, done: string) {
     setError(null);
@@ -516,6 +528,7 @@ function InvoiceSection({
       )}
       {data.seeValues && <InvoiceFile invoice={invoice} canEdit={canEdit} act={act} onError={setError} />}
       <PackingListBlock invoice={invoice} items={items} canEdit={canEdit} canDownload={data.seeValues} act={act} />
+      {data.seeValues && <FiscalNoteBlock owner="invoices" ownerId={invoice.id} note={invoice.fiscal} subject={`do ${containerLabel(invoice)}`} canEdit={canEdit} act={act} onError={setError} />}
 
       <ul className="emb-itens">
         {items.map((item) => (
@@ -1077,6 +1090,163 @@ function InvoiceForm({
         </button>
       </div>
     </form>
+  );
+}
+
+/** O endereço para baixar o PDF ou o XML da nota: a do container (invoices) ou a master (bills). */
+const fiscalUrl = (owner: 'invoices' | 'bills', id: string, kind: 'pdf' | 'xml') => `/api/${owner}/${encodeURIComponent(id)}/fiscal/${kind}`;
+
+const FISCAL_ACCEPT = '.pdf,.xml,application/pdf,application/xml,text/xml';
+
+/**
+ * A nota fiscal (pedido do Gabriel em 27/11/2026): a do container ou, no BL com mais de um container, a master, com o
+ * embarque todo. O PDF (o DANFE) e o XML, que vão inteiros para o No Estoque. Só para quem vê valores, porque a nota
+ * traz os valores e os impostos. Baixar; e, para admin e editor, anexar (os dois de uma vez, ou um só: cada um é
+ * reconhecido pela extensão), trocar e tirar. O XML é lido antes de ir: o número, a série e o dia aparecem aqui.
+ */
+function FiscalNoteBlock({
+  owner,
+  ownerId,
+  note,
+  subject,
+  canEdit,
+  act,
+  onError,
+}: {
+  owner: 'invoices' | 'bills';
+  ownerId: string;
+  note: FiscalNote | undefined;
+  /** "do container YMLU5432079" ou "do BL …", para os botões dizerem de qual nota. */
+  subject: string;
+  canEdit: boolean;
+  act: (action: () => Promise<unknown>, done: string) => Promise<unknown>;
+  onError: (msg: string | null) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const master = owner === 'bills';
+  const pdf = note?.pdf;
+  const xml = note?.xml;
+  if (!pdf && !xml && !canEdit) return null;
+  const title = master ? 'Nota master' : 'Nota fiscal';
+  const name = noteName(note);
+  const what = master ? 'da nota master' : 'da nota fiscal';
+
+  async function attach(list: FileList | null) {
+    const files = [...(list ?? [])];
+    if (!files.length) return;
+    onError(null);
+    setBusy(true);
+    try {
+      const prepared = await prepareFiscalFiles(files, readDanfeKey);
+      if ('error' in prepared) return onError(prepared.error);
+      const kinds = prepared.uploads.map((u) => u.kind);
+      const done =
+        kinds.length === 2 ? `PDF e XML ${what} anexados.` : kinds[0] === 'xml' ? `XML ${what} ${xml ? 'trocado' : 'anexado'}.` : `PDF ${what} ${pdf ? 'trocado' : 'anexado'}.`;
+      await act(async () => {
+        for (const u of prepared.uploads) await api.putFiscalDocument(owner, ownerId, u.kind, { name: u.name, contentType: u.contentType, data: u.data, key: u.kind === 'pdf' ? u.key : null });
+      }, done);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(kind: 'pdf' | 'xml') {
+    setBusy(true);
+    await act(() => api.deleteFiscalDocument(owner, ownerId, kind), `${kind === 'pdf' ? 'PDF' : 'XML'} ${what} tirado.`);
+    setBusy(false);
+  }
+
+  return (
+    <div className={`emb-nota${master ? ' master' : ''}`}>
+      <p className="emb-pl-linha emb-nota-topo">
+        <Icon name="nota" />
+        <span>
+          <b>{title}</b>
+          {master && <span className="mudo">, com o embarque todo</span>}
+          {name ? (
+            <>
+              {' · '}
+              {name}
+              {xml?.issuedAt && <span className="mudo">, emitida em {formatDay(xml.issuedAt, true)}</span>}
+            </>
+          ) : (
+            !pdf && !xml && <span className="mudo"> · sem a nota</span>
+          )}
+        </span>
+        {canEdit && (
+          <label className="btn-texto arquivo">
+            {busy ? 'Gravando…' : !pdf && !xml ? 'Anexar PDF e XML' : !xml ? 'Anexar o XML' : !pdf ? 'Anexar o PDF' : 'Trocar'}
+            <span className="so-leitor"> {what} {subject}</span>
+            <input
+              type="file"
+              multiple
+              accept={FISCAL_ACCEPT}
+              disabled={busy}
+              onChange={(e) => {
+                void attach(e.target.files);
+                e.target.value = '';
+              }}
+            />
+          </label>
+        )}
+      </p>
+      {(pdf || xml) && (
+        <ul className="emb-nota-arquivos">
+          {(['pdf', 'xml'] as const).map((kind) => {
+            const f = note?.[kind];
+            return (
+              <li key={kind}>
+                <span className="emb-nota-tipo">{kind.toUpperCase()}</span>
+                {f ? (
+                  <>
+                    <a href={fiscalUrl(owner, ownerId, kind)} download={f.name}>
+                      {f.name}
+                    </a>
+                    <span className="mudo">{fileSizeText(f.size)}</span>
+                    {canEdit && (
+                      <button type="button" className="btn-texto" disabled={busy} onClick={() => void remove(kind)}>
+                        Tirar
+                        <span className="so-leitor">
+                          {' '}
+                          o {kind.toUpperCase()} {what} {subject}
+                        </span>
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <span className="mudo">{kind === 'pdf' ? 'Falta o PDF (o DANFE)' : 'Falta o XML'}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {xml && xml.status !== 'autorizada' && (
+        <p className="emb-nota-aviso">
+          <Icon name="alerta" />
+          <span>{NFE_STATUS_WARNINGS[xml.status]}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** As conferências das notas do embarque: o PDF de outra nota, a master num container, a mesma nota em dois. */
+function FiscalWarnings({ master, invoices }: { master: FiscalNote | undefined; invoices: Invoice[] }) {
+  const problems = fiscalProblems(
+    master,
+    invoices.map((v) => ({ label: containerLabel(v), note: v.fiscal })),
+  );
+  if (!problems.length) return null;
+  return (
+    <div className="emb-nota-avisos" role="status">
+      {problems.map((p) => (
+        <p key={p}>
+          <Icon name="alerta" />
+          <span>{p}</span>
+        </p>
+      ))}
+    </div>
   );
 }
 

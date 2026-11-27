@@ -11,6 +11,7 @@ import type { ImportedHistoryItem } from '../core/importHistory';
 import type { InvoiceInfo } from '../core/history';
 import type { Amount, SupplierSummary } from '../core/suppliers';
 import type { CopyInput } from '../core/fullCopy';
+import type { NfeStatus } from '../core/nfe';
 import type { Bill, Invoice, Payment } from '../core/shipments';
 import type { Item, PurchaseOrder, Supplier } from '../core/items';
 import type { Role } from '../core/roles';
@@ -206,6 +207,15 @@ export const api = {
   putInvoiceDocument: (invoiceId: string, kind: 'invoice' | 'packing', body: { name: string; contentType: string; data: string }) =>
     request<{ document: { name: string; size: number } }>('PUT', `/api/invoices/${encodeURIComponent(invoiceId)}/documents/${kind}`, body),
   deleteInvoiceDocument: (invoiceId: string, kind: 'invoice' | 'packing') => request<{ ok: true }>('DELETE', `/api/invoices/${encodeURIComponent(invoiceId)}/documents/${kind}`),
+  /**
+   * O PDF ou o XML da nota fiscal (27/11/2026): a do container (invoices) ou a master do BL (bills). O PDF vai com a
+   * chave lida no navegador; o XML, o servidor lê.
+   */
+  putFiscalDocument: (owner: 'invoices' | 'bills', id: string, kind: 'pdf' | 'xml', body: { name: string; contentType: string; data: string; key?: string | null }) =>
+    request<{
+      document: { name: string; size: number; key: string | null; number: string | null; series: string | null; issuedAt: string | null; status: NfeStatus | null };
+    }>('PUT', `/api/${owner}/${encodeURIComponent(id)}/fiscal/${kind}`, body),
+  deleteFiscalDocument: (owner: 'invoices' | 'bills', id: string, kind: 'pdf' | 'xml') => request<{ ok: true }>('DELETE', `/api/${owner}/${encodeURIComponent(id)}/fiscal/${kind}`),
   /** Os títulos da curva ABC para os ISBNs de um embarque, para a prévia do Novo embarque (27/11/2026). */
   curveTitles: (isbns: string[]) => request<{ stockDate: string | null; titles: Record<string, string> }>('POST', '/api/stock/titles', { isbns }),
   /** Marca ou tira a prioridade do container no desembaraço e no transporte (26/11/2026). */
