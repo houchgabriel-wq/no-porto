@@ -107,6 +107,19 @@ export function arrivalOf(invoice: Pick<Invoice, 'billId' | 'eta' | 'arrivedAt'>
   return bill ? { eta: bill.eta, arrivedAt: invoice.arrivedAt ?? bill.arrivedAt } : { eta: invoice.eta, arrivedAt: invoice.arrivedAt };
 }
 
+/**
+ * O dia em que o container chegou (27/11/2026): o dele ou, no BL com a chegada gravada nele (o jeito de antes),
+ * o do BL; null enquanto não chegou.
+ */
+export function containerArrival(invoice: Pick<Invoice, 'arrivedAt'>, bill: Pick<Bill, 'arrivedAt'> | null | undefined): string | null {
+  return invoice.arrivedAt ?? bill?.arrivedAt ?? null;
+}
+
+/** Parte dos containers do embarque chegou: "1 de 2 containers chegou", "2 de 3 containers chegaram". */
+export function partialArrivalText(arrived: number, total: number): string {
+  return `${arrived} de ${total} containers ${arrived === 1 ? 'chegou' : 'chegaram'}`;
+}
+
 export type ArrivalState =
   | { kind: 'chegou'; on: string }
   /** A previsão já passou e a chegada à editora ainda não foi registrada: em geral, liberação no porto. */
@@ -250,6 +263,8 @@ export interface ShipmentUnit {
   supplierIds: (string | null)[];
   /** Containers com prioridade que ainda não chegaram (26/11/2026). */
   priority: number;
+  /** Containers (invoices) que já chegaram (27/11/2026): no BL com vários, cada um chega no seu dia. */
+  arrived: number;
 }
 
 /** O container tem prioridade enquanto não chega: depois da chegada, a marca não vale mais. */
@@ -271,26 +286,25 @@ export function shipmentUnits(bills: readonly Bill[], invoices: readonly Invoice
     let unit = units.get(key);
     if (!unit) {
       const { eta, arrivedAt } = bill ? bill : invoice;
-      unit = { key, bill: bill ?? null, invoices: [], eta, arrivedAt, group: arrivalGroup(eta, arrivedAt, today), supplierIds: [], priority: 0 };
+      unit = { key, bill: bill ?? null, invoices: [], eta, arrivedAt, group: arrivalGroup(eta, arrivedAt, today), supplierIds: [], priority: 0, arrived: 0 };
       units.set(key, unit);
     }
     unit.invoices.push(invoice);
     if (!unit.supplierIds.includes(invoice.supplierId)) unit.supplierIds.push(invoice.supplierId);
   }
-  // Um BL chegou quando o BL tem a chegada registrada ou, sem ela, quando todas as suas invoices
-  // chegaram (no histórico, cada container chegou num dia): vale a última chegada.
+  // A chegada é de cada container (27/11/2026): o embarque chegou quando todos os seus containers chegaram, e
+  // vale a última data. A chegada gravada no BL (o jeito de antes) vale para os containers sem chegada própria.
   for (const unit of units.values()) {
-    if (!unit.bill || unit.arrivedAt || unit.invoices.length === 0) continue;
-    const dates = unit.invoices.map((v) => v.arrivedAt);
-    if (dates.every((d): d is string => d !== null)) {
-      unit.arrivedAt = dates.sort().at(-1)!;
-      unit.group = arrivalGroup(unit.eta, unit.arrivedAt, today);
-    }
+    if (unit.invoices.length === 0) continue;
+    const dates = unit.invoices.map((v) => containerArrival(v, unit.bill));
+    unit.arrived = dates.filter((d) => d !== null).length;
+    unit.arrivedAt = unit.arrived === dates.length ? dates.sort().at(-1)! : null;
+    unit.group = arrivalGroup(unit.eta, unit.arrivedAt, today);
   }
   // BL sem invoice (todas desfeitas) também aparece, para poder ser corrigido.
   for (const bill of bills) {
     if (!units.has(`bl:${bill.id}`)) {
-      units.set(`bl:${bill.id}`, { key: `bl:${bill.id}`, bill, invoices: [], eta: bill.eta, arrivedAt: bill.arrivedAt, group: arrivalGroup(bill.eta, bill.arrivedAt, today), supplierIds: [], priority: 0 });
+      units.set(`bl:${bill.id}`, { key: `bl:${bill.id}`, bill, invoices: [], eta: bill.eta, arrivedAt: bill.arrivedAt, group: arrivalGroup(bill.eta, bill.arrivedAt, today), supplierIds: [], priority: 0, arrived: 0 });
     }
   }
   for (const unit of units.values()) unit.priority = unit.invoices.filter((v) => hasPriority(v, unit)).length;

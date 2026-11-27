@@ -5,11 +5,13 @@ import {
   arrivalOf,
   arrivalState,
   arrivalText,
+  containerArrival,
   daysBetween,
   formatDay,
   invoiceTotal,
   itemStatusFor,
   parseDate,
+  partialArrivalText,
   paymentSummary,
   shipmentUnits,
   hasPriority,
@@ -168,6 +170,32 @@ describe('tela de embarques', () => {
       ['bl:b2', 'sem_previsao', null],
       ['bl:b1', 'chegaram', '2025-09-02'],
     ]);
+  });
+
+  it('cada container chega no seu dia: o BL chega quando todos chegaram, e conta quantos já chegaram', () => {
+    const today = '2026-11-28';
+    const units = shipmentUnits(
+      [bill('b1', '2026-11-20'), bill('b2', '2026-11-20', '2026-11-25'), bill('b3', '2026-12-10')],
+      [
+        // Um dos dois containers chegou: o BL segue em liberação.
+        { ...invoice('a1', 'b1', 's1'), arrivedAt: '2026-11-26' },
+        invoice('a2', 'b1', 's1'),
+        // Chegada gravada no BL (o jeito de antes) e um container com chegada própria, depois: vale a última.
+        invoice('c1', 'b2', 's1'),
+        { ...invoice('c2', 'b2', 's1'), arrivedAt: '2026-11-27' },
+        invoice('d1', 'b3', 's2'),
+      ],
+      today,
+    );
+    expect(units.map((u) => [u.key, u.group, u.arrivedAt, u.arrived])).toEqual([
+      ['bl:b1', 'liberacao', null, 1],
+      ['bl:b3', 'depois', null, 0],
+      ['bl:b2', 'chegaram', '2026-11-27', 2],
+    ]);
+    expect(containerArrival({ arrivedAt: null }, { arrivedAt: '2026-11-25' })).toBe('2026-11-25');
+    expect(containerArrival({ arrivedAt: '2026-11-27' }, { arrivedAt: '2026-11-25' })).toBe('2026-11-27');
+    expect(containerArrival({ arrivedAt: null }, null)).toBeNull();
+    expect([partialArrivalText(1, 2), partialArrivalText(2, 3)]).toEqual(['1 de 2 containers chegou', '2 de 3 containers chegaram']);
   });
 
   it('o embarque com container de prioridade vem antes no seu grupo; depois da chegada, a marca não vale', () => {
