@@ -18,6 +18,7 @@ import { routeReset } from './reset';
 import { routeBillDocuments } from './billDocuments';
 import { routeInvoiceDocuments } from './invoiceDocuments';
 import { routeBookings } from './bookings';
+import { routeBrazil } from './brazil';
 import { routeStock } from './stock';
 import { routeNewOrder } from './newOrder';
 import { routeSettings } from './settings';
@@ -416,6 +417,8 @@ async function routeLoggedIn(
   if (newOrder) return newOrder;
   const settings = await routeSettings(request, env, session, key, now);
   if (settings) return settings;
+  const brazil = await routeBrazil(request, env, session, path, now);
+  if (brazil) return brazil;
 
   return error(404, 'Rota não encontrada.');
 }

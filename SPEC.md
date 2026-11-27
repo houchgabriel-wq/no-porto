@@ -380,10 +380,11 @@ br_quotes        id, title, isbn, quantity, specification, notes, status (aberto
                  created_by, closed_at, closed_by: o orçamento de um produto   (migração 0021)
 br_offers        id, quote_id, printer_id, quantity, unit_price_e4 (reais com quatro casas), lead_days, notes:
                  a proposta de cada gráfica   (migração 0021)
-br_orders        id, quote_id, offer_id, printer_id, title, isbn, quantity, unit_price_e4, ordered_at, due_at,
-                 specification, notes, finished_at (dia em que ficou entregue): o pedido fechado com a gráfica   (migração 0021)
-br_deliveries    id, order_id, delivered_at, quantity, last (a gráfica disse que é a última), notes: as entregas no
-                 estoque   (migração 0021)
+br_orders        id, quote_id (um pedido por orçamento), offer_id, printer_id, title, isbn, quantity, unit_price_e4,
+                 ordered_at, due_at, specification, notes: o pedido fechado com a gráfica; o dia em que ficou
+                 entregue sai das entregas   (migração 0021)
+br_deliveries    id, order_id, delivered_at, quantity, is_last (a gráfica disse que é a última), notes: as entregas
+                 no estoque   (migração 0021)
 stock_curves     id, stock_date, file_name, row_count, rows_json (os títulos da curva ABC: código de barras,
                  nome, código, classe, estoque e vendas de 1, 3, 6, 9 e 12 meses), created_at, created_by;
                  só a última carga   (migração 0012)
