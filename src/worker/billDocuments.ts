@@ -69,14 +69,20 @@ async function getDocument(env: Env, billId: string): Promise<Response> {
   return fileResponse(doc, results);
 }
 
-/** O arquivo guardado em partes, para baixar (o BL e, desde 27/11/2026, a invoice e a packing list). */
-export function fileResponse(doc: { name: string; content_type: string; size: number }, parts: readonly { data: string }[]): Response {
-  const bytes = new Uint8Array(doc.size);
+/** Os bytes do arquivo guardado em partes de base64 (cada parte se decodifica sozinha). */
+export function decodeParts(size: number, parts: readonly { data: string }[]): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(size);
   let at = 0;
   for (const { data } of parts) {
     const bin = atob(data);
     for (let i = 0; i < bin.length; i++) bytes[at++] = bin.charCodeAt(i);
   }
+  return bytes;
+}
+
+/** O arquivo guardado em partes, para baixar (o BL e, desde 27/11/2026, a invoice, a packing list e a nota fiscal). */
+export function fileResponse(doc: { name: string; content_type: string; size: number }, parts: readonly { data: string }[]): Response {
+  const bytes = decodeParts(doc.size, parts);
   return new Response(bytes, {
     headers: {
       'content-type': doc.content_type,

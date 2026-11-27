@@ -18,7 +18,7 @@ export const INVOICE_DOCUMENT_TYPES = ['application/vnd.openxmlformats-officedoc
 const LABEL: Record<InvoiceDocumentKind, string> = { invoice: 'da invoice', packing: 'da packing list' };
 
 /** O nome do arquivo, sem barras nem caracteres de controle. */
-const documentName = z
+export const documentName = z
   .string()
   .transform((s) => s.replace(/[\\/\u0000-\u001f]+/g, ' ').trim())
   .pipe(z.string().min(1, 'Arquivo sem nome.').max(200, 'Nome de arquivo longo demais.'));

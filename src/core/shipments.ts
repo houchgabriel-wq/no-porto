@@ -4,6 +4,7 @@
 import type { BillUnit } from './billUnits';
 import { totalOf, type Item, type ItemStatus } from './items';
 import { reaisCents } from './money';
+import type { FiscalNote } from './nfe';
 
 export interface Bill {
   id: string;
@@ -15,6 +16,8 @@ export interface Bill {
   notes: string;
   /** Arquivo do BL anexado (PDF ou imagem), quando há. */
   document?: { name: string; size: number } | null;
+  /** A nota master, com o embarque todo, no BL com mais de um container (27/11/2026); só para quem vê valores. */
+  fiscal?: FiscalNote;
 }
 
 export interface Invoice {
@@ -35,6 +38,8 @@ export interface Invoice {
   priority?: { at: string; by: string | null } | null;
   /** Os arquivos guardados do container (27/11/2026); só para quem vê valores, que é quem baixa. */
   documents?: { invoice?: { name: string; size: number }; packing?: { name: string; size: number } };
+  /** A nota fiscal do container, o PDF e o XML (27/11/2026); só para quem vê valores, que é quem baixa. */
+  fiscal?: FiscalNote;
 }
 
 /** O registro da packing list de um container: o arquivo, quando e quem registrou. */

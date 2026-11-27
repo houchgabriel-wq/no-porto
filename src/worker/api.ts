@@ -17,6 +17,7 @@ import { routeExport } from './export';
 import { routeReset } from './reset';
 import { routeBillDocuments } from './billDocuments';
 import { routeInvoiceDocuments } from './invoiceDocuments';
+import { routeFiscalDocuments } from './fiscalDocuments';
 import { routeBookings } from './bookings';
 import { routeBrazil } from './brazil';
 import { routeStock } from './stock';
@@ -397,6 +398,8 @@ async function routeLoggedIn(
   if (billDocument) return billDocument;
   const invoiceDocument = await routeInvoiceDocuments(request, env, session, path, now);
   if (invoiceDocument) return invoiceDocument;
+  const fiscalDocument = await routeFiscalDocuments(request, env, session, path, now);
+  if (fiscalDocument) return fiscalDocument;
   const shipments = await routeShipments(request, env, session, key, path, now);
   if (shipments) return shipments;
   const history = await routeHistory(request, env, session, key, path, now);
