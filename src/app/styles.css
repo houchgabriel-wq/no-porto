@@ -1071,11 +1071,27 @@ dialog.dlg-embarque { width: min(760px, calc(100vw - 32px)); }
 .item-embarque { color: var(--tinta-2); font-size: 13px; }
 
 /* Painel: três números em destaque e próximas chegadas */
-.heroi-tres { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px 28px; }
+.heroi-tres { display: grid; gap: 18px 28px; container-type: inline-size; }
 .heroi-bloco { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.heroi-bloco + .heroi-bloco { border-left: 1px solid var(--fio); padding-left: 28px; }
 .heroi-bloco .heroi-rot { margin: 0; }
-.heroi-valor { font-family: var(--f-display); font-weight: 800; font-size: clamp(28px, 2.9vw, 40px); line-height: 1; letter-spacing: -0.035em; white-space: nowrap; }
+.heroi-valor { font-family: var(--f-display); font-weight: 800; line-height: 1; letter-spacing: -0.035em; white-space: nowrap; }
+/* Os números em destaque acompanham a largura da grade (que é um contêiner), todos do mesmo tamanho, para caber com
+   quatro ou cinco blocos (com a produção no Brasil, desde 27/11/2026). No computador, todos numa linha só. */
+@media (min-width: 961px) {
+  .heroi-tres { grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+  .heroi-bloco + .heroi-bloco { border-left: 1px solid var(--fio); padding-left: 28px; }
+  .heroi-valor { font-size: clamp(24px, 3.1cqi, 40px); }
+  .heroi-tres:has(> .heroi-bloco:nth-child(5)) { column-gap: 20px; }
+  .heroi-tres:has(> .heroi-bloco:nth-child(5)) .heroi-bloco + .heroi-bloco { padding-left: 20px; }
+  .heroi-tres:has(> .heroi-bloco:nth-child(5)) .heroi-valor { font-size: clamp(20px, 2.5cqi, 34px); }
+}
+/* No tablet, três por linha, com o separador só entre os blocos da mesma linha. */
+@media (min-width: 601px) and (max-width: 960px) {
+  .heroi-tres { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 20px; }
+  .heroi-bloco + .heroi-bloco { border-left: 1px solid var(--fio); padding-left: 20px; }
+  .heroi-bloco:nth-child(3n + 1) { border-left: 0; padding-left: 0; }
+  .heroi-valor { font-size: clamp(22px, 4.2cqi, 36px); }
+}
 .heroi-sub { color: var(--tinta-3); font-size: 13px; font-weight: 500; }
 .chegada-linha { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border: 0; border-top: 1px solid var(--fio); background: none; text-align: left; cursor: pointer; }
 .lista li:first-child .chegada-linha { border-top: 0; }
@@ -1083,15 +1099,15 @@ dialog.dlg-embarque { width: min(760px, calc(100vw - 32px)); }
 .chegada-dia { width: 46px; height: 46px; border-radius: 12px; background: var(--sulco); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
 .chegada-dia b { font-family: var(--f-display); font-size: 18px; font-weight: 700; }
 .chegada-dia span { font-size: 11px; color: var(--tinta-2); text-transform: uppercase; font-weight: 600; }
-.chegada-dia.liberacao { background: var(--alerta-suave); color: var(--alerta); }
-.chegada-dia.liberacao span { color: var(--alerta); }
+.chegada-dia.liberacao, .chegada-dia.atrasado { background: var(--alerta-suave); color: var(--alerta); }
+.chegada-dia.liberacao span, .chegada-dia.atrasado span { color: var(--alerta); }
+.br-painel-pe { padding: 4px 0 6px; }
 .alerta-texto { color: var(--alerta); font-weight: 600; }
 .chegada-meio { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 
 @media (max-width: 960px) {
   .emb-faixa { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .emb-total { grid-column: 1 / -1; }
-  .heroi-bloco + .heroi-bloco { border-left: 0; padding-left: 0; border-top: 1px solid var(--fio); padding-top: 14px; }
 }
 @media (max-width: 600px) {
   .emb-grade { grid-template-columns: minmax(0, 1fr); }
@@ -1272,7 +1288,6 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
   .hist-ano { padding: 9px 11px; gap: 3px; border-radius: 12px; }
   .hist-ano b { font-size: 16px; }
   .heroi { padding: 16px; gap: 14px; border-radius: 16px; }
-  .heroi-valor { font-size: 26px; }
   .filtros { padding-block: 4px 12px; gap: 8px; }
 
   /* Histórico e Fornecedores: cada linha vira um cartão (o produto ou o fornecedor em cima). */
@@ -1289,7 +1304,6 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
 @media (max-width: 600px) {
   /* Painel: os números em destaque em duas colunas, em vez de quatro blocos altos empilhados. */
   .heroi-tres { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 14px; }
-  .heroi-bloco + .heroi-bloco { border-top: 0; padding-top: 0; }
   .heroi-bloco .heroi-rot { font-size: 12.5px; }
   .heroi-valor { font-size: clamp(18px, 5.6vw, 24px); }
   .heroi-sub { font-size: 12px; }
@@ -1475,6 +1489,14 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 .consulta-nome { font-weight: 600; overflow-wrap: anywhere; }
 .consulta-isbn { color: var(--tinta-3); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .consulta-numeros { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+/* Com a produção no Brasil (27/11/2026), quatro números: lado a lado no computador largo, em duas colunas abaixo de 1.100 px. */
+.consulta-numeros.quatro { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.consulta-so-brasil { color: var(--tinta-2); font-weight: 600; }
+.consulta-atraso { display: inline-flex; align-items: center; gap: 4px; color: var(--alerta); font-weight: 600; }
+.consulta-atraso .ic { width: 13px; height: 13px; }
+@media (max-width: 1100px) {
+  .consulta-numeros.quatro { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .consulta-num { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; border-radius: 10px; background: var(--suave); min-width: 0; }
 .consulta-rot { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--forte); }
 .consulta-rot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--cor); flex: none; }
@@ -1483,7 +1505,7 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 .consulta-sub { font-size: 12.5px; color: var(--tinta-2); overflow-wrap: anywhere; }
 @media (max-width: 600px) {
   .consulta { padding: 16px; }
-  .consulta-numeros { grid-template-columns: minmax(0, 1fr); }
+  .consulta-numeros, .consulta-numeros.quatro { grid-template-columns: minmax(0, 1fr); }
   .consulta-num { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 10px; }
   .consulta-rot { flex-basis: 100%; }
 }
