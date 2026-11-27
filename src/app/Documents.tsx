@@ -365,13 +365,13 @@ export function ArrivalDialog({
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    if (checked.size === 0) return setError('Marque as invoices que chegaram.');
+    if (checked.size === 0) return setError('Marque os containers que chegaram.');
     if (!day) return setError('Informe o dia da chegada.');
     setBusy(true);
     setError(null);
     try {
       await production.write(() => api.registerArrival([...checked], day));
-      onDone(`${checked.size === 1 ? '1 invoice chegou' : `${checked.size} invoices chegaram`} em ${formatDay(day, true)}. Os itens estão no Histórico.`);
+      onDone(`${checked.size === 1 ? '1 container chegou' : `${checked.size} containers chegaram`} em ${formatDay(day, true)}. Os itens estão no Histórico.`);
       onClose();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Não foi possível gravar.');
@@ -384,10 +384,12 @@ export function ArrivalDialog({
       <form onSubmit={save} noValidate>
         <div className="dlg-corpo">
           {units.length === 0 ? (
-            <p className="dica-texto">Nenhuma invoice a caminho.</p>
+            <p className="dica-texto">Nenhum container a caminho.</p>
           ) : (
             <>
-              <p className="dica-texto">Marque as invoices que chegaram e o dia. Os itens delas saem dos embarques a caminho e entram no Histórico.</p>
+              <p className="dica-texto">
+                Marque os containers que chegaram e o dia. Os itens deles saem dos embarques a caminho e entram no Histórico. No BL com vários containers, cada um pode chegar num dia.
+              </p>
               <div className="grupo estreito">
                 <label className="rotulo" htmlFor={`${ids}-dia`}>
                   Dia da chegada
@@ -395,7 +397,7 @@ export function ArrivalDialog({
                 <input id={`${ids}-dia`} className="campo" type="date" value={day} max={data.today} onChange={(e) => setDay(e.target.value)} disabled={busy} />
               </div>
               <fieldset className="lista-chegada" disabled={busy}>
-                <legend className="so-leitor">Invoices a caminho</legend>
+                <legend className="so-leitor">Containers a caminho</legend>
                 {units.map((u) => (
                   <div key={u.key} className="chegada-unidade">
                     <p className="chegada-unidade-topo">
@@ -406,7 +408,15 @@ export function ArrivalDialog({
                       <label key={v.id} className="chegada-invoice">
                         <input type="checkbox" checked={checked.has(v.id)} onChange={(e) => toggle(v.id, e.target.checked)} />
                         <span>
-                          Invoice <b>{v.number}</b>
+                          {v.unit ? (
+                            <>
+                              Container <b>{v.unit.container}</b> · invoice {v.number}
+                            </>
+                          ) : (
+                            <>
+                              Invoice <b>{v.number}</b>
+                            </>
+                          )}
                           <span className="mudo">
                             {' '}
                             · {v.supplierId ? (names.get(v.supplierId) ?? NO_SUPPLIER) : NO_SUPPLIER} · {formatQuantity(quantity(v.id))} ex.

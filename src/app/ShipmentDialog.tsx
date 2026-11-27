@@ -1,6 +1,7 @@
 // Ficha do embarque: o BL (ou a invoice sem BL) com a chegada prevista e a real, as invoices com os
 // itens e os pagamentos de cada uma (data, valor em dólar e câmbio). O leitor só acompanha. Os arquivos
-// do BL, da invoice e da packing list de cada container ficam guardados para baixar (27/11/2026).
+// do BL, da invoice e da packing list de cada container ficam guardados para baixar (27/11/2026). A chegada é
+// de cada container: no BL com vários, cada um chega no seu dia (27/11/2026).
 
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { ARRIVAL_DAYS_DEFAULT, arrivalFromBill, arrivalText as arrivalAfter, billDateProblem, billDateText, type BillDate } from '../core/billArrival';
@@ -13,9 +14,11 @@ import { can } from '../core/roles';
 import {
   arrivalState,
   arrivalText,
+  containerArrival,
   formatDay,
   invoiceTotal,
   PAYMENT_LABELS,
+  partialArrivalText,
   paymentSummary,
   shipmentUnits,
   spDate,
@@ -67,22 +70,20 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
   const [confirming, setConfirming] = useState(false);
   const [number, setNumber] = useState('');
   const [eta, setEta] = useState('');
-  const [arrivedAt, setArrivedAt] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // A chegada que se edita é a do BL; sem BL, a da própria invoice.
+  // A chegada prevista que se edita é a do BL; sem BL, a da própria invoice. A chegada é de cada container.
   const target = unit?.bill ?? unit?.invoices[0] ?? null;
   useEffect(() => {
     setNumber(unit?.bill?.number ?? '');
     setEta(target?.eta ?? '');
-    setArrivedAt(target?.arrivedAt ?? '');
     setError(null);
     setBusy(false);
     setConfirming(false);
     // Ao abrir outro embarque, ou quando os dados salvos mudam.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unitKey, target?.eta, target?.arrivedAt, unit?.bill?.number]);
+  }, [unitKey, target?.eta, unit?.bill?.number]);
 
   if (!unit || !target) return <Dialog title="Embarque" open={false} onClose={onClose} />;
   const state = arrivalState(unit.eta, unit.arrivedAt, data.today);
@@ -114,12 +115,19 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
     }
   }
 
-  function saveArrival(e: FormEvent, arrived = arrivedAt) {
+  function save(e: FormEvent) {
     e.preventDefault();
-    const body = { eta: eta || null, arrivedAt: arrived || null, ...(unit!.bill && number.trim() !== unit!.bill.number ? { number: number.trim() } : {}) };
+    const body = { eta: eta || null, ...(unit!.bill && number.trim() !== unit!.bill.number ? { number: number.trim() } : {}) };
+    void run(() => (unit!.bill ? api.updateBill(unit!.bill.id, body) : api.updateInvoice(target!.id, body)), 'Embarque salvo.');
+  }
+
+  // Os containers que ainda não chegaram: com dois ou mais, um botão registra a chegada de todos de uma vez.
+  const pending = unit.invoices.filter((v) => !containerArrival(v, unit.bill));
+  function allArrived() {
+    const today = spDate(new Date());
     void run(
-      () => (unit!.bill ? api.updateBill(unit!.bill.id, body) : api.updateInvoice(target!.id, body)),
-      arrived && !target!.arrivedAt ? 'Chegada registrada. Os itens foram para entregue.' : 'Embarque salvo.',
+      () => api.registerArrival(pending.map((v) => v.id), today),
+      `${pending.length === unit!.invoices.length ? `Os ${pending.length} containers chegaram` : `Os ${pending.length} containers que faltavam chegaram`} hoje. Os itens estão no Histórico.`,
     );
   }
 
@@ -128,13 +136,21 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
   return (
     <Dialog title={title} open onClose={onClose} wide className="dlg-embarque">
       <div className="dlg-corpo">
-        <p className={`pilula chegada ${state.kind} alinha-inicio`}>
-          {state.kind === 'liberacao' && <Icon name="alerta" />}
-          {arrivalText(state)}
-        </p>
-        <form className="emb-chegada" onSubmit={(e) => saveArrival(e)}>
+        <div className="emb-pilulas">
+          <p className={`pilula chegada ${state.kind}`}>
+            {state.kind === 'liberacao' && <Icon name="alerta" />}
+            {arrivalText(state)}
+          </p>
+          {unit.arrived > 0 && unit.arrived < unit.invoices.length && (
+            <p className="pilula parcial">
+              <Icon name="check" />
+              {partialArrivalText(unit.arrived, unit.invoices.length)}
+            </p>
+          )}
+        </div>
+        <form className="emb-chegada" onSubmit={save}>
           <fieldset disabled={!canEdit || busy} className="grade-campos">
-            <legend className="so-leitor">Chegada</legend>
+            <legend className="so-leitor">Embarque</legend>
             {unit.bill && (
               <div className="grupo">
                 <label className="rotulo" htmlFor={`${ids}-bl`}>
@@ -149,28 +165,13 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
               </label>
               <input id={`${ids}-eta`} className="campo" type="date" value={eta} onChange={(e) => setEta(e.target.value)} />
             </div>
-            <div className="grupo">
-              <label className="rotulo" htmlFor={`${ids}-arr`}>
-                Chegou em
-              </label>
-              <input id={`${ids}-arr`} className="campo" type="date" value={arrivedAt} onChange={(e) => setArrivedAt(e.target.value)} />
-            </div>
           </fieldset>
           {canEdit && (
             <div className="emb-chegada-acoes">
-              {!target.arrivedAt && (
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={busy}
-                  onClick={(e) => {
-                    const today = spDate(new Date());
-                    setArrivedAt(today);
-                    saveArrival(e, today);
-                  }}
-                >
+              {pending.length >= 2 && (
+                <button type="button" className="btn" disabled={busy} onClick={allArrived}>
                   <Icon name="check" />
-                  Chegou hoje
+                  {pending.length === unit.invoices.length ? 'Todos chegaram hoje' : `Os ${pending.length} que faltam chegaram hoje`}
                 </button>
               )}
               <button type="submit" className="btn primario" disabled={busy}>
@@ -195,7 +196,7 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
           production={production}
           onToast={onToast}
           onOpenItem={onOpenItem}
-          arrived={Boolean(unit.arrivedAt)}
+          arrivedAt={containerArrival(v, unit.bill)}
           lastOfBill={Boolean(unit.bill) && unit.invoices.length === 1}
         />
       ))}
@@ -211,7 +212,7 @@ export function ShipmentDialog({ unitKey, me, data, production, onClose, onToast
         </div>
       )}
       <div className="dlg-pe">
-        {canDelete && !unit.arrivedAt && !confirming && (
+        {canDelete && unit.arrived === 0 && !confirming && (
           <button type="button" className="btn perigo alinha-esquerda" onClick={() => setConfirming(true)} disabled={busy}>
             <Icon name="lixeira" />
             Excluir embarque
@@ -406,7 +407,7 @@ function InvoiceSection({
   production,
   onToast,
   onOpenItem,
-  arrived,
+  arrivedAt,
   lastOfBill,
 }: {
   invoice: Invoice;
@@ -415,7 +416,8 @@ function InvoiceSection({
   production: Production;
   onToast: (msg: string) => void;
   onOpenItem: (item: Item) => void;
-  arrived: boolean;
+  /** O dia em que este container chegou (27/11/2026); null enquanto não chegou. */
+  arrivedAt: string | null;
   /** Única invoice do BL: excluí-la leva o BL junto. */
   lastOfBill: boolean;
 }) {
@@ -429,7 +431,7 @@ function InvoiceSection({
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const invoiceArrived = arrived || Boolean(invoice.arrivedAt);
+  const invoiceArrived = Boolean(arrivedAt);
   // A prioridade no desembaraço e no transporte vale enquanto o container não chega (26/11/2026).
   const priority = Boolean(invoice.priority) && !invoiceArrived;
   // O que sai junto ao excluir a invoice.
@@ -496,6 +498,7 @@ function InvoiceSection({
         />
       )}
       {editing && <InvoiceForm invoice={invoice} data={data} onCancel={() => setEditing(false)} onSave={async (body) => (await act(() => api.updateInvoice(invoice.id, body), 'Invoice salva.')) && setEditing(false)} />}
+      <ContainerArrival key={arrivedAt ?? 'a-caminho'} invoice={invoice} arrivedAt={arrivedAt} canEdit={canEdit} act={act} />
       {priority && invoice.priority && (
         <p className="emb-prioridade">
           Prioridade no desembaraço e no transporte
@@ -524,7 +527,7 @@ function InvoiceSection({
               {formatQuantity(item.quantity)} ex.{item.piecesPerCarton ? ` · ${formatQuantity(item.piecesPerCarton)} por caixa` : ''}
             </span>
             {data.seeValues && <span className="num">{item.totalCents == null ? 'Sem preço' : formatUsd(item.totalCents)}</span>}
-            {canEdit && !arrived && (
+            {canEdit && !invoiceArrived && (
               <button type="button" className="btn-texto" onClick={() => void act(() => api.unship(item.id), 'O item voltou para a produção.')}>
                 Voltar para produção
               </button>
@@ -562,6 +565,105 @@ function InvoiceSection({
       )}
       <FormError message={error} />
     </section>
+  );
+}
+
+/**
+ * A chegada do container (pedido do Gabriel em 27/11/2026): no BL com vários containers, cada um chega no seu dia,
+ * porque nem sempre dá para receber todos no mesmo dia. Admin e editor registram ("Chegou hoje" ou outro dia), mudam
+ * o dia e desfazem; os itens do container vão para o Histórico e voltam com ele. Os outros perfis veem só o dia.
+ */
+function ContainerArrival({
+  invoice,
+  arrivedAt,
+  canEdit,
+  act,
+}: {
+  invoice: Invoice;
+  arrivedAt: string | null;
+  canEdit: boolean;
+  act: (action: () => Promise<unknown>, done: string) => Promise<boolean>;
+}) {
+  const ids = useId();
+  const [picking, setPicking] = useState(false);
+  const [day, setDay] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (!canEdit && !arrivedAt) return null;
+  const label = invoice.unit?.container ? `container ${invoice.unit.container}` : `container da invoice ${invoice.number}`;
+  const today = spDate(new Date());
+
+  async function save(date: string | null) {
+    setBusy(true);
+    const ok = await act(
+      () => api.updateInvoice(invoice.id, { arrivedAt: date }),
+      date ? `O ${label} chegou em ${formatDay(date, true)}. Os itens dele estão no Histórico.` : `A chegada do ${label} foi desfeita. Os itens voltaram para os embarques a caminho.`,
+    );
+    setBusy(false);
+    if (ok) setPicking(false);
+  }
+
+  return (
+    <div className={`emb-chegada-ctr${arrivedAt ? ' chegou' : ''}`}>
+      <Icon name={arrivedAt ? 'check' : 'navio'} />
+      <span className="emb-chegada-ctr-texto">
+        {arrivedAt ? (
+          <>
+            Chegou em <b>{formatDay(arrivedAt, true)}</b>
+          </>
+        ) : (
+          'Ainda não chegou'
+        )}
+      </span>
+      {canEdit && !picking && (
+        <span className="emb-chegada-ctr-acoes">
+          {!arrivedAt && (
+            <button type="button" className="btn" disabled={busy} onClick={() => void save(today)}>
+              <Icon name="check" />
+              Chegou hoje
+              <span className="so-leitor">: {label}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn-texto"
+            disabled={busy}
+            onClick={() => {
+              setDay(arrivedAt ?? today);
+              setPicking(true);
+            }}
+          >
+            {arrivedAt ? 'Mudar o dia' : 'Outro dia'}
+            <span className="so-leitor"> da chegada do {label}</span>
+          </button>
+          {arrivedAt && (
+            <button type="button" className="btn-texto" disabled={busy} onClick={() => void save(null)}>
+              Desfazer chegada
+              <span className="so-leitor"> do {label}</span>
+            </button>
+          )}
+        </span>
+      )}
+      {canEdit && picking && (
+        <form
+          className="emb-chegada-ctr-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (day) void save(day);
+          }}
+        >
+          <label className="so-leitor" htmlFor={`${ids}-dia`}>
+            Dia da chegada do {label}
+          </label>
+          <input id={`${ids}-dia`} className="campo" type="date" value={day} max={today} required disabled={busy} onChange={(e) => setDay(e.target.value)} />
+          <button type="submit" className="btn primario" disabled={busy || !day}>
+            Gravar
+          </button>
+          <button type="button" className="btn-texto" disabled={busy} onClick={() => setPicking(false)}>
+            Cancelar
+          </button>
+        </form>
+      )}
+    </div>
   );
 }
 

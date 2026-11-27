@@ -10,9 +10,11 @@ import {
   ARRIVAL_GROUP_LABELS,
   arrivalState,
   arrivalText,
+  containerArrival,
   formatDay,
   hasPriority,
   invoiceTotal,
+  partialArrivalText,
   PAYMENT_LABELS,
   paymentSummary,
   shipmentUnits,
@@ -216,6 +218,13 @@ function UnitCard({ unit, ctx }: { unit: ShipmentUnit; ctx: Ctx }) {
             {state.kind === 'liberacao' && <Icon name="alerta" />}
             {arrivalText(state)}
           </span>
+          {/* Parte dos containers do BL chegou (27/11/2026): cada um chega no seu dia. */}
+          {unit.arrived > 0 && unit.arrived < unit.invoices.length && (
+            <span className="pilula parcial">
+              <Icon name="check" />
+              {partialArrivalText(unit.arrived, unit.invoices.length)}
+            </span>
+          )}
         </span>
       </span>
       <span className="emb-meta">
@@ -244,6 +253,8 @@ function UnitCard({ unit, ctx }: { unit: ShipmentUnit; ctx: Ctx }) {
         {unit.invoices.map((v) => {
           const its = itemsByInvoice.get(v.id) ?? [];
           const pay = data.seeValues ? paymentSummary(invoiceTotal(its), data.payments.filter((p) => p.invoiceId === v.id)) : null;
+          // No BL que chegou em parte, o container que já chegou leva o dia.
+          const came = unit.arrived < unit.invoices.length ? containerArrival(v, unit.bill) : null;
           return (
             <span key={v.id} className="emb-inv">
               <span className="emb-inv-num">
@@ -256,6 +267,13 @@ function UnitCard({ unit, ctx }: { unit: ShipmentUnit; ctx: Ctx }) {
                 {v.number}
                 {v.ref && v.ref !== v.number && <span className="mudo"> · {v.ref}</span>}
                 {v.unit && <span className="emb-inv-ctr"> · {v.unit.container}</span>}
+                {came && (
+                  <span className="emb-inv-chegou">
+                    {' '}
+                    · <Icon name="check" />
+                    chegou em {formatDay(came)}
+                  </span>
+                )}
               </span>
               <span className="emb-inv-dir">
                 {data.seeValues ? formatUsd(invoiceTotal(its)) : `${formatQuantity(its.reduce((s, i) => s + i.quantity, 0))} ex.`}

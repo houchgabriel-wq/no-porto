@@ -1023,6 +1023,21 @@ tr.marcado td { background: var(--acento-suave); }
 .pilula.chegada.liberacao { background: var(--alerta-suave); color: var(--alerta); }
 .pilula.chegada.previsto { background: var(--acento-suave); color: var(--acento); }
 .pilula.chegada.chegou { background: var(--ok-suave); color: var(--ok); }
+/* Chegada por container (27/11/2026): o BL que chegou em parte e a linha da chegada de cada container. */
+.pilula.parcial { background: var(--ok-suave); color: var(--ok); }
+.emb-pilulas { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.emb-pilulas .pilula { margin: 0; }
+.emb-inv-chegou { color: var(--ok); font-weight: 600; white-space: nowrap; }
+.emb-inv-chegou .ic { width: 13px; height: 13px; vertical-align: -2px; margin-right: 2px; }
+.emb-chegada-ctr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 8px 0 4px; padding: 8px 12px; border-radius: 10px; background: var(--sulco); color: var(--tinta-2); }
+.emb-chegada-ctr > .ic { color: hsl(200 var(--c-s) var(--c-l)); }
+.emb-chegada-ctr.chegou { background: var(--ok-suave); color: var(--ok); }
+.emb-chegada-ctr.chegou > .ic { color: var(--ok); }
+.emb-chegada-ctr.chegou b { color: inherit; }
+.emb-chegada-ctr-texto { flex: 1 1 140px; min-width: 0; }
+.emb-chegada-ctr-acoes, .emb-chegada-ctr-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.emb-chegada-ctr .btn { min-height: 36px; padding: 6px 12px; }
+.emb-chegada-ctr-form .campo { width: auto; min-height: 36px; padding: 6px 10px; }
 .pilula .ic { width: 13px; height: 13px; }
 .pilula.pag.pago { background: var(--ok-suave); color: var(--ok); }
 .pilula.pag.parcial { background: var(--alerta-suave); color: var(--alerta); }
@@ -1031,7 +1046,7 @@ tr.marcado td { background: var(--acento-suave); }
 /* Ficha do embarque */
 dialog.dlg-embarque { width: min(760px, calc(100vw - 32px)); }
 .emb-chegada { display: flex; flex-direction: column; gap: 10px; }
-.emb-chegada .grade-campos { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.emb-chegada .grade-campos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .emb-chegada-acoes { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .emb-invoice { margin: 0 24px 16px; padding: 14px 16px; border: 1px solid var(--fio); border-radius: 14px; display: flex; flex-direction: column; gap: 10px; }
 .emb-invoice-topo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
