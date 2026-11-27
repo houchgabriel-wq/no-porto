@@ -19,6 +19,7 @@ import { UpdateSheetDialog } from './UpdateSheet';
 import { ItemDialog, type ItemDialogState } from './ItemDialog';
 import { useProduction } from './production';
 import { ProductionView } from './Production';
+import { BrazilView } from './Brazil';
 import { HistoryView, type HistoryData } from './History';
 import { ProductDialog } from './ProductDialog';
 import { ArrivalDialog, OrderUploadDialog } from './Documents';
@@ -47,6 +48,28 @@ function readShipmentsMode(): ShipmentsMode {
     return localStorage.getItem(SHIPMENTS_MODE_KEY) === 'item' ? 'item' : 'embarque';
   } catch {
     return 'embarque';
+  }
+}
+
+// Produção: a importação (os fornecedores de fora) ou o Brasil (as gráficas daqui; 27/11/2026).
+const PRODUCTION_MODE_KEY = 'no-porto:producao-visao';
+
+type ProductionMode = 'importacao' | 'brasil';
+
+function readProductionMode(): ProductionMode {
+  try {
+    return localStorage.getItem(PRODUCTION_MODE_KEY) === 'brasil' ? 'brasil' : 'importacao';
+  } catch {
+    return 'importacao';
+  }
+}
+
+function saveProductionMode(mode: ProductionMode) {
+  try {
+    if (mode === 'brasil') localStorage.setItem(PRODUCTION_MODE_KEY, mode);
+    else localStorage.removeItem(PRODUCTION_MODE_KEY);
+  } catch {
+    // Só não lembra a escolha.
   }
 }
 
@@ -537,6 +560,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [arrival, setArrival] = useState<string[] | null>(null);
   const [fullImport, setFullImport] = useState(false);
   const [shipmentsMode, setShipmentsMode] = useState<ShipmentsMode>(readShipmentsMode);
+  const [productionMode, setProductionMode] = useState<ProductionMode>(readProductionMode);
   const [product, setProduct] = useState<string | null>(null);
   const [lastBackup, setLastBackup] = useState(readLastBackup);
   const [backingUp, setBackingUp] = useState(false);
@@ -1082,6 +1106,31 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                 )}
               </>
             ) : (
+              <>
+                <div className="seg visao-troca" role="group" aria-label="Visão da produção">
+                  {(
+                    [
+                      ['importacao', 'Importação', 'navio'],
+                      ['brasil', 'Brasil', 'livro'],
+                    ] as const
+                  ).map(([mode, label, icon]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={productionMode === mode}
+                      onClick={() => {
+                        setProductionMode(mode);
+                        saveProductionMode(mode);
+                      }}
+                    >
+                      <Icon name={icon} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {productionMode === 'brasil' ? (
+                  <BrazilView me={user} onToast={showToast} />
+                ) : (
               <ProductionView
                 data={productionData!}
                 filters={filters}
@@ -1097,6 +1146,8 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                 actions={actions}
                 selection={canEdit ? { ids: selected, onChange: setSelected, onShip: () => setShipping([...selected]) } : undefined}
               />
+                )}
+              </>
             )}
           </>
         )}

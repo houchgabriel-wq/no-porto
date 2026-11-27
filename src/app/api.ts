@@ -1,6 +1,7 @@
 // Chamadas à API. Erros viram ApiError com a mensagem em português vinda do servidor.
 
 import type { BillUnit } from '../core/billUnits';
+import type { BrOrder, Printer, Quote } from '../core/brazil';
 import type { DocumentLine } from '../core/documents';
 import type { CatalogEntry } from '../core/newOrder';
 import type { SalesArrival } from '../core/shippedItems';
@@ -234,6 +235,19 @@ export const api = {
   saveOrderDetails: (code: string, items: { description: string; isbn: string | null; quantity: number; specification: string; shipPlan: ShipPlan }[]) =>
     request<{ updated: number; items: number; planned: number; kept: number; notFit: number }>('POST', `/api/orders/${encodeURIComponent(code)}/specifications`, { items }),
   registerArrival: (invoiceIds: string[], arrivedAt: string) => request<{ invoices: number }>('POST', '/api/arrivals', { invoiceIds, arrivedAt }),
+  // Produção no Brasil (27/11/2026): orçamentos, propostas das gráficas, pedidos e entregas.
+  brazil: () => request<BrazilData>('GET', '/api/brasil'),
+  createQuote: (body: QuoteInput) => request<{ id: string }>('POST', '/api/brasil/quotes', body),
+  updateQuote: (id: string, body: Partial<QuoteInput> & { status?: 'aberto' | 'cancelado' }) => request<{ ok: true }>('PATCH', `/api/brasil/quotes/${encodeURIComponent(id)}`, body),
+  addOffer: (quoteId: string, body: OfferInput) => request<{ id: string }>('POST', `/api/brasil/quotes/${encodeURIComponent(quoteId)}/offers`, body),
+  updateOffer: (id: string, body: OfferInput) => request<{ ok: true }>('PATCH', `/api/brasil/offers/${encodeURIComponent(id)}`, body),
+  deleteOffer: (id: string) => request<{ ok: true }>('DELETE', `/api/brasil/offers/${encodeURIComponent(id)}`),
+  closeQuote: (quoteId: string, body: { offerId: string; orderedAt: string; dueAt: string | null }) => request<{ id: string }>('POST', `/api/brasil/quotes/${encodeURIComponent(quoteId)}/close`, body),
+  reopenOrder: (id: string) => request<{ ok: true }>('POST', `/api/brasil/orders/${encodeURIComponent(id)}/reopen`, {}),
+  updateOrder: (id: string, body: { dueAt?: string | null; notes?: string }) => request<{ ok: true }>('PATCH', `/api/brasil/orders/${encodeURIComponent(id)}`, body),
+  addDelivery: (orderId: string, body: { deliveredAt: string; quantity: number; last: boolean; notes: string }) =>
+    request<{ id: string }>('POST', `/api/brasil/orders/${encodeURIComponent(orderId)}/deliveries`, body),
+  deleteDelivery: (id: string) => request<{ ok: true }>('DELETE', `/api/brasil/deliveries/${encodeURIComponent(id)}`),
   reset: (confirm: string) => request<{ items: number }>('POST', '/api/reset', { confirm }),
   importShipments: (items: ImportedShipmentItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/shipments', { items }),
   sales: () => request<{ today: string; rows: SalesArrival[] }>('GET', '/api/sales'),
@@ -291,3 +305,28 @@ export const api = {
     request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/approve`, body),
   refuseBooking: (id: string, note: string) => request<{ request: BookingRequest }>('POST', `/api/bookings/${encodeURIComponent(id)}/refuse`, { note }),
 };
+
+/** A sub-aba Brasil da Produção (27/11/2026); sem os valores para o leitor. */
+export interface BrazilData {
+  today: string;
+  seeValues: boolean;
+  printers: Printer[];
+  quotes: Quote[];
+  orders: BrOrder[];
+}
+
+export interface QuoteInput {
+  title: string;
+  isbn: string | null;
+  quantity: number;
+  specification: string;
+  notes: string;
+}
+
+export interface OfferInput {
+  printer: string;
+  quantity: number;
+  unitPriceE4: number;
+  leadDays: number | null;
+  notes: string;
+}
