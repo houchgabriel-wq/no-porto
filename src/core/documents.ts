@@ -35,6 +35,11 @@ export interface DocumentLine {
    */
   shipPlan?: ShipPlan;
   /**
+   * O texto da célula do nome como veio, quando trazia mais que o nome (o ISBN junto): ao guardar a invoice com
+   * os nomes novos, o ISBN continua na célula (27/11/2026).
+   */
+  nameCell?: string;
+  /**
    * Caixas fora do padrão (a sobra, como 1 caixa de 50 quando o padrão é 60), vindas da packing list.
    * Só para a prévia: não é gravado.
    */
@@ -67,6 +72,8 @@ export interface InvoiceDocument {
   warnings: DocumentNote[];
   /** Os primeiros textos do arquivo (remetente, destinatário), para reconhecer o fornecedor. */
   headerText: string;
+  /** A coluna dos nomes (0 é a coluna A), para guardar a invoice com os nomes novos (27/11/2026). */
+  nameColumn?: number;
 }
 
 /** Linhas lidas do topo procurando o cabeçalho e os dados do documento. */
@@ -336,6 +343,7 @@ function readLines(rows: readonly string[][], header: Header, warnings: Document
       notes,
       specification: cleanSpecification(cell(row, 'specification')),
     };
+    if (clean(rawName) !== line.description) line.nameCell = rawName;
     if (withShipPlan) line.shipPlan = linePlan(clean(cell(row, 'shipDate')), notes, quantity, (message) => warnings.push({ row: rowNumber, message }));
     // Caixas e peso bruto da linha, quando a planilha traz (a packing list).
     if (cols.cartons !== undefined) line.cartons = parseQuantity(cell(row, 'cartons'));
@@ -484,7 +492,9 @@ export function parseShipmentFile(sheets: readonly SheetRows[], fileName: string
     if (!header) continue;
     const warnings: DocumentNote[] = [];
     const lines = readLines(sheet.rows, header, warnings);
-    if (lines.length) docs.push({ sheet: sheet.name, number: found && found.length <= 60 ? found : null, lines, warnings, headerText: topText(sheet.rows, header.end) });
+    if (lines.length) {
+      docs.push({ sheet: sheet.name, number: found && found.length <= 60 ? found : null, lines, warnings, headerText: topText(sheet.rows, header.end), nameColumn: header.cols.description });
+    }
   }
   if (docs.length === 0) return { error: NO_ITEMS };
   const count = (d: InvoiceDocument, f: (l: DocumentLine) => boolean) => d.lines.filter(f).length;
