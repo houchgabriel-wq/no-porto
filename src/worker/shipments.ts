@@ -9,6 +9,8 @@ import { cleanSpecification, SPECIFICATION_MAX } from '../core/specification';
 import { IMPORT_BATCH, newImportItems } from '../core/importProduction';
 import { invoiceKey, shipmentKey } from '../core/importShipments';
 import { isbnDigits, isbnProblem } from '../core/isbn';
+import { curveTitleFor, curveTitles } from '../core/curveNames';
+import { titleKey } from '../core/items';
 import { isValidUnitPrice } from '../core/money';
 import { can } from '../core/roles';
 import { itemStatusFor, shipProblem } from '../core/shipments';
@@ -17,6 +19,7 @@ import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, HttpError, json, readBody } from './http';
 import { eventStatement, findItem, insertItem, itemDay, ITEM_SELECT, loadRefs, shipPlanSchema, toItem, type ItemRow } from './orders';
+import { readCurve } from './stock';
 import { mergePlans, readStoredPlan, shipPlanProblem, takeFromPlan, type ShipPlan } from '../core/shipPlan';
 
 // ---------- Esquemas de entrada ----------
@@ -222,25 +225,34 @@ function shipItemStatements(
   quantity: number,
   invoice: { id: string; number: string },
   status: ItemStatus,
-  override: { priceMicros: number | null; piecesPerCarton: number | null },
+  override: { priceMicros: number | null; piecesPerCarton: number | null; description?: string | null },
   userId: string,
   at: string,
 ): D1PreparedStatement[] {
   const price = override.priceMicros ?? item.unitPriceMicros ?? null;
   const pieces = override.piecesPerCarton ?? item.piecesPerCarton;
+  // O nome da curva ABC, no Novo embarque (27/11/2026); sem ele, fica o nome do item.
+  const description = override.description || item.description;
   if (quantity === item.quantity) {
     return [
-      env.DB.prepare('UPDATE order_items SET invoice_id = ?, status = ?, unit_price_micros = ?, pieces_per_carton = ?, updated_at = ?, updated_by = ? WHERE id = ?').bind(
-        invoice.id,
-        status,
-        price,
-        pieces,
-        at,
-        userId,
+      env.DB.prepare(
+        'UPDATE order_items SET invoice_id = ?, status = ?, unit_price_micros = ?, pieces_per_carton = ?, description = ?, updated_at = ?, updated_by = ? WHERE id = ?',
+      ).bind(invoice.id, status, price, pieces, description, at, userId, item.id),
+      // O preço, as peças e o nome de antes ficam no histórico, para voltar a eles se o embarque for excluído.
+      eventStatement(
+        env,
         item.id,
+        userId,
+        'shipped',
+        {
+          invoice: invoice.number,
+          quantity,
+          previousPriceMicros: item.unitPriceMicros ?? null,
+          previousPieces: item.piecesPerCarton,
+          ...(description !== item.description ? { previousDescription: item.description } : {}),
+        },
+        at,
       ),
-      // O preço e as peças de antes ficam no histórico, para voltar a eles se o embarque for excluído.
-      eventStatement(env, item.id, userId, 'shipped', { invoice: invoice.number, quantity, previousPriceMicros: item.unitPriceMicros ?? null, previousPieces: item.piecesPerCarton }, at),
     ];
   }
   const id = crypto.randomUUID();
@@ -252,7 +264,7 @@ function shipItemStatements(
       env,
       id,
       // A parte embarcada leva também a data de aprovação do arquivo.
-      { description: item.description, quantity, piecesPerCarton: pieces, unitPriceMicros: price, notes: item.notes, fileApprovedAt: item.fileApprovedAt ?? null, fileApprovedFrom: item.fileApprovedFrom ?? null, shipPlan: plan.taken },
+      { description, quantity, piecesPerCarton: pieces, unitPriceMicros: price, notes: item.notes, fileApprovedAt: item.fileApprovedAt ?? null, fileApprovedFrom: item.fileApprovedFrom ?? null, shipPlan: plan.taken },
       { productId: item.productId, supplierId: item.supplierId, orderId: item.purchaseOrderId, invoiceId: invoice.id, status },
       userId,
       at,
@@ -511,6 +523,9 @@ async function receiveShipment(request: Request, env: Env, session: Session, now
   const allocation = allocateInvoices(body.invoices, production, orderRows!.results as { id: string; code: string }[]);
 
   const refs = await loadRefs(env, at);
+  // O nome de cada produto como na curva ABC carregada, pelo ISBN (27/11/2026); sem curva, ficam os da invoice.
+  const titles = body.invoices.some((v) => v.lines.some((l) => l.isbn)) ? curveTitles((await readCurve(env))?.rows ?? []) : new Map<string, string>();
+  const renamedProducts = new Map<string, string>();
   let takenQty = 0;
   let extra = 0;
   body.invoices.forEach((v, vi) => {
@@ -518,9 +533,13 @@ async function receiveShipment(request: Request, env: Env, session: Session, now
     const supplier = names.get(v.supplierId)!;
     v.lines.forEach((line, index) => {
       const { takes, extra: missing } = allocation[vi]![index]!;
+      const curveName = curveTitleFor(line.isbn, titles);
+      if (curveName && line.isbn) renamedProducts.set(line.isbn, curveName);
       for (const take of takes) {
         const item = byId.get(take.itemId)!;
-        statements.push(...shipItemStatements(env, item, take.quantity, invoice, 'embarcado', { priceMicros: line.unitPriceMicros, piecesPerCarton: line.piecesPerCarton }, userId, at));
+        statements.push(
+          ...shipItemStatements(env, item, take.quantity, invoice, 'embarcado', { priceMicros: line.unitPriceMicros, piecesPerCarton: line.piecesPerCarton, description: curveName }, userId, at),
+        );
         // O item segue com o saldo: a próxima linha (ou o próximo container) parte do que sobrou.
         byId.set(item.id, { ...item, quantity: item.quantity - take.quantity });
         takenQty += take.quantity;
@@ -533,8 +552,8 @@ async function receiveShipment(request: Request, env: Env, session: Session, now
           insertItem(
             env,
             id,
-            { description: line.description, quantity: missing, piecesPerCarton: line.piecesPerCarton, unitPriceMicros: line.unitPriceMicros, notes },
-            { productId: refs.product(line.isbn, line.description), supplierId: v.supplierId, orderId: null, invoiceId: invoice.id, status: 'embarcado' },
+            { description: curveName ?? line.description, quantity: missing, piecesPerCarton: line.piecesPerCarton, unitPriceMicros: line.unitPriceMicros, notes },
+            { productId: refs.product(line.isbn, curveName ?? line.description), supplierId: v.supplierId, orderId: null, invoiceId: invoice.id, status: 'embarcado' },
             userId,
             at,
           ),
@@ -544,6 +563,10 @@ async function receiveShipment(request: Request, env: Env, session: Session, now
     });
   });
   // Produtos novos, o BL e as invoices antes dos itens, que apontam para eles.
+  // O produto também fica com o título da curva (o No Estoque e as fichas usam o título do produto).
+  for (const [isbn, title] of renamedProducts) {
+    statements.push(env.DB.prepare('UPDATE products SET title = ?, title_key = ? WHERE isbn = ? AND title <> ?').bind(title, titleKey(title), isbn, title));
+  }
   await env.DB.batch([...refs.statements, ...statements]);
   return json({ billId, invoiceIds: invoices.map((v) => v.id), taken: takenQty, extra }, 201);
 }
@@ -617,9 +640,10 @@ async function undoInvoices(env: Env, invoiceIds: string[], userId: string, at: 
       env.DB.prepare(
         `UPDATE order_items SET invoice_id = NULL, status = 'producao', updated_at = ?, updated_by = ?,
                 unit_price_micros = CASE WHEN ? THEN ? ELSE unit_price_micros END,
-                pieces_per_carton = CASE WHEN ? THEN ? ELSE pieces_per_carton END
+                pieces_per_carton = CASE WHEN ? THEN ? ELSE pieces_per_carton END,
+                description = COALESCE(?, description)
           WHERE id = ?`,
-      ).bind(at, userId, b.priceMicros !== undefined ? 1 : 0, b.priceMicros ?? null, b.pieces !== undefined ? 1 : 0, b.pieces ?? null, b.id),
+      ).bind(at, userId, b.priceMicros !== undefined ? 1 : 0, b.priceMicros ?? null, b.pieces !== undefined ? 1 : 0, b.pieces ?? null, b.description ?? null, b.id),
     );
     statements.push(eventStatement(env, b.id, userId, 'unshipped', { reason: 'embarque excluído' }, at));
   }

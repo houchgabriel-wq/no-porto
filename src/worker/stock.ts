@@ -6,6 +6,7 @@
 
 import { z } from 'zod';
 import type { ItemStatus } from '../core/items';
+import { curveTitleFor, curveTitles } from '../core/curveNames';
 import { can } from '../core/roles';
 import { readStoredPlan } from '../core/shipPlan';
 import { parseDate, spDate } from '../core/shipments';
@@ -140,7 +141,31 @@ async function loadCurve(request: Request, env: Env, session: Session, now: Date
   return json({ stockDate: body.stockDate, rowCount: body.rows.length }, 201);
 }
 
+const titlesBody = z.object({
+  isbns: z.array(z.string({ error: 'ISBN inválido.' }).max(20, 'ISBN inválido.'), { error: 'Informe os ISBNs.' }).max(2000, 'ISBNs demais de uma vez.'),
+});
+
+/**
+ * Os títulos da curva ABC para os ISBNs de um embarque (27/11/2026): a prévia do Novo embarque mostra o
+ * nome que vai ficar, o da curva, no lugar do da invoice. Só títulos: nada de estoque nem venda.
+ */
+async function curveTitlesFor(request: Request, env: Env): Promise<Response> {
+  checkMutation(request);
+  const body = await readBody(request, titlesBody);
+  const curve = await readCurve(env);
+  if (!curve) return json({ stockDate: null, titles: {} });
+  const map = curveTitles(curve.rows);
+  const titles: Record<string, string> = {};
+  for (const isbn of body.isbns) {
+    const title = curveTitleFor(isbn, map);
+    if (title) titles[isbn] = title;
+  }
+  return json({ stockDate: curve.info.stockDate, titles });
+}
+
 export async function routeStock(request: Request, env: Env, session: Session, key: string, now: Date): Promise<Response | null> {
+  // Para o Novo embarque, que é de admin e editor.
+  if (key === 'POST /api/stock/titles') return can(session.user.role, 'edit') ? curveTitlesFor(request, env) : error(403, 'Seu perfil não importa embarques.');
   if (key !== 'GET /api/stock' && key !== 'GET /api/stock/summary' && key !== 'POST /api/stock') return null;
   if (!can(session.user.role, 'view_stock')) return error(403, 'Seu perfil não vê a previsão de estoque.');
   if (key === 'POST /api/stock') {

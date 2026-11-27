@@ -4,8 +4,11 @@
 // ou pela carga da aba Embarques) é apagado.
 
 export type ItemOrigin =
-  /** Saiu inteiro da produção; guarda o preço e as peças por caixa de antes, quando registrados. */
-  | { kind: 'production'; previousPriceMicros?: number | null; previousPieces?: number | null }
+  /**
+   * Saiu inteiro da produção; guarda o preço e as peças por caixa de antes, quando registrados, e o nome
+   * de antes, quando o embarque trocou pelo da curva ABC (27/11/2026).
+   */
+  | { kind: 'production'; previousPriceMicros?: number | null; previousPieces?: number | null; previousDescription?: string }
   /** Parte embarcada de um item que ficou com o saldo em produção. */
   | { kind: 'split'; from: string }
   /** Não estava na produção do app. */
@@ -25,12 +28,14 @@ export function itemOrigin(events: readonly ItemEvent[]): ItemOrigin {
   if (shipped.detail.notInProduction) return { kind: 'outside' };
   if (typeof shipped.detail.splitFrom === 'string') return { kind: 'split', from: shipped.detail.splitFrom };
   const num = (v: unknown) => (typeof v === 'number' ? v : v === null ? null : undefined);
-  return { kind: 'production', previousPriceMicros: num(shipped.detail.previousPriceMicros), previousPieces: num(shipped.detail.previousPieces) };
+  const origin: ItemOrigin = { kind: 'production', previousPriceMicros: num(shipped.detail.previousPriceMicros), previousPieces: num(shipped.detail.previousPieces) };
+  if (typeof shipped.detail.previousDescription === 'string') origin.previousDescription = shipped.detail.previousDescription;
+  return origin;
 }
 
 export interface UndoPlan {
-  /** Voltam para a produção como estão (com o preço e as peças de antes, quando conhecidos). */
-  back: { id: string; priceMicros?: number | null; pieces?: number | null }[];
+  /** Voltam para a produção como estão (com o preço, as peças e o nome de antes, quando conhecidos). */
+  back: { id: string; priceMicros?: number | null; pieces?: number | null; description?: string }[];
   /** Juntam-se ao saldo que ficou em produção. */
   merge: { id: string; into: string; quantity: number }[];
   /** São apagados. */
@@ -46,7 +51,8 @@ export function planShipmentUndo(items: readonly { id: string; quantity: number;
   for (const { id, quantity, origin } of items) {
     if (origin.kind === 'outside') plan.remove.push(id);
     else if (origin.kind === 'split' && canMergeInto(origin.from)) plan.merge.push({ id, into: origin.from, quantity });
-    else if (origin.kind === 'production') plan.back.push({ id, priceMicros: origin.previousPriceMicros, pieces: origin.previousPieces });
+    else if (origin.kind === 'production')
+      plan.back.push({ id, priceMicros: origin.previousPriceMicros, pieces: origin.previousPieces, ...(origin.previousDescription !== undefined ? { description: origin.previousDescription } : {}) });
     else plan.back.push({ id });
   }
   return plan;
