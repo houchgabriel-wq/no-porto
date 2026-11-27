@@ -10,7 +10,7 @@ import { checkMutation, error, json, readBody } from './http';
 /** Tamanho máximo do arquivo do BL. */
 export const MAX_DOCUMENT_BYTES = 5_000_000;
 /** Caracteres de base64 por parte guardada (múltiplo de 4, para cada parte se decodificar sozinha). */
-const PART_CHARS = 1_000_000;
+export const PART_CHARS = 1_000_000;
 
 export const DOCUMENT_TYPES = ['application/pdf', 'image/png', 'image/jpeg'] as const;
 
@@ -23,7 +23,7 @@ const putBody = z.object({
   data: z.string().regex(/^[A-Za-z0-9+/]*={0,2}$/, 'Arquivo inválido.'),
 });
 
-function decodedSize(base64: string): number {
+export function decodedSize(base64: string): number {
   const pad = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
   return (base64.length / 4) * 3 - pad;
 }
@@ -66,9 +66,14 @@ async function getDocument(env: Env, billId: string): Promise<Response> {
   }>();
   if (!doc) return error(404, 'Este BL não tem arquivo.');
   const { results } = await env.DB.prepare('SELECT data FROM bill_document_parts WHERE document_id = ? ORDER BY seq').bind(doc.id).all<{ data: string }>();
+  return fileResponse(doc, results);
+}
+
+/** O arquivo guardado em partes, para baixar (o BL e, desde 27/11/2026, a invoice e a packing list). */
+export function fileResponse(doc: { name: string; content_type: string; size: number }, parts: readonly { data: string }[]): Response {
   const bytes = new Uint8Array(doc.size);
   let at = 0;
-  for (const { data } of results) {
+  for (const { data } of parts) {
     const bin = atob(data);
     for (let i = 0; i < bin.length; i++) bytes[at++] = bin.charCodeAt(i);
   }

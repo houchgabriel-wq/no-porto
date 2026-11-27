@@ -19,6 +19,7 @@ import type { Session } from './auth';
 import type { Env } from './env';
 import { checkMutation, error, HttpError, json, readBody } from './http';
 import { eventStatement, findItem, insertItem, itemDay, ITEM_SELECT, loadRefs, shipPlanSchema, toItem, type ItemRow } from './orders';
+import { deleteInvoiceDocumentsStatements, DOCUMENT_BODY_BYTES, documentContent, removeInvoiceDocumentStatements, storeInvoiceDocument } from './invoiceDocuments';
 import { readCurve } from './stock';
 import { mergePlans, readStoredPlan, shipPlanProblem, takeFromPlan, type ShipPlan } from '../core/shipPlan';
 
@@ -664,6 +665,8 @@ async function undoInvoices(env: Env, invoiceIds: string[], userId: string, at: 
   // Itens apagados antes ainda apontam para a invoice: soltam para ela poder ser excluída.
   statements.push(env.DB.prepare('UPDATE order_items SET invoice_id = NULL WHERE invoice_id IN (SELECT value FROM json_each(?))').bind(ids));
   statements.push(env.DB.prepare('DELETE FROM payments WHERE invoice_id IN (SELECT value FROM json_each(?))').bind(ids));
+  // Os arquivos da invoice e da packing list saem junto (27/11/2026).
+  statements.push(...deleteInvoiceDocumentsStatements(env, ids));
   statements.push(env.DB.prepare('DELETE FROM invoices WHERE id IN (SELECT value FROM json_each(?))').bind(ids));
   return { statements, back: plan.back.length, merged: plan.merge.length, removed: plan.remove.length };
 }
@@ -848,17 +851,25 @@ const packingListBody = z.object({
   container: unitSchema.shape.container.nullable().default(null),
   cartons: unitSchema.shape.cartons,
   weightGrams: unitSchema.shape.weightGrams,
+  /**
+   * O próprio arquivo, guardado para baixar depois (27/11/2026). Registrar sem ele tira o arquivo que estava
+   * guardado, que era o da packing list anterior.
+   */
+  document: documentContent.nullable().default(null),
 });
 
 /**
  * Registra a packing list de um container (pedido do Gabriel em 26/11/2026): grava as peças por caixa
  * dos itens que a tela ligou (src/core/packingList.ts), com a mudança no histórico de cada item, e anota o
  * arquivo, quando e quem registrou. O número do container, as caixas e o peso entram só onde estão
- * vazios (os do BL valem mais). A quantidade e o preço não mudam.
+ * vazios (os do BL valem mais). A quantidade e o preço não mudam. Desde 27/11/2026, o arquivo fica
+ * guardado na mesma gravação (src/worker/invoiceDocuments.ts).
  */
 async function savePackingList(request: Request, env: Env, session: Session, invoiceId: string, now: Date): Promise<Response> {
   checkMutation(request);
-  const body = await readBody(request, packingListBody);
+  const body = await readBody(request, packingListBody, DOCUMENT_BODY_BYTES);
+  const stored = body.document ? storeInvoiceDocument(env, session.user.id, invoiceId, 'packing', { name: body.fileName, ...body.document }, now) : null;
+  if (stored instanceof Response) return stored;
   const invoice = await env.DB.prepare('SELECT id, number, container, container_cartons, container_weight_grams FROM invoices WHERE id = ?')
     .bind(invoiceId)
     .first<{ id: string; number: string; container: string; container_cartons: number | null; container_weight_grams: number | null }>();
@@ -894,6 +905,7 @@ async function savePackingList(request: Request, env: Env, session: Session, inv
       invoice.container_weight_grams ?? body.weightGrams,
       invoiceId,
     ),
+    ...(stored ? stored.statements : removeInvoiceDocumentStatements(env, invoiceId, 'packing')),
   );
   await env.DB.batch(statements);
   return json({ updated });
