@@ -1705,3 +1705,45 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 /* Nomes da curva ABC no Novo embarque (27/11/2026). */
 .nomes-curva { display: flex; align-items: flex-start; gap: 8px; margin: 0; }
 .nomes-curva .ic { width: 16px; height: 16px; flex: none; margin-top: 1px; color: hsl(200 var(--c-s) var(--c-l)); }
+
+/* Produção › Brasil (27/11/2026): os orçamentos com as propostas das gráficas, os pedidos e as entregas. */
+.br-grade { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; align-items: start; }
+.br-cartao { background: var(--folha); border-radius: 14px; box-shadow: var(--sombra-1); border-left: 4px solid var(--fio); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.br-orcamento { margin-bottom: 12px; border-left-color: var(--acento); }
+.br-orcamento.fechado { border-left-color: var(--ok); }
+.br-orcamento.cancelado { border-left-color: var(--fio); }
+.br-pedido.estado-producao, .br-pedido.estado-parcial { border-left-color: var(--acento); }
+.br-pedido.estado-atrasado { border-left-color: var(--alerta); }
+.br-pedido.estado-entregue { border-left-color: var(--ok); }
+.br-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.br-titulo { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: 16px; overflow-wrap: anywhere; }
+.br-meta, .br-espec, .br-obs, .br-valor, .br-sem { margin: 0; font-size: 13px; color: var(--tinta-2); overflow-wrap: anywhere; }
+.br-meta b, .br-valor b { color: var(--tinta); }
+.br-espec { white-space: pre-wrap; }
+.br-obs { font-style: italic; }
+.br-valor { font-variant-numeric: tabular-nums; }
+.pilula.br-situacao.aberto, .pilula.br-estado.producao, .pilula.br-estado.parcial { background: var(--acento-suave); color: var(--acento); }
+.pilula.br-situacao.fechado, .pilula.br-estado.entregue { background: var(--ok-suave); color: var(--ok); }
+.pilula.br-situacao.cancelado { background: var(--sulco); color: var(--tinta-2); }
+.pilula.br-estado.atrasado { background: var(--alerta-suave); color: var(--alerta); }
+.br-propostas td { vertical-align: top; }
+.br-propostas tr.br-destaque { background: var(--ok-suave); }
+.br-propostas tr.br-destaque .t-isbn { color: var(--tinta-2); }
+.br-selo { margin-left: 6px; }
+.br-prop-acoes { white-space: nowrap; text-align: right; }
+.br-prop-acoes .btn { min-height: 34px; padding: 5px 12px; }
+.br-acoes { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.br-progresso { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--tinta-2); font-variant-numeric: tabular-nums; }
+.br-barra { display: block; height: 8px; border-radius: 999px; background: var(--sulco); overflow: hidden; }
+.br-barra > span { display: block; height: 100%; background: var(--ok); border-radius: inherit; }
+.br-entregas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--fio); }
+.br-entregas li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--fio); font-size: 13px; }
+.br-entregas li > span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.br-entregas .ic { color: var(--ok); width: 15px; height: 15px; }
+.br-total { margin: 0; color: var(--tinta-2); font-variant-numeric: tabular-nums; }
+.br-total b { color: var(--tinta); }
+.br-ultima .dica { display: block; margin-top: 2px; }
+@media (max-width: 640px) {
+  .br-grade { grid-template-columns: minmax(0, 1fr); }
+  .br-prop-acoes { white-space: normal; text-align: left; grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+}
