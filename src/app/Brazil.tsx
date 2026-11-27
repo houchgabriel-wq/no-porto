@@ -64,11 +64,12 @@ type DialogState =
 /** Gravar e recarregar; devolve o erro para a janela mostrar, ou null quando deu certo. `keepOpen` não fecha a janela. */
 type Submit = (action: () => Promise<unknown>, done: string, keepOpen?: boolean) => Promise<string | null>;
 
-export function BrazilView({ me, onToast }: { me: Me; onToast: (msg: string) => void }) {
+/** `initialQuery`: a busca já preenchida, quando a sub-aba abre por um pedido do painel ou pelo terminal de consulta. */
+export function BrazilView({ me, onToast, initialQuery = '' }: { me: Me; onToast: (msg: string) => void; initialQuery?: string }) {
   const [data, setData] = useState<BrazilData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [dialog, setDialog] = useState<DialogState>(null);
   const canEdit = can(me.role, 'edit');
 

@@ -1,15 +1,17 @@
 // Painel (SPEC.md, seção 5): em produção, no mar e a pagar em destaque; logo abaixo, o terminal de
 // consulta de produtos; próximas chegadas (com os atrasos), a produção por fornecedor e as POs maiores.
-// O leitor vê exemplares e não vê o que falta pagar.
+// O leitor vê exemplares e não vê o que falta pagar. Desde 27/11/2026, a produção no Brasil junto: no
+// destaque, o que falta as gráficas entregarem (em reais), e a lista das próximas entregas.
 
 import { useMemo } from 'react';
+import { brazilSummary, dueText, formatBrlWhole, producingOrders } from '../core/brazil';
 import { NO_SUPPLIER, totals, totalsByOrder, totalsBySupplier } from '../core/items';
 import { formatQuantity, formatUsdWhole } from '../core/money';
 import { arrivalState, arrivalText, daysBetween, formatDay, shipmentUnits, totalDue } from '../core/shipments';
 import type { CurveInfo } from '../core/stockCurve';
 import type { ForecastSummary } from '../core/stockForecast';
 import type { Amount } from '../core/suppliers';
-import type { ProductionData } from './api';
+import type { BrazilData, ProductionData } from './api';
 import { supplierHue, hueStyle } from './components';
 import { Icon } from './icons';
 import { LookupTerminal } from './Lookup';
@@ -26,10 +28,17 @@ interface Props {
   received: { year: string; amount: Amount } | null;
   /** O cartão da previsão de estoque: ausente para quem não vê a aba; null enquanto carrega. */
   stock?: { today: string; curve: CurveInfo | null; summary: ForecastSummary | null } | null;
+  /** A produção no Brasil (27/11/2026): ausente para quem não vê; null enquanto carrega. */
+  brazil?: BrazilData | null;
+  /** Abre Produção › Brasil; com a busca já preenchida quando vem de um pedido ou do terminal. */
+  onBrazil: (query?: string) => void;
 }
 
-export function Dashboard({ data, onSupplier, onOrder, onShipment, onProduct, received, stock }: Props) {
+export function Dashboard({ data, onSupplier, onOrder, onShipment, onProduct, received, stock, brazil, onBrazil }: Props) {
   const { seeValues } = data;
+  // O Brasil aparece quando já tem orçamento ou pedido: antes disso, o painel fica como era.
+  const brazilUsed = !!brazil && (brazil.orders.length > 0 || brazil.quotes.length > 0);
+  const br = useMemo(() => (brazil ? brazilSummary(brazil.quotes, brazil.orders, brazil.today) : null), [brazil]);
   const production = useMemo(() => data.items.filter((i) => i.status === 'producao'), [data.items]);
   const inProduction = useMemo(() => totals(production, seeValues), [production, seeValues]);
   const atSea = useMemo(() => totals(data.items.filter((i) => i.status === 'embarcado'), seeValues), [data.items, seeValues]);
@@ -70,6 +79,17 @@ export function Dashboard({ data, onSupplier, onOrder, onShipment, onProduct, re
               {seeValues && ` · ${formatQuantity(inProduction.quantity)} ex.`}
             </span>
           </div>
+          {brazilUsed && br && (
+            <div className="heroi-bloco">
+              <h2 className="heroi-rot">Produção no Brasil</h2>
+              <b className="heroi-valor">{br.producing.valueCents !== null ? formatBrlWhole(br.producing.valueCents) : `${formatQuantity(br.producing.copies)} ex.`}</b>
+              <span className="heroi-sub">
+                {br.producing.orders === 0 ? 'Nenhum pedido em produção' : br.producing.orders === 1 ? '1 pedido' : `${br.producing.orders} pedidos`}
+                {br.producing.valueCents !== null && br.producing.orders > 0 && ` · ${formatQuantity(br.producing.copies)} ex.`}
+                {br.late > 0 && <span className="alerta-texto"> · {br.late === 1 ? '1 atrasado' : `${br.late} atrasados`}</span>}
+              </span>
+            </div>
+          )}
           <div className="heroi-bloco">
             <h2 className="heroi-rot">No mar</h2>
             <b className="heroi-valor">{headline(atSea)}</b>
@@ -106,7 +126,7 @@ export function Dashboard({ data, onSupplier, onOrder, onShipment, onProduct, re
         )}
       </section>
 
-      <LookupTerminal today={data.today} onProduct={onProduct} />
+      <LookupTerminal today={data.today} onProduct={onProduct} onBrazil={onBrazil} />
 
       <div className="painel-grade">
         <section className="bloco">
@@ -155,6 +175,7 @@ export function Dashboard({ data, onSupplier, onOrder, onShipment, onProduct, re
           )}
         </section>
         {stock !== undefined && <StockCard stock={stock} />}
+        {brazilUsed && <BrazilCard brazil={brazil!} onBrazil={onBrazil} />}
         <section className="bloco">
           <div className="bloco-topo">
             <h2>Produção por fornecedor</h2>
@@ -258,9 +279,9 @@ function StockCard({ stock }: { stock: NonNullable<Props['stock']> | null }) {
                   <span className="prev-painel-ic" aria-hidden="true">
                     <Icon name="navio" />
                   </span>
-                  <span className="barra-nome">Acabam antes de o embarcado chegar</span>
+                  <span className="barra-nome">Acabam antes da próxima chegada</span>
                   <b>{titles(s.gaps)}</b>
-                  <span className="barra-sub">o estoque físico não dura até a chegada prevista</span>
+                  <span className="barra-sub">o estoque físico não dura até a chegada prevista do embarcado ou a entrega do Brasil</span>
                 </a>
               </li>
             )}
@@ -270,6 +291,67 @@ function StockCard({ stock }: { stock: NonNullable<Props['stock']> | null }) {
             {age > 8 ? ` (há ${age} dias: carregue a desta semana)` : ''}.
           </p>
         </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * A produção no Brasil no painel (27/11/2026): os pedidos ainda não entregues, da entrega prevista mais próxima (os
+ * atrasados primeiro) para a mais distante. Cada linha abre Produção › Brasil já com a busca do pedido.
+ */
+function BrazilCard({ brazil, onBrazil }: { brazil: BrazilData; onBrazil: (query?: string) => void }) {
+  const { today } = brazil;
+  const list = producingOrders(brazil.orders, today);
+  const printers = new Map(brazil.printers.map((p) => [p.id, p.name]));
+  const openQuotes = brazil.quotes.filter((q) => q.status === 'aberto').length;
+  const shown = list.slice(0, 7);
+  return (
+    <section className="bloco">
+      <div className="bloco-topo">
+        <h2>Produção no Brasil</h2>
+        <button type="button" className="btn-texto" onClick={() => onBrazil()}>
+          Ver produção no Brasil
+        </button>
+      </div>
+      {list.length === 0 ? (
+        <p className="vazio-lista">Nenhum pedido em produção nas gráficas do Brasil.</p>
+      ) : (
+        <ul className="lista">
+          {shown.map(({ order: o, state }) => (
+            <li key={o.id}>
+              <button type="button" className="chegada-linha" onClick={() => onBrazil(o.isbn ?? o.title)}>
+                <span className={state.late ? 'chegada-dia atrasado' : 'chegada-dia'}>
+                  {o.dueAt ? (
+                    <>
+                      <b>{formatDay(o.dueAt).split(' ')[0]}</b>
+                      <span>{formatDay(o.dueAt).split(' ')[1]}</span>
+                    </>
+                  ) : (
+                    <b>?</b>
+                  )}
+                </span>
+                <span className="chegada-meio">
+                  <span className="barra-nome">{o.title}</span>
+                  <span className="barra-sub">
+                    {printers.get(o.printerId) ?? 'Gráfica'} ·{' '}
+                    {state.delivered > 0 ? `faltam ${formatQuantity(state.remaining)} de ${formatQuantity(o.quantity)} ex.` : `${formatQuantity(o.quantity)} ex.`}
+                  </span>
+                </span>
+                <span className={state.late ? 'pilula alerta' : o.dueAt ? 'pilula chegada previsto' : 'pilula'}>
+                  {state.late && <Icon name="alerta" />}
+                  {dueText(state, o.dueAt, today)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {(list.length > shown.length || openQuotes > 0) && (
+        <p className="dica br-painel-pe">
+          {list.length > shown.length && `E mais ${list.length - shown.length} em produção. `}
+          {openQuotes > 0 && (openQuotes === 1 ? '1 orçamento aberto, esperando as propostas ou o fechamento.' : `${openQuotes} orçamentos abertos, esperando as propostas ou o fechamento.`)}
+        </p>
       )}
     </section>
   );

@@ -6,7 +6,7 @@ import { copySheets, DELIVERED_HEADER, PRODUCTION_HEADER, SHIPMENTS_HEADER } fro
 import type { Amount, SupplierSummary } from '../core/suppliers';
 import { EMPTY_FILTERS, filterItems, sortItems, type ItemFilters, type ItemSort } from '../core/items';
 import { can, ROLE_LABELS } from '../core/roles';
-import { api, ApiError, setUnauthorizedHandler, type Me, type StockData } from './api';
+import { api, ApiError, setUnauthorizedHandler, type BrazilData, type Me, type StockData } from './api';
 import { Avatar, Brand, Dialog, FormError, hueStyle, setSupplierHues, STATUS_PREVIEW, useToast } from './components';
 import { Dashboard } from './Dashboard';
 import { downloadXlsx } from './download';
@@ -561,6 +561,8 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [fullImport, setFullImport] = useState(false);
   const [shipmentsMode, setShipmentsMode] = useState<ShipmentsMode>(readShipmentsMode);
   const [productionMode, setProductionMode] = useState<ProductionMode>(readProductionMode);
+  // A busca da sub-aba Brasil quando ela abre por um pedido do painel ou pelo terminal de consulta.
+  const [brazilQuery, setBrazilQuery] = useState<string | null>(null);
   const [product, setProduct] = useState<string | null>(null);
   const [lastBackup, setLastBackup] = useState(readLastBackup);
   const [backingUp, setBackingUp] = useState(false);
@@ -662,6 +664,24 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
     if (seesStock && current === 'painel') void loadStockCard();
   }, [seesStock, current, loadStockCard, data?.items.length]);
 
+  // A produção no Brasil no painel (27/11/2026), para quem vê a Produção; some se não carregar.
+  const [brazilCard, setBrazilCard] = useState<BrazilData | null | undefined>(seesAll ? null : undefined);
+  useEffect(() => {
+    if (!seesAll || current !== 'painel') return;
+    let alive = true;
+    api
+      .brazil()
+      .then((d) => alive && setBrazilCard(d))
+      .catch(() => alive && setBrazilCard(undefined));
+    return () => {
+      alive = false;
+    };
+  }, [seesAll, current]);
+  // A busca que veio do painel vale só para aquela visita à Produção.
+  useEffect(() => {
+    if (current !== 'producao') setBrazilQuery(null);
+  }, [current]);
+
   // Resumo por fornecedor (somado no banco), para admin e editor: na tela Fornecedores e na situação do
   // fornecedor, na ficha da solicitação de embarque.
   const loadSuppliers = useCallback(async () => {
@@ -753,6 +773,14 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
 
   function goToProduction(f: Partial<ItemFilters>) {
     setFilters({ ...EMPTY_FILTERS, ...f });
+    location.hash = 'producao';
+  }
+
+  /** Abre Produção › Brasil, com a busca já preenchida quando vem de um pedido do painel ou do terminal. */
+  function goToBrazil(query?: string) {
+    setBrazilQuery(query ?? null);
+    setProductionMode('brasil');
+    saveProductionMode('brasil');
     location.hash = 'producao';
   }
 
@@ -1074,6 +1102,8 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                 onProduct={setProduct}
                 received={received}
                 stock={stockCard}
+                brazil={brazilCard}
+                onBrazil={goToBrazil}
               />
               </>
             ) : current === 'embarques' ? (
@@ -1129,7 +1159,7 @@ function Shell({ user, onLogout }: { user: Me; onLogout: () => void }) {
                   ))}
                 </div>
                 {productionMode === 'brasil' ? (
-                  <BrazilView me={user} onToast={showToast} />
+                  <BrazilView me={user} onToast={showToast} initialQuery={brazilQuery ?? ''} />
                 ) : (
               <ProductionView
                 data={productionData!}
