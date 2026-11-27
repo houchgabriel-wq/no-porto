@@ -1,7 +1,9 @@
 // Produção no Brasil (pedido do Gabriel em 27/11/2026; SPEC.md, seção 3): os orçamentos com as gráficas do
 // Brasil (várias propostas por produto, fecha-se com uma), os pedidos de produção que saem deles e as entregas no
-// estoque, em uma ou mais partes. Dinheiro em reais, sem ponto flutuante: o preço por exemplar tem até quatro casas
-// e fica como inteiro (× 10.000, como o câmbio); o total fica em centavos.
+// estoque, em uma ou mais partes. A proposta lista os itens que a gráfica cobra (o kit tem o box e os livros) e diz
+// de quem é o papel: da gráfica, incluído no preço, ou nosso, que a editora compra pelo preço por kg da tabela de
+// papéis e entra no custo. Dinheiro em reais, sem ponto flutuante: preços por unidade e por kg com até quatro casas,
+// como inteiros (× 10.000, como o câmbio); totais em centavos; peso do papel em gramas.
 
 import { searchKey } from './items';
 import { parseScaled } from './money';
@@ -18,17 +20,57 @@ export interface Printer {
   notes: string;
 }
 
+/** Um papel da tabela: o preço por kg que a editora paga (reais × 10.000; null para quem não vê valores). */
+export interface Paper {
+  id: string;
+  name: string;
+  pricePerKgE4: number | null;
+  notes: string;
+  updatedAt: string;
+}
+
+export type PaperBy = 'grafica' | 'editora';
+export const PAPER_PARTS = ['capa', 'miolo', 'outro'] as const;
+export type PaperPart = (typeof PAPER_PARTS)[number];
+export const PAPER_PART_LABELS: Record<PaperPart, string> = { capa: 'Capa', miolo: 'Miolo', outro: 'Outro' };
+
+/** Um item que a gráfica cobra (o box, os livros do kit), com o preço por unidade; null sem valores. */
+export interface OfferItem {
+  description: string;
+  quantity: number;
+  unitPriceE4: number | null;
+}
+
+/** O papel nosso que a proposta consome: a parte, o papel, o peso e o preço por kg usado (o da tabela, ajustável). */
+export interface OfferPaper {
+  part: PaperPart;
+  paperId: string | null;
+  paperName: string;
+  grams: number;
+  pricePerKgE4: number | null;
+}
+
 /** A proposta de uma gráfica para um orçamento. */
 export interface Offer {
   id: string;
   quoteId: string;
   printerId: string;
+  /** Quantos produtos prontos a proposta entrega (o kit conta como um): a base do custo por unidade. */
   quantity: number;
-  /** Preço por exemplar em reais × 10.000; null para quem não vê valores (o leitor). */
-  unitPriceE4: number | null;
+  paperBy: PaperBy;
+  items: OfferItem[];
+  /** Só com o papel nosso. */
+  papers: OfferPaper[];
   /** Prazo de produção, em dias. */
   leadDays: number | null;
+  proposalNumber: string;
+  proposalDate: string | null;
+  /** Validade da proposta, em dias a partir da data dela. */
+  validDays: number | null;
+  paymentTerms: string;
   notes: string;
+  /** O PDF da proposta guardado; só para quem vê valores. */
+  document: { name: string; size: number } | null;
 }
 
 /** O orçamento de um produto, pedido a uma ou mais gráficas. */
@@ -68,8 +110,10 @@ export interface BrOrder {
   title: string;
   isbn: string | null;
   quantity: number;
-  /** Preço por exemplar em reais × 10.000; null para quem não vê valores. */
-  unitPriceE4: number | null;
+  /** O que a gráfica cobra (a soma dos itens), em centavos; null para quem não vê valores. */
+  printerCents: number | null;
+  /** O papel nosso, em centavos (zero com o papel da gráfica); null para quem não vê valores. */
+  paperCents: number | null;
   orderedAt: string;
   dueAt: string | null;
   specification: string;
@@ -83,9 +127,61 @@ export function parseBrlUnitPrice(text: string): number | null {
   return v === null || v === 0 ? null : v;
 }
 
-/** Total em centavos de real: quantidade × preço por exemplar, arredondado ao centavo. */
+/** Total em centavos de real: quantidade × preço por unidade, arredondado ao centavo. */
 export function brlTotalCents(quantity: number, unitPriceE4: number): number {
   return Math.round((quantity * unitPriceE4) / 100);
+}
+
+/** Peso do papel em kg ("707", "2.463,44", "846,81") → gramas; null se não servir. */
+export function parseKgGrams(text: string): number | null {
+  const v = parseScaled(text.trim().replace(/\s*kg$/i, ''), 3);
+  return v === null || v === 0 ? null : v;
+}
+
+/** O peso para ler: "2.463,44 kg". */
+export function formatKg(grams: number): string {
+  return `${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 }).format(grams / 1000)} kg`;
+}
+
+/** O peso para editar no campo: "2463,44". */
+export function kgInput(grams: number): string {
+  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3, useGrouping: false }).format(grams / 1000);
+}
+
+/** O custo do papel em centavos: o peso (gramas) × o preço por kg (reais × 10.000). */
+export function paperCostCents(grams: number, pricePerKgE4: number): number {
+  return Math.round((grams * pricePerKgE4) / 100_000);
+}
+
+export interface OfferCost {
+  /** O que a gráfica cobra: a soma dos itens. */
+  printerCents: number;
+  /** O papel nosso (zero com o papel da gráfica). */
+  paperCents: number;
+  totalCents: number;
+  /** O custo por produto pronto, com o papel, em reais × 10.000. */
+  unitCostE4: number;
+}
+
+/** O custo da proposta: os itens da gráfica, o papel nosso e o custo por unidade; null sem os valores. */
+export function offerCost(offer: Pick<Offer, 'quantity' | 'paperBy' | 'items' | 'papers'>): OfferCost | null {
+  if (offer.items.some((i) => i.unitPriceE4 === null) || offer.papers.some((p) => p.pricePerKgE4 === null)) return null;
+  const printerCents = offer.items.reduce((s, i) => s + brlTotalCents(i.quantity, i.unitPriceE4!), 0);
+  const paperCents = offer.paperBy === 'editora' ? offer.papers.reduce((s, p) => s + paperCostCents(p.grams, p.pricePerKgE4!), 0) : 0;
+  const totalCents = printerCents + paperCents;
+  return { printerCents, paperCents, totalCents, unitCostE4: Math.round((totalCents * 100) / offer.quantity) };
+}
+
+/** O total do pedido (gráfica + papel nosso), em centavos; null sem os valores. */
+export function orderTotalCents(order: Pick<BrOrder, 'printerCents' | 'paperCents'>): number | null {
+  return order.printerCents === null || order.paperCents === null ? null : order.printerCents + order.paperCents;
+}
+
+/** Até quando vale a proposta (a data dela mais a validade), e se já venceu; null sem a data ou a validade. */
+export function offerExpiry(offer: Pick<Offer, 'proposalDate' | 'validDays'>, today: string): { until: string; expired: boolean } | null {
+  if (!offer.proposalDate || offer.validDays === null) return null;
+  const until = addDays(offer.proposalDate, offer.validDays);
+  return { until, expired: until < today };
 }
 
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -112,14 +208,15 @@ export function addDays(day: string, days: number): string {
   return new Date(Date.parse(`${day}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 }
 
-/** A proposta com o menor preço por exemplar (no empate, o menor prazo); null quando nenhuma tem preço. */
+/** A proposta com o menor custo por unidade, com o papel nosso (no empate, o menor prazo); null sem os valores. */
 export function bestOffer(offers: readonly Offer[]): Offer | null {
-  let best: Offer | null = null;
+  let best: { offer: Offer; unit: number } | null = null;
   for (const o of offers) {
-    if (o.unitPriceE4 === null) continue;
-    if (!best || o.unitPriceE4 < best.unitPriceE4! || (o.unitPriceE4 === best.unitPriceE4 && (o.leadDays ?? Infinity) < (best.leadDays ?? Infinity))) best = o;
+    const cost = offerCost(o);
+    if (!cost) continue;
+    if (!best || cost.unitCostE4 < best.unit || (cost.unitCostE4 === best.unit && (o.leadDays ?? Infinity) < (best.offer.leadDays ?? Infinity))) best = { offer: o, unit: cost.unitCostE4 };
   }
-  return best;
+  return best?.offer ?? null;
 }
 
 /**
@@ -205,7 +302,9 @@ export function brazilSummary(quotes: readonly Pick<Quote, 'status'>[], orders: 
     producingOrders++;
     copies += s.remaining;
     if (s.late) late++;
-    valueCents = o.unitPriceE4 === null || valueCents === null ? null : valueCents + brlTotalCents(s.remaining, o.unitPriceE4);
+    // O valor do que falta: a parte do total (gráfica + papel) que corresponde aos exemplares que faltam.
+    const total = orderTotalCents(o);
+    valueCents = total === null || valueCents === null ? null : valueCents + Math.round((total * s.remaining) / o.quantity);
   }
   return { openQuotes: quotes.filter((q) => q.status === 'aberto').length, producing: { orders: producingOrders, copies, valueCents }, late, deliveredLast30 };
 }

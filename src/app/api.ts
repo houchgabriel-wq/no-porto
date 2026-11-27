@@ -1,7 +1,7 @@
 // Chamadas à API. Erros viram ApiError com a mensagem em português vinda do servidor.
 
 import type { BillUnit } from '../core/billUnits';
-import type { BrOrder, Printer, Quote } from '../core/brazil';
+import type { BrOrder, Paper, PaperBy, PaperPart, Printer, Quote } from '../core/brazil';
 import type { DocumentLine } from '../core/documents';
 import type { CatalogEntry } from '../core/newOrder';
 import type { SalesArrival } from '../core/shippedItems';
@@ -248,6 +248,11 @@ export const api = {
   addDelivery: (orderId: string, body: { deliveredAt: string; quantity: number; last: boolean; notes: string }) =>
     request<{ id: string }>('POST', `/api/brasil/orders/${encodeURIComponent(orderId)}/deliveries`, body),
   deleteDelivery: (id: string) => request<{ ok: true }>('DELETE', `/api/brasil/deliveries/${encodeURIComponent(id)}`),
+  createPaper: (body: { name: string; pricePerKgE4: number; notes?: string }) => request<{ id: string }>('POST', '/api/brasil/papers', body),
+  updatePaper: (id: string, body: { name?: string; pricePerKgE4?: number; notes?: string }) => request<{ ok: true }>('PATCH', `/api/brasil/papers/${encodeURIComponent(id)}`, body),
+  putOfferDocument: (offerId: string, body: { name: string; contentType: string; data: string }) =>
+    request<{ document: { name: string; size: number } }>('PUT', `/api/brasil/offers/${encodeURIComponent(offerId)}/document`, body),
+  deleteOfferDocument: (offerId: string) => request<{ ok: true }>('DELETE', `/api/brasil/offers/${encodeURIComponent(offerId)}/document`),
   reset: (confirm: string) => request<{ items: number }>('POST', '/api/reset', { confirm }),
   importShipments: (items: ImportedShipmentItem[]) => request<{ inserted: number; skipped: number }>('POST', '/api/import/shipments', { items }),
   sales: () => request<{ today: string; rows: SalesArrival[] }>('GET', '/api/sales'),
@@ -311,6 +316,8 @@ export interface BrazilData {
   today: string;
   seeValues: boolean;
   printers: Printer[];
+  /** A tabela de papéis; sem os preços para o leitor. */
+  papers: Paper[];
   quotes: Quote[];
   orders: BrOrder[];
 }
@@ -325,8 +332,15 @@ export interface QuoteInput {
 
 export interface OfferInput {
   printer: string;
+  /** Quantos produtos prontos a proposta entrega (o kit conta como um). */
   quantity: number;
-  unitPriceE4: number;
+  paperBy: PaperBy;
+  items: { description: string; quantity: number; unitPriceE4: number }[];
+  papers: { part: PaperPart; paper: string; grams: number; pricePerKgE4: number }[];
   leadDays: number | null;
+  proposalNumber: string;
+  proposalDate: string | null;
+  validDays: number | null;
+  paymentTerms: string;
   notes: string;
 }

@@ -1728,7 +1728,7 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 .pilula.br-estado.atrasado { background: var(--alerta-suave); color: var(--alerta); }
 .br-propostas td { vertical-align: top; }
 .br-propostas tr.br-destaque { background: var(--ok-suave); }
-.br-propostas tr.br-destaque .t-isbn { color: var(--tinta-2); }
+.br-propostas tr.br-destaque .t-isbn, .br-propostas tr.br-destaque .mudo { color: var(--tinta-2); }
 .br-selo { margin-left: 6px; }
 .br-prop-acoes { white-space: nowrap; text-align: right; }
 .br-prop-acoes .btn { min-height: 34px; padding: 5px 12px; }
@@ -1746,4 +1746,34 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 @media (max-width: 640px) {
   .br-grade { grid-template-columns: minmax(0, 1fr); }
   .br-prop-acoes { white-space: normal; text-align: left; grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+}
+/* Propostas com itens, papel e PDF (27/11/2026). */
+.grade-campos.tres { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.br-bloco { border: 1px solid var(--fio); border-radius: 12px; padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; margin: 0; min-width: 0; }
+.br-bloco legend { font-weight: 700; padding: 0 4px; }
+.br-bloco .dica { margin: 0; }
+.br-linha-item, .br-linha-papel { display: grid; gap: 6px 10px; align-items: end; }
+.br-linha-item { grid-template-columns: minmax(0, 2.4fr) minmax(90px, 1fr) minmax(120px, 1fr) minmax(110px, auto) minmax(44px, auto); }
+.br-linha-papel { grid-template-columns: minmax(96px, 0.7fr) minmax(0, 2.6fr) minmax(80px, 0.75fr) minmax(100px, 0.85fr) minmax(110px, auto) minmax(44px, auto); }
+.br-linha-total { align-self: end; min-height: 40px; display: flex; align-items: center; justify-content: flex-end; font-variant-numeric: tabular-nums; color: var(--tinta-2); font-weight: 600; }
+.br-linha-tirar { align-self: end; min-height: 40px; }
+.br-adicionar { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; min-height: 36px; }
+.br-custo { padding: 10px 12px; border-radius: 10px; background: var(--sulco); }
+.br-pdf { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 13px; color: var(--acento); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.br-pdf .ic { width: 14px; height: 14px; }
+.br-arquivo-atual { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-weight: 500; overflow-wrap: anywhere; }
+.br-anexar { align-self: flex-start; }
+.br-papeis { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--fio); }
+.br-papeis li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 0; border-bottom: 1px solid var(--fio); }
+.br-papel-nome { font-weight: 600; flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
+.br-papel-form { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; width: 100%; }
+.br-papel-form .campo { width: auto; flex: 2 1 160px; }
+.br-papel-form .br-papel-preco { flex: 1 1 90px; }
+.br-papel-novo { display: flex; flex-direction: column; gap: 8px; }
+.br-papel-novo h3 { margin: 0; font-size: 15px; }
+@media (max-width: 640px) {
+  .grade-campos.tres { grid-template-columns: minmax(0, 1fr); }
+  .br-linha-item, .br-linha-papel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-bottom: 8px; border-bottom: 1px solid var(--fio); }
+  .br-linha-item .br-desc, .br-linha-papel .br-papel-campo { grid-column: 1 / -1; }
+  .br-linha-total { justify-content: flex-start; min-height: 0; }
 }
