@@ -1678,3 +1678,6 @@ dialog.dlg-solicitacao { width: min(720px, calc(100vw - 32px)); }
 .filtro-prioridade.ativo { background: var(--critico-suave); border-color: var(--critico); }
 .item-prio { color: var(--critico); font-weight: 600; white-space: nowrap; }
 .item-prio .ic { width: 12px; height: 12px; vertical-align: -1px; margin-right: 2px; }
+/* Nomes da curva ABC no Novo embarque (27/11/2026). */
+.nomes-curva { display: flex; align-items: flex-start; gap: 8px; margin: 0; }
+.nomes-curva .ic { width: 16px; height: 16px; flex: none; margin-top: 1px; color: hsl(200 var(--c-s) var(--c-l)); }
