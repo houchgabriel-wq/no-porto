@@ -65,17 +65,21 @@ interface InvoiceInfoRow {
   number: string;
   ref: string;
   supplier_id: string | null;
+  bill_of_lading_id: string | null;
   bill_number: string | null;
   arrived_at: string | null;
   notes: string;
 }
 
-/** Invoice como o histórico e a ficha do produto mostram: com o número do BL e a chegada que vale. */
+/**
+ * Invoice como o histórico e a ficha do produto mostram: com o BL e a chegada que vale. O id do BL abre a ficha do
+ * embarque (27/11/2026).
+ */
 function invoiceInfo(r: InvoiceInfoRow) {
-  return { id: r.id, number: r.number, ref: r.ref, supplierId: r.supplier_id, billNumber: r.bill_number, arrivedAt: r.arrived_at, notes: r.notes };
+  return { id: r.id, number: r.number, ref: r.ref, supplierId: r.supplier_id, billId: r.bill_of_lading_id, billNumber: r.bill_number, arrivedAt: r.arrived_at, notes: r.notes };
 }
 
-const INVOICE_INFO = `SELECT v.id, v.number, v.ref, v.supplier_id, b.number AS bill_number, COALESCE(v.arrived_at, b.arrived_at) AS arrived_at, v.notes
+const INVOICE_INFO = `SELECT v.id, v.number, v.ref, v.supplier_id, v.bill_of_lading_id, b.number AS bill_number, COALESCE(v.arrived_at, b.arrived_at) AS arrived_at, v.notes
   FROM invoices v LEFT JOIN bills_of_lading b ON b.id = v.bill_of_lading_id`;
 
 /** Todos os itens que chegaram, com as invoices deles. Carregado quando a pessoa abre o Histórico. */

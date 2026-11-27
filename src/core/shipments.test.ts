@@ -18,6 +18,7 @@ import {
   shipProblem,
   spDate,
   totalDue,
+  withShipment,
 } from './shipments';
 
 describe('datas', () => {
@@ -132,6 +133,34 @@ describe('embarcar', () => {
     expect(shipProblem([{ item: item('a', 's1'), quantity: 0 }], null)).toContain('maior que zero');
     expect(shipProblem([{ item: item('a', 's1', 1000, 'embarcado'), quantity: 10 }], null)).toBe('"Livro a" já está embarcado.');
     expect(shipProblem([], null)).toBe('Escolha os itens para embarcar.');
+  });
+});
+
+describe('embarque carregado à parte', () => {
+  it('entra o que falta nos dados da tela; o que já está nela vale', () => {
+    const bill = { id: 'b1', number: 'YMJAW240104510', eta: '2026-08-01', arrivedAt: null, notes: '' };
+    const recent = { id: 'c2', number: '57-2', ref: '', supplierId: 's1', billId: 'b1', eta: null, arrivedAt: '2026-11-10', notes: '' };
+    const old = { id: 'c1', number: '57-1', ref: '', supplierId: 's1', billId: 'b1', eta: null, arrivedAt: '2026-08-20', notes: '' };
+    const data = { today: '2026-11-17', bills: [bill], invoices: [recent], items: [], payments: [], orders: [], suppliers: [{ id: 's1', name: 'Miyi' }], seeValues: true };
+    const slice = {
+      bills: [{ ...bill, notes: 'versão antiga' }],
+      invoices: [old, { ...recent, notes: 'versão antiga' }],
+      items: [{ id: 'i1' } as Item],
+      payments: [{ id: 'p1', invoiceId: 'c1', paidAt: '2026-08-25', amountCents: 100, exchangeRateE4: null, notes: '' }],
+      orders: [{ id: 'o1', code: 'PO-063', orderedAt: null, notes: '' }],
+      suppliers: [{ id: 's1', name: 'Miyi (antiga)' }],
+    };
+    const merged = withShipment(data, slice);
+    expect(merged.invoices.map((v) => [v.id, v.notes])).toEqual([
+      ['c2', ''],
+      ['c1', ''],
+    ]);
+    expect([merged.bills, merged.suppliers]).toEqual([[bill], [{ id: 's1', name: 'Miyi' }]]);
+    expect([merged.items.length, merged.payments.length, merged.orders.length, merged.today, merged.seeValues]).toEqual([1, 1, 1, '2026-11-17', true]);
+    // O BL inteiro, com os dois containers, na ficha do embarque.
+    expect(shipmentUnits(merged.bills, merged.invoices, merged.today)[0]!.invoices.map((v) => v.id)).toEqual(['c2', 'c1']);
+    // Nada a acrescentar: as listas continuam as mesmas.
+    expect(withShipment(merged, slice).invoices).toBe(merged.invoices);
   });
 });
 
