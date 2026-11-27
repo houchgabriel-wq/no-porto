@@ -8,12 +8,15 @@
 // BL preenche a chegada prevista: a data mais o prazo, de 35 dias por padrão, que o admin muda (26/11/2026).
 // Os produtos com o ISBN na curva ABC ficam com o título dela, no lugar do nome da invoice (27/11/2026).
 // Os arquivos da invoice e da packing list de cada container ficam guardados, para baixar depois (27/11/2026).
+// O nome de cada produto pode ser mudado na prévia, e a invoice .xlsx fica guardada com os nomes gravados no
+// lugar dos do fornecedor; o resto do arquivo fica como veio (27/11/2026).
 
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import { allocateInvoices, guessSupplier, type LineAllocation } from '../core/allocation';
 import { ARRIVAL_DAYS_DEFAULT, arrivalDaysProblem, arrivalFromBill, arrivalText, billDateProblem, billDateText, type BillDate } from '../core/billArrival';
 import { formatWeight, matchUnits, packingTotals, unitDifference, unitSummary, type BillUnit, type UnitMatch } from '../core/billUnits';
 import { parseShipmentFile, type DocumentLine, type DocumentNote, type ShipmentFile } from '../core/documents';
+import { invoiceNameChanges } from '../core/invoiceNames';
 import { NO_SUPPLIER } from '../core/items';
 import { formatQuantity, formatUsd } from '../core/money';
 import { can } from '../core/roles';
@@ -24,6 +27,7 @@ import { Dialog, FormError } from './components';
 import { linesValue, Notes, readFile } from './Documents';
 import { MAX_FILE_BYTES, sheetContentType, toBase64 } from './fileUpload';
 import { Icon } from './icons';
+import { invoiceWithNames } from './invoiceFile';
 import { readBillPdf } from './pdfText';
 import type { Production } from './production';
 
@@ -39,6 +43,8 @@ interface Container {
   number: string;
   container: string;
   ref: string;
+  /** Os nomes escritos na prévia, pela linha da planilha (27/11/2026); trocar o arquivo das linhas apaga. */
+  titles: Record<number, string>;
 }
 
 /** As linhas do container: as da invoice com as peças por caixa da packing list. */
@@ -53,6 +59,21 @@ function containerLines(c: Container): { lines: DocumentLine[]; warnings: Docume
 /** A packing list do container, para as caixas e o peso (pode estar no mesmo arquivo da invoice). */
 function packingDoc(c: Container) {
   return (c.packing ? (c.packing.packing ?? c.packing.invoice) : null) ?? c.invoice?.packing ?? null;
+}
+
+/** O nome que a prévia mostra antes de a pessoa mexer: o da curva ABC, pelo ISBN, ou o da invoice. */
+function defaultName(l: DocumentLine, curveTitles: Record<string, string>): string {
+  return (l.isbn && curveTitles[l.isbn]) || l.description;
+}
+
+const spaces = (s: string) => s.replace(/\s+/g, ' ').trim();
+
+/** O nome escrito na prévia, quando é diferente do que já ia ficar; null sem nome escrito. */
+function writtenName(c: Container, l: DocumentLine, curveTitles: Record<string, string>): string | null {
+  const typed = c.titles[l.row];
+  if (typed === undefined) return null;
+  const name = spaces(typed);
+  return name && name !== defaultName(l, curveTitles) ? name : null;
 }
 
 async function readShipmentFile(f: File): Promise<ShipmentFile> {
@@ -136,7 +157,7 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
 
   /** Container novo a partir dos arquivos, com fornecedor, número e container sugeridos. */
   function makeContainer(files: { invoice: ShipmentFile | null; packing: ShipmentFile | null }, fallbackSupplier: string): Container {
-    const base: Container = { key: `c${nextKey++}`, ...files, supplierId: '', number: '', container: '', ref: '' };
+    const base: Container = { key: `c${nextKey++}`, ...files, supplierId: '', number: '', container: '', ref: '', titles: {} };
     const { lines } = containerLines(base);
     const header = `${files.invoice?.headerText ?? ''} ${files.packing?.headerText ?? ''}`;
     return {
@@ -171,7 +192,8 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
       const made = pairShipmentFiles(pool).map((files) => {
         // Quem já estava na tela mantém o que a pessoa preencheu.
         const kept = loose.find((c) => (files.invoice && c.invoice === files.invoice) || (files.packing && c.packing === files.packing));
-        const c = kept ? { ...kept, ...files } : makeContainer(files, last);
+        // Os nomes escritos valem para as linhas do arquivo de onde elas vêm: chegou a invoice, eles saem.
+        const c = kept ? { ...kept, ...files, titles: files.invoice === kept.invoice ? kept.titles : {} } : makeContainer(files, last);
         last = c.supplierId || last;
         return c;
       });
@@ -189,7 +211,8 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
       setContainers((cs) =>
         cs.map((c) => {
           if (c.key !== key) return c;
-          const next = { ...c, [slot]: file };
+          // As linhas vêm da invoice (ou da packing list, sem invoice): trocado esse arquivo, os nomes escritos saem.
+          const next = { ...c, [slot]: file, titles: slot === 'invoice' || !c.invoice ? {} : c.titles };
           return {
             ...next,
             number: next.number || file.number || '',
@@ -221,7 +244,11 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
     };
   }, [isbnList]);
   const curveTitles = curve?.titles ?? {};
-  const renamed = merged.flatMap((m) => m.lines).filter((l) => l.isbn && curveTitles[l.isbn] && curveTitles[l.isbn] !== l.description).length;
+  // Os que mudam pela curva e não tiveram o nome escrito na prévia.
+  const renamed = merged.reduce(
+    (n, m, i) => n + m.lines.filter((l) => l.isbn && curveTitles[l.isbn] && curveTitles[l.isbn] !== l.description && writtenName(containers[i]!, l, curveTitles) === null).length,
+    0,
+  );
   const ready = containers.every((c, i) => c.supplierId && merged[i]!.lines.length > 0);
   const allocation = useMemo(
     () => (containers.length && ready ? allocateInvoices(containers.map((c, i) => ({ supplierId: c.supplierId, lines: merged[i]!.lines })), data.items, data.orders) : null),
@@ -295,6 +322,23 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
     autoEta.current = null;
   }
 
+  /**
+   * A invoice do container com os nomes gravados (27/11/2026): o conteúdo novo; 'kept' quando algum nome mudou mas
+   * o arquivo fica como veio (.xls, ou a aba ou as células não acharam); null quando nenhum nome muda.
+   */
+  async function renamedInvoice(file: ShipmentFile, lines: DocumentLine[], names: (string | null)[]): Promise<Blob | 'kept' | null> {
+    const doc = file.invoice ?? file.packing;
+    const raw = rawFiles.current.get(file);
+    if (!doc || !raw || !names.some((n, k) => n && n !== lines[k]?.description)) return null;
+    if (doc.nameColumn === undefined) return 'kept';
+    try {
+      const out = await invoiceWithNames(await raw.arrayBuffer(), doc.sheet, invoiceNameChanges(lines, names, doc.nameColumn));
+      return out ? new Blob([out.data.slice()], { type: raw.type }) : 'kept';
+    } catch {
+      return 'kept';
+    }
+  }
+
   async function save(e: FormEvent) {
     e.preventDefault();
     if (containers.length === 0) return setError('Escolha os arquivos de ao menos um container.');
@@ -303,6 +347,10 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
     if (duplicates.some(Boolean)) return setError('Há invoice que já foi registrada (ou repetida). Confira os números.');
     const picked = chosenUnits.filter((u): u is BillUnit => u !== null).map((u) => u.container);
     if (new Set(picked).size !== picked.length) return setError('A mesma unidade do BL está em dois containers. Confira.');
+    for (const [i, c] of containers.entries()) {
+      const blank = merged[i]!.lines.find((l) => c.titles[l.row] !== undefined && !spaces(c.titles[l.row]!));
+      if (blank) return setError(`Container ${i + 1}, linha ${blank.row}: informe o nome do produto.`);
+    }
     setBusy(true);
     setError(null);
     try {
@@ -318,7 +366,7 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
             unit: chosenUnits[i] ?? null,
             // O arquivo da packing list fica anotado no container (26/11/2026): o dela, ou o da invoice que traz as duas abas.
             packingList: c.packing ? c.packing.fileName : c.invoice?.packing ? c.invoice.fileName : '',
-            lines: merged[i]!.lines,
+            lines: merged[i]!.lines.map((l) => ({ ...l, title: writtenName(c, l, curveTitles) })),
           })),
         });
         let blFailed = false;
@@ -330,10 +378,15 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
           }
         }
         // A invoice e a packing list de cada container ficam guardadas; o arquivo com as duas abas vale para as duas.
+        // A invoice vai com os nomes gravados no lugar dos do fornecedor, só nas células dos nomes (27/11/2026).
         let filesFailed = 0;
+        let namesKept = 0;
         for (const [i, c] of containers.entries()) {
           const invoiceId = r.invoiceIds[i];
           if (!invoiceId) continue;
+          // Sem os nomes na resposta (o servidor ainda na versão anterior, durante a publicação), a invoice vai como veio.
+          const withNames = c.invoice ? await renamedInvoice(c.invoice, merged[i]!.lines, r.names?.[i] ?? []) : null;
+          if (withNames === 'kept') namesKept++;
           const packingSource = c.packing ?? (c.invoice?.packing ? c.invoice : null);
           for (const [kind, source] of [
             ['invoice', c.invoice],
@@ -342,18 +395,19 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
             const f = source ? rawFiles.current.get(source) : undefined;
             const contentType = f ? sheetContentType(f.name) : null;
             if (!f || !contentType) continue;
-            if (f.size > MAX_FILE_BYTES) {
+            const content: Blob = source === c.invoice && withNames instanceof Blob ? withNames : f;
+            if (content.size > MAX_FILE_BYTES) {
               filesFailed++;
               continue;
             }
             try {
-              await api.putInvoiceDocument(invoiceId, kind, { name: f.name, contentType, data: await toBase64(f) });
+              await api.putInvoiceDocument(invoiceId, kind, { name: f.name, contentType, data: await toBase64(content) });
             } catch {
               filesFailed++;
             }
           }
         }
-        return { ...r, blFailed, filesFailed };
+        return { ...r, blFailed, filesFailed, namesKept };
       });
       const n = containers.length;
       const lost = [
@@ -363,7 +417,8 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
       onDone(
         `${n === 1 ? '1 container embarcado' : `${n} containers embarcados`}: ${formatQuantity(res.taken)} ex. saíram da produção` +
           (res.extra ? `; ${formatQuantity(res.extra)} ex. não estavam na produção e entraram para conferir` : '') +
-          (lost.length ? `. Não foi possível guardar ${lost.join(' e ')}: anexe pela ficha do embarque.` : '.'),
+          (lost.length ? `. Não foi possível guardar ${lost.join(' e ')}: anexe pela ficha do embarque.` : '.') +
+          (res.namesKept ? ` O arquivo da invoice de ${res.namesKept === 1 ? '1 container ficou' : `${res.namesKept} containers ficaram`} com os nomes como vieram.` : ''),
       );
       onClose();
     } catch (err) {
@@ -520,20 +575,34 @@ export function NewShipmentDialog({ open, me, data, production, onClose, onDone 
               duplicate={duplicates[i]!}
               busy={busy}
               onChange={(patch) => update(c.key, patch)}
+              onTitle={(row, name) =>
+                setContainers((cs) =>
+                  cs.map((x) => {
+                    if (x.key !== c.key) return x;
+                    const titles = { ...x.titles };
+                    if (name === null) delete titles[row];
+                    else titles[row] = name;
+                    return { ...x, titles };
+                  }),
+                )
+              }
               onFile={(slot, f) => void setSlot(c.key, slot, f)}
               onRemove={() => setContainers((cs) => cs.filter((x) => x.key !== c.key))}
             />
           ))}
 
-          {containers.length > 0 && curve && (
+          {containers.length > 0 && (curve || allocation) && (
             <p className="dica nomes-curva">
               <Icon name="livro" />
               <span>
-                {curve.stockDate === null
-                  ? 'Sem curva ABC carregada: os produtos ficam com o nome da invoice.'
-                  : renamed > 0
-                    ? `${renamed === 1 ? '1 produto fica' : `${renamed} produtos ficam`} com o nome da curva ABC (estoque de ${formatDay(curve.stockDate, true)}), no lugar do nome da invoice. Confira em "De onde sai cada item".`
-                    : `Nenhum nome muda pela curva ABC (estoque de ${formatDay(curve.stockDate, true)}).`}
+                {curve &&
+                  (curve.stockDate === null
+                    ? 'Sem curva ABC carregada: os produtos ficam com o nome da invoice. '
+                    : renamed > 0
+                      ? `${renamed === 1 ? '1 produto fica' : `${renamed} produtos ficam`} com o nome da curva ABC (estoque de ${formatDay(curve.stockDate, true)}), no lugar do nome da invoice. `
+                      : `Nenhum nome muda pela curva ABC (estoque de ${formatDay(curve.stockDate, true)}). `)}
+                {allocation && 'Para mudar um nome, escreva o novo em "De onde sai cada item". '}
+                {`O arquivo da invoice fica guardado com os nomes que forem gravados${containers.some((c) => c.invoice && /\.xls$/i.test(c.invoice.fileName)) ? ', menos a invoice em .xls (Excel antigo), que fica como veio' : ''}.`}
               </span>
             </p>
           )}
@@ -723,6 +792,7 @@ function ContainerCard({
   duplicate,
   busy,
   onChange,
+  onTitle,
   onFile,
   onRemove,
 }: {
@@ -746,6 +816,8 @@ function ContainerCard({
   duplicate: boolean;
   busy: boolean;
   onChange: (patch: Partial<Container>) => void;
+  /** Escreve (ou, com null, tira) o nome de uma linha na prévia. */
+  onTitle: (row: number, name: string | null) => void;
   onFile: (slot: 'invoice' | 'packing', f: File) => void;
   onRemove: () => void;
 }) {
@@ -754,7 +826,8 @@ function ContainerCard({
   const qty = lines.reduce((s, l) => s + l.quantity, 0);
   const withPieces = lines.filter((l) => l.piecesPerCarton !== null).length;
   const extra = allocation ? allocation.reduce((s, a) => s + a.extra, 0) : 0;
-  const renamedHere = lines.filter((l) => l.isbn && curveTitles[l.isbn] && curveTitles[l.isbn] !== l.description).length;
+  const editedHere = lines.filter((l) => writtenName(c, l, curveTitles) !== null).length;
+  const renamedHere = lines.filter((l) => l.isbn && curveTitles[l.isbn] && curveTitles[l.isbn] !== l.description && writtenName(c, l, curveTitles) === null).length;
   return (
     <section className="conteiner" aria-labelledby={`${ids}-t`}>
       <div className="conteiner-topo">
@@ -875,8 +948,9 @@ function ContainerCard({
             De onde sai cada item
             {extra > 0 && <span className="alerta-texto"> · {formatQuantity(extra)} ex. fora da produção</span>}
             {renamedHere > 0 && <span className="mudo"> · {renamedHere === 1 ? '1 nome da curva ABC' : `${renamedHere} nomes da curva ABC`}</span>}
+            {editedHere > 0 && <span className="mudo"> · {editedHere === 1 ? '1 nome editado' : `${editedHere} nomes editados`}</span>}
           </summary>
-          <AllocationTable lines={lines} allocation={allocation} data={data} curveTitles={curveTitles} />
+          <AllocationTable index={index} c={c} lines={lines} allocation={allocation} data={data} curveTitles={curveTitles} onTitle={onTitle} />
         </details>
       ) : (
         !c.supplierId && <p className="dica">Não deu para saber o fornecedor pelos arquivos: escolha acima.</p>
@@ -886,7 +960,23 @@ function ContainerCard({
   );
 }
 
-function AllocationTable({ lines, allocation, data, curveTitles }: { lines: DocumentLine[]; allocation: LineAllocation[]; data: ProductionData; curveTitles: Record<string, string> }) {
+function AllocationTable({
+  index,
+  c,
+  lines,
+  allocation,
+  data,
+  curveTitles,
+  onTitle,
+}: {
+  index: number;
+  c: Container;
+  lines: DocumentLine[];
+  allocation: LineAllocation[];
+  data: ProductionData;
+  curveTitles: Record<string, string>;
+  onTitle: (row: number, name: string | null) => void;
+}) {
   const items = useMemo(() => new Map(data.items.map((i) => [i.id, i])), [data.items]);
   const codes = useMemo(() => new Map(data.orders.map((o) => [o.id, o.code])), [data.orders]);
   return (
@@ -901,13 +991,38 @@ function AllocationTable({ lines, allocation, data, curveTitles }: { lines: Docu
           </tr>
         </thead>
         <tbody>
-          {lines.map((l, index) => {
-            const a = allocation[index]!;
+          {lines.map((l, k) => {
+            const a = allocation[k]!;
+            // O nome de cada linha se muda aqui (27/11/2026); sem mexer, fica o da curva ABC ou o da invoice.
+            const fallback = defaultName(l, curveTitles);
+            const typed = c.titles[l.row];
+            const value = typed ?? fallback;
+            // Mexido (inclusive apagado): dá para voltar ao nome de antes.
+            const edited = typed !== undefined && spaces(typed) !== fallback;
             return (
-              <tr key={`${l.row}-${index}`}>
+              <tr key={`${l.row}-${k}`}>
                 <td>
-                  {(l.isbn && curveTitles[l.isbn]) || l.description}
-                  {l.isbn && curveTitles[l.isbn] && curveTitles[l.isbn] !== l.description && <span className="t-isbn">na invoice: {l.description}</span>}
+                  {/* Os nomes são longos: o campo quebra a linha para mostrar o nome inteiro, e Enter não pula linha. */}
+                  <textarea
+                    className="campo campo-nome"
+                    value={value}
+                    rows={Math.min(4, Math.max(1, Math.ceil(value.length / 34)))}
+                    maxLength={300}
+                    aria-label={`Nome do produto, container ${index + 1}, linha ${l.row}`}
+                    aria-invalid={typed !== undefined && !spaces(typed) ? true : undefined}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') e.preventDefault();
+                    }}
+                    onChange={(e) => onTitle(l.row, e.target.value.replace(/[\r\n]+/g, ' '))}
+                  />
+                  {spaces(value) !== l.description && <span className="t-isbn">na invoice: {l.description}</span>}
+                  {edited && (
+                    <button type="button" className="btn-texto voltar-nome" onClick={() => onTitle(l.row, null)}>
+                      <Icon name="desfazer" />
+                      {fallback === l.description ? 'Voltar ao nome da invoice' : 'Voltar ao nome da curva ABC'}
+                      <span className="so-leitor"> na linha {l.row}</span>
+                    </button>
+                  )}
                   <span className="t-isbn">
                     {l.isbn ?? 'Sem ISBN'}
                     {l.orderCode && ` · a invoice cita a ${l.orderCode}`}

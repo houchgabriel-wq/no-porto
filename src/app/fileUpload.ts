@@ -4,12 +4,12 @@
 /** Tamanho máximo de um arquivo guardado. */
 export const MAX_FILE_BYTES = 5_000_000;
 
-/** O arquivo em base64, sem o cabeçalho "data:...;base64,". */
-export function toBase64(file: File): Promise<string> {
+/** O arquivo (ou o conteúdo montado no navegador) em base64, sem o cabeçalho "data:...;base64,". */
+export function toBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
-    reader.onerror = () => reject(new Error(`Não foi possível ler ${file.name}.`));
+    reader.onerror = () => reject(new Error(`Não foi possível ler ${file instanceof File ? file.name : 'o arquivo'}.`));
     reader.readAsDataURL(file);
   });
 }

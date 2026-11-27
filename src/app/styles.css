@@ -1143,6 +1143,10 @@ dialog.dlg-produto { width: min(820px, calc(100vw - 32px)); }
 .alocacao { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
 .alocacao .icone, .alocacao svg { width: 14px; height: 14px; vertical-align: -2px; }
 .tabela-alocacao td { vertical-align: top; }
+/* O nome de cada linha se muda na prévia do Novo embarque (27/11/2026). */
+.tabela-alocacao .campo-nome { display: block; min-width: 240px; min-height: 0; padding: 7px 10px; line-height: 1.35; font-weight: 600; resize: vertical; field-sizing: content; }
+.tabela-alocacao .voltar-nome { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 4px; font-size: 13px; }
+.tabela-alocacao .voltar-nome .ic { width: 14px; height: 14px; }
 .lista-chegada { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; max-height: min(52vh, 460px); overflow-y: auto; }
 .chegada-unidade { border: 1px solid var(--fio); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
 .chegada-unidade-topo { margin: 0 0 4px; }

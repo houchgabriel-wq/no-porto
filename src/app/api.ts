@@ -186,8 +186,15 @@ export const api = {
   poCatalog: () => request<{ products: CatalogEntry[] }>('GET', '/api/po-catalog'),
   createOrder: (body: { code: string; supplier: string; orderedAt: string | null; items: Omit<DocumentLine, 'orderCode'>[] }) =>
     request<{ orderId: string; inserted: number }>('POST', '/api/orders', body),
-  receiveShipment: (body: { bill: string | null; eta: string | null; invoices: { supplierId: string; number: string; ref: string; container: string; unit: BillUnit | null; packingList: string; lines: DocumentLine[] }[] }) =>
-    request<{ billId: string | null; invoiceIds: string[]; taken: number; extra: number }>('POST', '/api/shipments', body),
+  /**
+   * Grava o embarque. Cada linha pode levar o nome escrito na prévia (`title`, 27/11/2026); a resposta traz o nome
+   * gravado de cada linha (null: ficou o de sempre), para guardar a invoice com os nomes novos.
+   */
+  receiveShipment: (body: {
+    bill: string | null;
+    eta: string | null;
+    invoices: { supplierId: string; number: string; ref: string; container: string; unit: BillUnit | null; packingList: string; lines: (DocumentLine & { title: string | null })[] }[];
+  }) => request<{ billId: string | null; invoiceIds: string[]; taken: number; extra: number; names: (string | null)[][] }>('POST', '/api/shipments', body),
   putBillDocument: (billId: string, body: { name: string; contentType: string; data: string }) =>
     request<{ document: { name: string; size: number } }>('PUT', `/api/bills/${encodeURIComponent(billId)}/document`, body),
   deleteBillDocument: (billId: string) => request<{ ok: true }>('DELETE', `/api/bills/${encodeURIComponent(billId)}/document`),
