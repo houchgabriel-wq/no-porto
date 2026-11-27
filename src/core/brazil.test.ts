@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addDays,
   bestOffer,
+  boxProduct,
   formatKg,
   kgInput,
   offerCost,
@@ -23,8 +24,12 @@ import {
   orderStateText,
   parseBrlUnitPrice,
   producingOrders,
+  productStates,
+  quoteProductsProblem,
   type BrOrder,
   type Offer,
+  type OrderProduct,
+  type QuoteProduct,
 } from './brazil';
 
 /** Proposta de um item só, com o papel da gráfica. */
@@ -34,7 +39,7 @@ const offer = (id: string, unitPriceE4: number | null, leadDays: number | null =
   printerId: id,
   quantity,
   paperBy: 'grafica',
-  items: [{ description: 'Livro', quantity, unitPriceE4 }],
+  items: [{ productId: null, description: 'Livro', specification: '', quantity, unitPriceE4 }],
   papers: [],
   leadDays,
   proposalNumber: '',
@@ -49,9 +54,9 @@ const assahi = (): Offer => ({
   ...offer('assahi', 11_800, 15, 20_000),
   paperBy: 'editora',
   papers: [
-    { part: 'capa', paperId: 'triplex', paperName: 'Triplex LD 230 g', grams: 707_000, pricePerKgE4: 85_000 },
-    { part: 'miolo', paperId: 'offwhite', paperName: 'Offwhite Rot 60 g', grams: 2_463_440, pricePerKgE4: 72_000 },
-    { part: 'miolo', paperId: 'offwhite', paperName: 'Offwhite Rot 60 g', grams: 846_810, pricePerKgE4: 72_000 },
+    { productId: null, part: 'capa', paperId: 'triplex', paperName: 'Triplex LD 230 g', grams: 707_000, pricePerKgE4: 85_000 },
+    { productId: null, part: 'miolo', paperId: 'offwhite', paperName: 'Offwhite Rot 60 g', grams: 2_463_440, pricePerKgE4: 72_000 },
+    { productId: null, part: 'miolo', paperId: 'offwhite', paperName: 'Offwhite Rot 60 g', grams: 846_810, pricePerKgE4: 72_000 },
   ],
 });
 const order = (over: Partial<BrOrder> = {}): BrOrder => ({
@@ -68,10 +73,20 @@ const order = (over: Partial<BrOrder> = {}): BrOrder => ({
   dueAt: '2026-11-20',
   specification: '',
   notes: '',
+  products: [],
   deliveries: [],
   ...over,
 });
-const delivery = (deliveredAt: string, quantity: number, last = false) => ({ id: deliveredAt, orderId: 'o', deliveredAt, quantity, last, notes: '' });
+const delivery = (deliveredAt: string, quantity: number, last = false, productId: string | null = null) => ({
+  id: `${deliveredAt}-${productId}`,
+  orderId: 'o',
+  productId,
+  groupId: deliveredAt,
+  deliveredAt,
+  quantity,
+  last,
+  notes: '',
+});
 
 describe('reais na produção no Brasil', () => {
   it('lê o preço por exemplar com até quatro casas, sem ponto flutuante', () => {
@@ -107,16 +122,16 @@ describe('reais na produção no Brasil', () => {
 
   it('o custo da proposta: os itens da gráfica, o papel nosso e o custo por unidade', () => {
     // Assahi: R$ 23.600,00 da gráfica + R$ 29.843,30 de papel = R$ 53.443,30, ou R$ 2,6722 por livro.
-    expect(offerCost(assahi())).toEqual({ printerCents: 2_360_000, paperCents: 2_984_330, totalCents: 5_344_330, unitCostE4: 26_722 });
+    expect(offerCost(assahi())).toMatchObject({ printerCents: 2_360_000, paperCents: 2_984_330, totalCents: 5_344_330, unitCostE4: 26_722, kitUnitCostE4: null, compare: 26_722 });
     // Grafilar (proposta 117.627): o kit de 15.000 com o box a R$ 3,46 e os três livros a R$ 3,29, papel deles.
     const kit: Offer = {
       ...offer('grafilar', null, null, 15_000),
       items: [
-        { description: 'Box', quantity: 15_000, unitPriceE4: 34_600 },
-        { description: 'Livros Básico, Mangá e Rosto (15.000 de cada)', quantity: 45_000, unitPriceE4: 32_900 },
+        { productId: null, description: 'Box', specification: '', quantity: 15_000, unitPriceE4: 34_600 },
+        { productId: null, description: 'Livros Básico, Mangá e Rosto (15.000 de cada)', specification: '', quantity: 45_000, unitPriceE4: 32_900 },
       ],
     };
-    expect(offerCost(kit)).toEqual({ printerCents: 19_995_000, paperCents: 0, totalCents: 19_995_000, unitCostE4: 133_300 });
+    expect(offerCost(kit)).toMatchObject({ printerCents: 19_995_000, paperCents: 0, totalCents: 19_995_000, unitCostE4: 133_300 });
     // O papel só conta com o papel nosso; sem os valores, não há custo.
     expect(offerCost({ ...assahi(), paperBy: 'grafica' })?.paperCents).toBe(0);
     expect(offerCost({ ...assahi(), papers: [{ ...assahi().papers[0]!, pricePerKgE4: null }] })).toBeNull();
@@ -209,5 +224,108 @@ describe('pedidos e entregas', () => {
     const item = { title: 'Cartas a Milena - Franz Kafka', isbn: '9786585168663', printers: ['Gráfica Santa Marta'] };
     expect(['milena', 'KAFKA cartas', 'santa marta', 'grafica', '8516', '978-65-85168'].map((q) => matchesBrazil(q, item))).toEqual([true, true, true, true, true, true]);
     expect(['dostoievski', '1234'].map((q) => matchesBrazil(q, item))).toEqual([false, false]);
+  });
+});
+
+// Orçamento com vários produtos (pedido do Gabriel em 27/11/2026): o box Curso Básico de Desenho com os 3 livros que vão
+// dentro dele e mais 2.000 do Mangá avulsos, como na proposta 117.627 da Grafilar.
+const product = (id: string, title: string, quantity: number, inBox = false): QuoteProduct => ({ id, title, isbn: null, quantity, inBox });
+const KIT_PRODUCTS = [
+  product('box', 'Box Curso Básico de Desenho', 15_000),
+  product('basico', 'Curso Básico de Desenho - Básico', 15_000, true),
+  product('manga', 'Curso Básico de Desenho - Mangá', 15_000, true),
+  product('rosto', 'Curso Básico de Desenho - Rosto', 15_000, true),
+  product('avulso', 'Curso Básico de Desenho - Mangá (avulso)', 2_000),
+];
+const item = (productId: string | null, quantity: number, unitPriceE4: number) => ({ productId, description: productId ?? '', specification: '', quantity, unitPriceE4 });
+const grafilar = (): Offer => ({
+  ...offer('grafilar', null, null, 15_000),
+  items: [item('box', 15_000, 34_600), item('basico', 15_000, 32_900), item('manga', 15_000, 32_900), item('rosto', 15_000, 32_900), item('avulso', 2_000, 32_900)],
+});
+
+describe('orçamento com vários produtos', () => {
+  it('os produtos: o box é o primeiro que não vai dentro dele; o que impede o orçamento', () => {
+    expect(boxProduct(KIT_PRODUCTS)?.id).toBe('box');
+    expect(boxProduct([product('a', 'A', 1), product('b', 'B', 1)])).toBeNull();
+    expect(quoteProductsProblem(KIT_PRODUCTS)).toBeNull();
+    expect(quoteProductsProblem([])).toBe('Informe o produto.');
+    expect(quoteProductsProblem([product('a', ' ', 10)])).toBe('Informe o produto.');
+    expect(quoteProductsProblem([product('a', 'Box', 10), product('b', '', 10)])).toBe('Informe o nome do 2º produto.');
+    expect(quoteProductsProblem([product('a', 'Box', 10), product('b', 'Mangá', 0)])).toBe('Informe a quantidade de Mangá.');
+    expect(quoteProductsProblem([product('a', 'A', 10, true), product('b', 'B', 10, true)])).toBe('Algum produto precisa ser o box: os que vão dentro dele não podem ser todos.');
+  });
+
+  it('o custo de cada produto, o do kit (o box e os 3 livros) separado do avulso, e o número para comparar', () => {
+    const cost = offerCost(grafilar(), KIT_PRODUCTS)!;
+    // R$ 51.900 do box + 3 × R$ 49.350 dos livros + R$ 6.580 do avulso = R$ 206.530.
+    expect(cost).toMatchObject({ printerCents: 20_653_000, paperCents: 0, totalCents: 20_653_000, kitUnitCostE4: 133_300, compare: 20_653_000 });
+    expect(cost.products.map((c) => [c.productId, c.quantity, c.cents, c.unitCostE4])).toEqual([
+      ['box', 15_000, 5_190_000, 34_600],
+      ['basico', 15_000, 4_935_000, 32_900],
+      ['manga', 15_000, 4_935_000, 32_900],
+      ['rosto', 15_000, 4_935_000, 32_900],
+      ['avulso', 2_000, 658_000, 32_900],
+    ]);
+    // A proposta que não orçou o avulso fica de fora da comparação; a mais barata das completas é a melhor.
+    const partial: Offer = { ...grafilar(), id: 'parcial', items: grafilar().items.slice(0, 4).map((i) => ({ ...i, unitPriceE4: 30_000 })) };
+    expect(offerCost(partial, KIT_PRODUCTS)).toMatchObject({ compare: null, kitUnitCostE4: 120_000 });
+    const cheaper: Offer = { ...grafilar(), id: 'outra', items: grafilar().items.map((i) => ({ ...i, unitPriceE4: (i.unitPriceE4 ?? 0) - 100 })) };
+    expect(bestOffer([grafilar(), partial, cheaper], KIT_PRODUCTS)?.id).toBe('outra');
+  });
+
+  it('o papel nosso: o ligado a um produto entra nele; o da proposta toda se reparte pelo que a gráfica cobra', () => {
+    const products = [product('a', 'A', 1000), product('b', 'B', 1000)];
+    const o: Offer = {
+      ...offer('x', null, null, 1000),
+      paperBy: 'editora',
+      items: [item('a', 1000, 10_000), item('b', 1000, 30_000)],
+      papers: [
+        { productId: 'a', part: 'miolo', paperId: null, paperName: 'Offset 75 g', grams: 100_000, pricePerKgE4: 100_000 },
+        { productId: null, part: 'capa', paperId: null, paperName: 'Cartão 250 g', grams: 200_000, pricePerKgE4: 100_000 },
+      ],
+    };
+    // A: R$ 1.000 da gráfica + R$ 1.000 do papel dele + 1/4 dos R$ 2.000 da capa; B: R$ 3.000 + 3/4 da capa.
+    expect(offerCost(o, products)!.products.map((c) => [c.productId, c.cents, c.unitCostE4])).toEqual([
+      ['a', 250_000, 25_000],
+      ['b', 450_000, 45_000],
+    ]);
+  });
+});
+
+describe('pedido com vários produtos', () => {
+  const kitProducts: OrderProduct[] = KIT_PRODUCTS.map((p) => ({ id: `o-${p.id}`, productId: p.id, title: p.title, isbn: null, quantity: p.quantity, inBox: p.inBox, costCents: null }));
+  const kitOrder = (deliveries: ReturnType<typeof delivery>[] = []) => order({ quantity: 15_000, products: kitProducts, deliveries });
+
+  it('conta só o box e o avulso; fica entregue quando os dois ficam', () => {
+    expect(productStates(kitOrder()).map((s) => [s.productId, s.quantity])).toEqual([
+      ['o-box', 15_000],
+      ['o-avulso', 2_000],
+    ]);
+    const half = kitOrder([delivery('2026-11-18', 15_000, false, 'o-box')]);
+    expect(orderState(half, '2026-11-19')).toMatchObject({ stage: 'parcial', delivered: 15_000, remaining: 2_000, finishedAt: null });
+    const done = kitOrder([delivery('2026-11-18', 15_000, false, 'o-box'), delivery('2026-11-25', 1_950, true, 'o-avulso')]);
+    expect(orderState(done, '2026-11-27')).toMatchObject({ stage: 'entregue', remaining: 0, finishedAt: '2026-11-25' });
+  });
+
+  it('a entrega de cada produto: o que vai dentro do box não tem entrega, e o que já foi entregue também não', () => {
+    const half = kitOrder([delivery('2026-11-18', 15_000, false, 'o-box')]);
+    const at = (parts: { productId: string | null; quantity: number }[]) => deliveryProblem(half, { deliveredAt: '2026-11-20', parts }, '2026-11-27');
+    expect(at([{ productId: 'o-avulso', quantity: 2000 }])).toBeNull();
+    expect(at([{ productId: 'o-avulso', quantity: 0 }])).toBe('Informe quantos exemplares chegaram.');
+    expect(at([{ productId: 'o-manga', quantity: 100 }])).toBe('O produto da entrega não é deste pedido, ou vai dentro do box (vem com ele).');
+    expect(at([{ productId: 'o-box', quantity: 100 }])).toBe('Box Curso Básico de Desenho já foi entregue. Para registrar outra entrega dele, desfaça a última.');
+  });
+
+  it('as entregas de antes dos produtos valem para o produto único', () => {
+    const single = order({ products: [{ id: 'o-1', productId: 'q-1', title: 'Cartas a Milena', isbn: null, quantity: 5000, inBox: false, costCents: null }], deliveries: [delivery('2026-11-18', 5000)] });
+    expect(orderState(single, '2026-11-27')).toMatchObject({ stage: 'entregue', finishedAt: '2026-11-18' });
+  });
+
+  it('o resumo conta o que falta do box e do avulso; a busca acha qualquer produto', () => {
+    const value = order({ quantity: 15_000, products: kitProducts, printerCents: 20_653_000, paperCents: 0, deliveries: [delivery('2026-11-18', 15_000, false, 'o-box')] });
+    // Falta o avulso: 2.000 de 17.000 exemplares que contam.
+    expect(brazilSummary([], [value], '2026-11-27').producing).toEqual({ orders: 1, copies: 2000, valueCents: Math.round((20_653_000 * 2000) / 17_000) });
+    const quote = { title: 'Box Curso Básico de Desenho', isbn: null, printers: ['Grafilar'], products: [{ title: 'Curso Básico de Desenho - Mangá', isbn: '9786561263023' }] };
+    expect(['manga', 'grafilar', '978-65-6126'].map((q) => matchesBrazil(q, quote))).toEqual([true, true, true]);
   });
 });

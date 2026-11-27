@@ -122,6 +122,7 @@ describe('a produção no Brasil na ficha do produto', () => {
         orderedAt: '2026-11-01',
         dueAt: '2026-12-05',
         deliveries: [{ deliveredAt: '2026-11-16', quantity: 2000, last: false }],
+        inBox: false,
         // 5.000 a R$ 3,70.
         totalCents: 1_850_000,
       },

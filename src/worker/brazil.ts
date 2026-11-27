@@ -2,18 +2,26 @@
 // as propostas de cada gráfica (os itens que ela cobra, o papel da gráfica ou o nosso, pela tabela de papéis, e o
 // PDF), o pedido que sai do orçamento fechado e as entregas no estoque, em uma ou mais partes. Quem vê: como na
 // importação (admin, editor, Consulta e o leitor, este sem os valores, que o servidor tira). Admin e editor lançam.
-// Embarques, Vendas e o Agente de cargas são recusados.
+// Embarques, Vendas e o Agente de cargas são recusados. Desde 27/11/2026, o orçamento tem um ou mais produtos (o box e
+// os livros que vão dentro dele, o avulso), os itens e o papel da proposta se ligam a eles, e as entregas são de cada
+// produto do pedido.
 
 import { z } from 'zod';
 import {
   addDays,
+  deliveryParts,
   deliveryProblem,
+  MAX_QUOTE_PRODUCTS,
   offerCost,
   PAPER_PARTS,
+  productDeliveries,
+  quoteProductsProblem,
   type BrOrder,
   type BrOrderSummary,
   type Delivery,
+  type OrderProduct,
   type ProductBrazilOrder,
+  type QuoteProduct,
   type Offer,
   type OfferItem,
   type OfferPaper,
@@ -57,13 +65,31 @@ const day = z
 const priceE4 = (label: string) => z.number({ error: `Informe ${label}.` }).int(`${label}: valor inválido.`).positive(`Informe ${label}.`).max(100_000_000, `${label}: valor grande demais.`);
 const days = (label: string) => z.number().int(`${label} inválido.`).min(0, `${label} inválido.`).max(365, `${label} de no máximo 365 dias.`).nullable().default(null);
 
-const quoteBody = z.object({
+/** Um produto do orçamento; o id vem na alteração, para o produto que já existia. */
+const productBody = z.object({
+  id: z.string().max(100).optional(),
   title,
   isbn: isbn.default(null),
   quantity,
-  specification: longText(2000, 'Especificação').default(''),
-  notes: longText(2000, 'Observações').default(''),
+  inBox: z.boolean({ error: 'Diga se o produto vai dentro do box.' }).default(false),
 });
+const productsField = z
+  .array(productBody, { error: 'Informe os produtos do orçamento.' })
+  .min(1, 'Informe o produto.')
+  .max(MAX_QUOTE_PRODUCTS, `O orçamento pode ter no máximo ${MAX_QUOTE_PRODUCTS} produtos.`);
+type ProductInput = z.infer<typeof productBody>;
+
+// O cadastro antigo (um produto só, com title, isbn e quantity) continua valendo.
+const quoteBody = z
+  .object({
+    title: title.optional(),
+    isbn: isbn.default(null),
+    quantity: quantity.optional(),
+    products: productsField.optional(),
+    specification: longText(2000, 'Especificação').default(''),
+    notes: longText(2000, 'Observações').default(''),
+  })
+  .refine((b) => b.products || (b.title && b.quantity), 'Informe o produto e a quantidade.');
 
 // Na alteração, só os campos enviados: sem os valores padrão do cadastro, que apagariam o que não veio.
 const quotePatch = z
@@ -71,6 +97,7 @@ const quotePatch = z
     title,
     isbn,
     quantity,
+    products: productsField,
     specification: longText(2000, 'Especificação'),
     notes: longText(2000, 'Observações'),
     status: z.enum(['aberto', 'cancelado'], { error: 'Situação inválida.' }),
@@ -86,24 +113,27 @@ const offerBody = z
     items: z
       .array(
         z.object({
+          productId: z.string().max(100).nullable().default(null),
           description: text(300, 'Item').pipe(z.string().min(1, 'Informe a descrição de cada item.')),
+          specification: longText(2000, 'Especificação do item').default(''),
           quantity,
           unitPriceE4: priceE4('o preço por unidade de cada item'),
         }),
         { error: 'Informe os itens da proposta.' },
       )
       .min(1, 'Informe ao menos um item da proposta.')
-      .max(20, 'No máximo 20 itens por proposta.'),
+      .max(40, 'No máximo 40 itens por proposta.'),
     papers: z
       .array(
         z.object({
+          productId: z.string().max(100).nullable().default(null),
           part: z.enum(PAPER_PARTS, { error: 'Parte do papel inválida.' }),
           paper: text(100, 'Papel').pipe(z.string().min(1, 'Informe o papel.')),
           grams: z.number({ error: 'Informe o peso do papel.' }).int('Peso inválido.').positive('Informe o peso do papel.').max(100_000_000, 'Peso grande demais.'),
           pricePerKgE4: priceE4('o preço por kg do papel'),
         }),
       )
-      .max(10, 'No máximo 10 papéis por proposta.')
+      .max(40, 'No máximo 40 papéis por proposta.')
       .default([]),
     leadDays: days('Prazo'),
     proposalNumber: text(40, 'Número da proposta').default(''),
@@ -135,12 +165,19 @@ const orderPatch = z
   .partial()
   .refine((b) => Object.keys(b).length > 0, 'Nada para alterar.');
 
-const deliveryBody = z.object({
-  deliveredAt: day,
-  quantity,
-  last: z.boolean().default(false),
-  notes: longText(2000, 'Observações').default(''),
-});
+// No pedido de um produto só, a quantidade; com vários, a quantidade de cada produto (parts).
+const deliveryBody = z
+  .object({
+    deliveredAt: day,
+    quantity: quantity.optional(),
+    parts: z
+      .array(z.object({ productId: z.string().max(100), quantity: z.number({ error: 'Quantidade inválida.' }).int('Quantidade inválida.').min(0, 'Quantidade inválida.').max(100_000_000, 'Quantidade grande demais.') }))
+      .max(MAX_QUOTE_PRODUCTS)
+      .optional(),
+    last: z.boolean().default(false),
+    notes: longText(2000, 'Observações').default(''),
+  })
+  .refine((b) => b.quantity !== undefined || b.parts !== undefined, 'Informe quantos exemplares chegaram.');
 
 const documentBody = z.object({
   name: z
@@ -176,14 +213,37 @@ interface OfferRow {
   payment_terms: string;
   notes: string;
 }
+interface QuoteProductRow {
+  id: string;
+  quote_id: string;
+  seq: number;
+  title: string;
+  isbn: string | null;
+  quantity: number;
+  in_box: number;
+}
+interface OrderProductRow {
+  id: string;
+  order_id: string;
+  product_id: string | null;
+  seq: number;
+  title: string;
+  isbn: string | null;
+  quantity: number;
+  in_box: number;
+  cost_cents: number;
+}
 interface ItemRow {
   offer_id: string;
+  product_id: string | null;
+  specification: string;
   description: string;
   quantity: number;
   unit_price_e4: number;
 }
 interface PaperLineRow {
   offer_id: string;
+  product_id: string | null;
   part: PaperPart;
   paper_id: string | null;
   paper_name: string;
@@ -208,13 +268,48 @@ interface OrderRow {
 interface DeliveryRow {
   id: string;
   order_id: string;
+  product_id: string | null;
+  group_id: string | null;
   delivered_at: string;
   quantity: number;
   is_last: number;
   notes: string;
 }
 
-const toDelivery = (r: DeliveryRow): Delivery => ({ id: r.id, orderId: r.order_id, deliveredAt: r.delivered_at, quantity: r.quantity, last: r.is_last === 1, notes: r.notes });
+const toDelivery = (r: DeliveryRow): Delivery => ({
+  id: r.id,
+  orderId: r.order_id,
+  productId: r.product_id,
+  groupId: r.group_id ?? r.id,
+  deliveredAt: r.delivered_at,
+  quantity: r.quantity,
+  last: r.is_last === 1,
+  notes: r.notes,
+});
+
+const toQuoteProduct = (r: QuoteProductRow): QuoteProduct => ({ id: r.id, title: r.title, isbn: r.isbn, quantity: r.quantity, inBox: r.in_box === 1 });
+
+/** Os produtos do orçamento; o gravado antes dos produtos (sem linha) vira o produto único, com o que está no orçamento. */
+function quoteProducts(quote: Pick<QuoteRow, 'id' | 'title' | 'isbn' | 'quantity'>, rows: QuoteProductRow[] | undefined): QuoteProduct[] {
+  if (rows?.length) return rows.map(toQuoteProduct);
+  return [{ id: `${quote.id}-p1`, title: quote.title, isbn: quote.isbn, quantity: quote.quantity, inBox: false }];
+}
+
+const toOrderProduct = (r: OrderProductRow, price: (v: number) => number | null): OrderProduct => ({
+  id: r.id,
+  productId: r.product_id,
+  title: r.title,
+  isbn: r.isbn,
+  quantity: r.quantity,
+  inBox: r.in_box === 1,
+  costCents: price(r.cost_cents),
+});
+
+/** Os produtos do pedido; o gravado antes dos produtos vira o produto único, com o que está no pedido. */
+function orderProducts(row: OrderRow, rows: OrderProductRow[] | undefined, price: (v: number) => number | null): OrderProduct[] {
+  if (rows?.length) return rows.map((r) => toOrderProduct(r, price));
+  return [{ id: `${row.id}-p1`, productId: row.quote_id ? `${row.quote_id}-p1` : null, title: row.title, isbn: row.isbn, quantity: row.quantity, inBox: false, costCents: price(row.printer_cents + row.paper_cents) }];
+}
 
 const group = <T extends { offer_id: string }>(rows: T[]) => {
   const map = new Map<string, T[]>();
@@ -230,8 +325,8 @@ function toOffer(row: OfferRow, items: ItemRow[], papers: PaperLineRow[], docume
     printerId: row.printer_id,
     quantity: row.quantity,
     paperBy: row.paper_by,
-    items: items.map((i): OfferItem => ({ description: i.description, quantity: i.quantity, unitPriceE4: price(i.unit_price_e4) })),
-    papers: papers.map((p): OfferPaper => ({ part: p.part, paperId: p.paper_id, paperName: p.paper_name, grams: p.grams, pricePerKgE4: price(p.price_per_kg_e4) })),
+    items: items.map((i): OfferItem => ({ productId: i.product_id, description: i.description, specification: i.specification ?? '', quantity: i.quantity, unitPriceE4: price(i.unit_price_e4) })),
+    papers: papers.map((p): OfferPaper => ({ productId: p.product_id, part: p.part, paperId: p.paper_id, paperName: p.paper_name, grams: p.grams, pricePerKgE4: price(p.price_per_kg_e4) })),
     leadDays: row.lead_days,
     proposalNumber: row.proposal_number,
     proposalDate: row.proposal_date,
@@ -245,11 +340,14 @@ function toOffer(row: OfferRow, items: ItemRow[], papers: PaperLineRow[], docume
 async function loadOrder(env: Env, id: string): Promise<BrOrder | null> {
   const r = await env.DB.prepare('SELECT * FROM br_orders WHERE id = ?').bind(id).first<OrderRow>();
   if (!r) return null;
-  const { results } = await env.DB.prepare('SELECT * FROM br_deliveries WHERE order_id = ? ORDER BY delivered_at, created_at').bind(id).all<DeliveryRow>();
-  return toOrder(r, results.map(toDelivery), (v) => v);
+  const [d, p] = await env.DB.batch([
+    env.DB.prepare('SELECT * FROM br_deliveries WHERE order_id = ? ORDER BY delivered_at, created_at').bind(id),
+    env.DB.prepare('SELECT * FROM br_order_products WHERE order_id = ? ORDER BY seq').bind(id),
+  ]);
+  return toOrder(r, (d!.results as unknown as DeliveryRow[]).map(toDelivery), orderProducts(r, p!.results as unknown as OrderProductRow[], (v) => v), (v) => v);
 }
 
-function toOrder(row: OrderRow, deliveries: Delivery[], price: (v: number) => number | null): BrOrder {
+function toOrder(row: OrderRow, deliveries: Delivery[], products: OrderProduct[], price: (v: number) => number | null): BrOrder {
   return {
     id: row.id,
     quoteId: row.quote_id,
@@ -264,25 +362,37 @@ function toOrder(row: OrderRow, deliveries: Delivery[], price: (v: number) => nu
     dueAt: row.due_at,
     specification: row.specification,
     notes: row.notes,
+    products,
     deliveries,
   };
 }
+
+/** Agrupa as linhas por uma coluna (os produtos de cada orçamento, de cada pedido). */
+const byKey = <T, K extends keyof T>(rows: T[], key: K) => {
+  const map = new Map<T[K], T[]>();
+  for (const r of rows) map.set(r[key], [...(map.get(r[key]) ?? []), r]);
+  return map;
+};
 
 /** Tudo da sub-aba Brasil; sem os valores (preços, totais, papel e o PDF) para quem não vê valores (o leitor). */
 async function getBrazil(env: Env, session: Session, now: Date): Promise<Response> {
   const seeValues = can(session.user.role, 'see_values');
   const price = (v: number) => (seeValues ? v : null);
-  const [p, pa, q, o, it, pp, docs, r, d] = await env.DB.batch([
+  const [p, pa, q, o, it, pp, docs, r, d, qp, op] = await env.DB.batch([
     env.DB.prepare('SELECT id, name, notes FROM printers ORDER BY name COLLATE NOCASE'),
     env.DB.prepare('SELECT id, name, price_per_kg_e4, notes, updated_at FROM papers ORDER BY name COLLATE NOCASE'),
     env.DB.prepare('SELECT q.*, u.name AS created_by_name FROM br_quotes q LEFT JOIN users u ON u.id = q.created_by ORDER BY q.created_at DESC, q.rowid DESC'),
     env.DB.prepare('SELECT * FROM br_offers ORDER BY created_at, rowid'),
-    env.DB.prepare('SELECT offer_id, description, quantity, unit_price_e4 FROM br_offer_items ORDER BY offer_id, seq'),
-    env.DB.prepare('SELECT offer_id, part, paper_id, paper_name, grams, price_per_kg_e4 FROM br_offer_papers ORDER BY offer_id, seq'),
+    env.DB.prepare('SELECT offer_id, product_id, description, specification, quantity, unit_price_e4 FROM br_offer_items ORDER BY offer_id, seq'),
+    env.DB.prepare('SELECT offer_id, product_id, part, paper_id, paper_name, grams, price_per_kg_e4 FROM br_offer_papers ORDER BY offer_id, seq'),
     env.DB.prepare('SELECT offer_id, name, size FROM br_offer_documents'),
     env.DB.prepare('SELECT * FROM br_orders ORDER BY ordered_at DESC, created_at DESC'),
     env.DB.prepare('SELECT * FROM br_deliveries ORDER BY delivered_at, created_at'),
+    env.DB.prepare('SELECT * FROM br_quote_products ORDER BY quote_id, seq'),
+    env.DB.prepare('SELECT * FROM br_order_products ORDER BY order_id, seq'),
   ]);
+  const quoteProductRows = byKey(qp!.results as unknown as QuoteProductRow[], 'quote_id');
+  const orderProductRows = byKey(op!.results as unknown as OrderProductRow[], 'order_id');
   const items = group(it!.results as unknown as ItemRow[]);
   const paperLines = group(pp!.results as unknown as PaperLineRow[]);
   const documents = new Map((docs!.results as { offer_id: string; name: string; size: number }[]).map((x) => [x.offer_id, { name: x.name, size: x.size }]));
@@ -306,6 +416,7 @@ async function getBrazil(env: Env, session: Session, now: Date): Promise<Respons
     createdAt: row.created_at,
     createdBy: row.created_by_name,
     closedAt: row.closed_at,
+    products: quoteProducts(row, quoteProductRows.get(row.id)),
     offers: offers.get(row.id) ?? [],
     orderId: orderOfQuote.get(row.id) ?? null,
   }));
@@ -316,7 +427,7 @@ async function getBrazil(env: Env, session: Session, now: Date): Promise<Respons
     notes: x.notes,
     updatedAt: x.updated_at,
   }));
-  const orders = orderRows.map((row) => toOrder(row, deliveries.get(row.id) ?? [], price));
+  const orders = orderRows.map((row) => toOrder(row, deliveries.get(row.id) ?? [], orderProducts(row, orderProductRows.get(row.id), price), price));
   return json({ today: spDate(now), seeValues, printers: p!.results as unknown as Printer[], papers, quotes, orders });
 }
 
@@ -324,54 +435,106 @@ async function getBrazil(env: Env, session: Session, now: Date): Promise<Respons
  * Os pedidos no Brasil só com as quantidades, as datas e o nome da gráfica, do mais antigo para o mais novo: o que o
  * terminal de consulta e a previsão de estoque juntam à importação pelo ISBN (27/11/2026). Nada de valores sai daqui.
  */
-export async function readBrazilOrders(env: Env): Promise<BrOrderSummary[]> {
-  const [o, d] = await env.DB.batch([
-    env.DB.prepare(
-      'SELECT o.id, o.isbn, o.title, o.quantity, o.ordered_at, o.due_at, p.name AS printer FROM br_orders o JOIN printers p ON p.id = o.printer_id ORDER BY o.ordered_at, o.created_at, o.rowid',
-    ),
-    env.DB.prepare('SELECT order_id, delivered_at, quantity, is_last FROM br_deliveries ORDER BY delivered_at, created_at'),
+/** Cada produto de cada pedido, com as entregas dele e o nome da gráfica (com o custo, que só sai para quem vê valores). */
+async function readOrderProducts(env: Env): Promise<(BrOrderSummary & { inBox: boolean; costCents: number })[]> {
+  const [o, d, p] = await env.DB.batch([
+    env.DB.prepare('SELECT o.*, p.name AS printer FROM br_orders o JOIN printers p ON p.id = o.printer_id ORDER BY o.ordered_at, o.created_at, o.rowid'),
+    env.DB.prepare('SELECT * FROM br_deliveries ORDER BY delivered_at, created_at'),
+    env.DB.prepare('SELECT * FROM br_order_products ORDER BY order_id, seq'),
   ]);
-  const deliveries = new Map<string, BrOrderSummary['deliveries']>();
-  for (const r of d!.results as { order_id: string; delivered_at: string; quantity: number; is_last: number }[]) {
-    deliveries.set(r.order_id, [...(deliveries.get(r.order_id) ?? []), { deliveredAt: r.delivered_at, quantity: r.quantity, last: r.is_last === 1 }]);
-  }
-  return (o!.results as { id: string; isbn: string | null; title: string; quantity: number; ordered_at: string; due_at: string | null; printer: string }[]).map((r) => ({
-    id: r.id,
-    isbn: r.isbn,
-    title: r.title,
-    printer: r.printer,
-    quantity: r.quantity,
-    orderedAt: r.ordered_at,
-    dueAt: r.due_at,
-    deliveries: deliveries.get(r.id) ?? [],
-  }));
+  const deliveries = byKey((d!.results as unknown as DeliveryRow[]).map(toDelivery), 'orderId');
+  const products = byKey(p!.results as unknown as OrderProductRow[], 'order_id');
+  return (o!.results as unknown as (OrderRow & { printer: string })[]).flatMap((row) => {
+    const order = toOrder(row, deliveries.get(row.id) ?? [], orderProducts(row, products.get(row.id), (v) => v), (v) => v);
+    return order.products.map((product) => ({
+      id: product.id,
+      isbn: product.isbn,
+      title: product.title,
+      printer: row.printer,
+      quantity: product.quantity,
+      orderedAt: row.ordered_at,
+      dueAt: row.due_at,
+      // O que vai dentro do box vem com ele: não tem entrega própria.
+      deliveries: product.inBox ? [] : productDeliveries(order, product.id).map((x) => ({ deliveredAt: x.deliveredAt, quantity: x.quantity, last: x.last })),
+      inBox: product.inBox,
+      costCents: product.costCents ?? 0,
+    }));
+  });
 }
 
-/** Os pedidos no Brasil com o ISBN do produto (o ISBN-10 casa com o ISBN-13), para a ficha do produto. */
+/**
+ * Os produtos dos pedidos no Brasil só com as quantidades, as datas e o nome da gráfica, do mais antigo para o mais
+ * novo: o que o terminal de consulta e a previsão de estoque juntam à importação pelo ISBN (27/11/2026). O que vai
+ * dentro do box não conta no estoque do livro e fica de fora (decidido pelo Gabriel em 27/11/2026). Nada de valores
+ * sai daqui.
+ */
+export async function readBrazilOrders(env: Env): Promise<BrOrderSummary[]> {
+  return (await readOrderProducts(env)).filter((p) => !p.inBox).map(({ inBox: _inBox, costCents: _cost, ...summary }) => summary);
+}
+
+/**
+ * Os produtos dos pedidos no Brasil com o ISBN do produto (o ISBN-10 casa com o ISBN-13), para a ficha do produto,
+ * inclusive o que vai dentro do box (marcado); o custo do produto só para quem vê valores.
+ */
 export async function brazilOrdersForIsbn(env: Env, isbn: string, seeValues: boolean): Promise<ProductBrazilOrder[]> {
   const key = toIsbn13(isbn);
-  const orders = (await readBrazilOrders(env)).filter((o) => o.isbn && toIsbn13(o.isbn) === key);
-  if (!orders.length) return [];
-  const totals = new Map<string, number>();
-  if (seeValues) {
-    const { results } = await env.DB.prepare('SELECT id, printer_cents + paper_cents AS total FROM br_orders WHERE isbn IS NOT NULL').all<{ id: string; total: number }>();
-    for (const r of results) totals.set(r.id, r.total);
-  }
-  return orders.map((o) => ({ ...o, totalCents: seeValues ? (totals.get(o.id) ?? null) : null }));
+  return (await readOrderProducts(env))
+    .filter((p) => p.isbn && toIsbn13(p.isbn) === key)
+    .map(({ costCents, ...p }) => ({ ...p, totalCents: seeValues ? costCents : null }));
 }
 
 async function findQuote(env: Env, id: string) {
   return env.DB.prepare('SELECT id, status, quantity FROM br_quotes WHERE id = ?').bind(id).first<{ id: string; status: QuoteStatus; quantity: number }>();
 }
 
+const insertProduct = (env: Env, quoteId: string, id: string, seq: number, p: Pick<QuoteProduct, 'title' | 'isbn' | 'quantity' | 'inBox'>) =>
+  env.DB.prepare('INSERT INTO br_quote_products (id, quote_id, seq, title, isbn, quantity, in_box) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id, quoteId, seq, p.title, p.isbn, p.quantity, p.inBox ? 1 : 0);
+
+/**
+ * Os produtos do orçamento, e a instrução que grava o produto único do orçamento gravado antes dos produtos (para os
+ * itens da proposta poderem apontar para ele).
+ */
+async function ensureProducts(env: Env, quoteId: string): Promise<{ products: QuoteProduct[]; statements: D1PreparedStatement[] }> {
+  const [q, r] = await env.DB.batch([
+    env.DB.prepare('SELECT id, title, isbn, quantity FROM br_quotes WHERE id = ?').bind(quoteId),
+    env.DB.prepare('SELECT * FROM br_quote_products WHERE quote_id = ? ORDER BY seq').bind(quoteId),
+  ]);
+  const quote = (q!.results as unknown as Pick<QuoteRow, 'id' | 'title' | 'isbn' | 'quantity'>[])[0]!;
+  const rows = r!.results as unknown as QuoteProductRow[];
+  const products = quoteProducts(quote, rows);
+  return { products, statements: rows.length ? [] : [insertProduct(env, quoteId, products[0]!.id, 0, products[0]!)] };
+}
+
+/** Os produtos de um orçamento novo: os do corpo novo, ou o produto único do cadastro antigo. */
+function bodyProducts(body: { title?: string; isbn: string | null; quantity?: number; products?: ProductInput[] }): ProductInput[] {
+  return body.products ?? [{ title: body.title!, isbn: body.isbn, quantity: body.quantity!, inBox: false }];
+}
+
 async function createQuote(request: Request, env: Env, session: Session, now: Date): Promise<Response> {
   checkMutation(request);
   const body = await readBody(request, quoteBody);
+  const products = bodyProducts(body);
+  const problem = quoteProductsProblem(products);
+  if (problem) return error(400, problem);
   const id = crypto.randomUUID();
-  await env.DB.prepare('INSERT INTO br_quotes (id, title, isbn, quantity, specification, notes, status, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .bind(id, body.title, body.isbn, body.quantity, body.specification, body.notes, 'aberto', now.toISOString(), session.user.id)
-    .run();
-  return json({ id }, 201);
+  const ids = products.map(() => crypto.randomUUID());
+  const first = products[0]!;
+  // O orçamento fica com o nome, o ISBN e a quantidade do primeiro produto (para a busca e o código de antes).
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO br_quotes (id, title, isbn, quantity, specification, notes, status, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
+      id,
+      first.title,
+      first.isbn,
+      first.quantity,
+      body.specification,
+      body.notes,
+      'aberto',
+      now.toISOString(),
+      session.user.id,
+    ),
+    ...products.map((p, seq) => insertProduct(env, id, ids[seq]!, seq, p)),
+  ]);
+  return json({ id, products: products.map((p, n) => ({ id: ids[n], title: p.title })) }, 201);
 }
 
 async function updateQuote(request: Request, env: Env, id: string): Promise<Response> {
@@ -382,11 +545,47 @@ async function updateQuote(request: Request, env: Env, id: string): Promise<Resp
   if (quote.status === 'fechado') return error(409, 'Este orçamento já foi fechado. Para mudar, desfaça o fechamento no pedido.');
   const fields = Object.keys(body).filter((k) => k !== 'status');
   if (quote.status === 'cancelado' && fields.length > 0) return error(409, 'Este orçamento foi cancelado. Reabra para mudar.');
-  const cols: Record<string, string> = { title: 'title', isbn: 'isbn', quantity: 'quantity', specification: 'specification', notes: 'notes', status: 'status' };
-  const keys = Object.keys(body) as (keyof typeof body)[];
-  await env.DB.prepare(`UPDATE br_quotes SET ${keys.map((k) => `${cols[k]} = ?`).join(', ')} WHERE id = ?`)
-    .bind(...keys.map((k) => body[k] ?? null), id)
-    .run();
+  const statements: D1PreparedStatement[] = [];
+  const { title: newTitle, isbn: newIsbn, quantity: newQuantity, products: newProducts, ...rest } = body;
+  const sets: Record<string, unknown> = {};
+  if (rest.specification !== undefined) sets.specification = rest.specification;
+  if (rest.notes !== undefined) sets.notes = rest.notes;
+  if (rest.status !== undefined) sets.status = rest.status;
+  const current = await ensureProducts(env, id);
+  statements.push(...current.statements);
+  if (newProducts) {
+    const problem = quoteProductsProblem(newProducts);
+    if (problem) return error(400, problem);
+    const existing = new Map(current.products.map((p) => [p.id, p]));
+    if (newProducts.some((p) => p.id && !existing.has(p.id))) return error(400, 'Um dos produtos não é deste orçamento.');
+    const kept = new Set(newProducts.map((p) => p.id).filter(Boolean));
+    const removed = current.products.filter((p) => !kept.has(p.id));
+    for (const p of removed) {
+      const used = await env.DB.prepare('SELECT 1 FROM br_offer_items WHERE product_id = ? LIMIT 1').bind(p.id).first();
+      if (used) return error(409, `${p.title} tem preço numa proposta: tire o item da proposta antes de tirar o produto.`);
+    }
+    for (const p of removed) {
+      statements.push(
+        env.DB.prepare('UPDATE br_offer_papers SET product_id = NULL WHERE product_id = ?').bind(p.id),
+        env.DB.prepare('DELETE FROM br_quote_products WHERE id = ?').bind(p.id),
+      );
+    }
+    newProducts.forEach((p, seq) => {
+      if (p.id) statements.push(env.DB.prepare('UPDATE br_quote_products SET seq = ?, title = ?, isbn = ?, quantity = ?, in_box = ? WHERE id = ?').bind(seq, p.title, p.isbn, p.quantity, p.inBox ? 1 : 0, p.id));
+      else statements.push(insertProduct(env, id, crypto.randomUUID(), seq, p));
+    });
+    Object.assign(sets, { title: newProducts[0]!.title, isbn: newProducts[0]!.isbn, quantity: newProducts[0]!.quantity });
+  } else if (newTitle !== undefined || newIsbn !== undefined || newQuantity !== undefined) {
+    // O jeito de antes (um produto só): muda o orçamento e o produto único.
+    if (current.products.length > 1) return error(400, 'Este orçamento tem vários produtos: mude os produtos.');
+    const only = current.products[0]!;
+    const next = { title: newTitle ?? only.title, isbn: newIsbn !== undefined ? newIsbn : only.isbn, quantity: newQuantity ?? only.quantity };
+    statements.push(env.DB.prepare('UPDATE br_quote_products SET title = ?, isbn = ?, quantity = ? WHERE id = ?').bind(next.title, next.isbn, next.quantity, only.id));
+    Object.assign(sets, next);
+  }
+  const keys = Object.keys(sets);
+  if (keys.length) statements.push(env.DB.prepare(`UPDATE br_quotes SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).bind(...keys.map((k) => sets[k] ?? null), id));
+  if (statements.length) await env.DB.batch(statements);
   return json({ ok: true });
 }
 
@@ -401,6 +600,25 @@ async function printerId(env: Env, name: string, session: Session, now: Date): P
 type OfferInput = z.infer<typeof offerBody>;
 
 /**
+ * Liga os itens e o papel da proposta aos produtos do orçamento. Com um produto só, tudo é dele; com vários, cada item
+ * diz qual produto cobra, e o papel pode ser de um produto ou da proposta toda. Devolve o problema, ou null.
+ */
+function linkOffer(body: OfferInput, products: readonly QuoteProduct[]): string | null {
+  const ids = new Set(products.map((p) => p.id));
+  if (products.length === 1) {
+    for (const item of body.items) item.productId = products[0]!.id;
+    for (const paper of body.papers) paper.productId = null;
+    return null;
+  }
+  for (const [n, item] of body.items.entries()) {
+    if (!item.productId) return `Diga qual produto o ${n + 1}º item (${item.description}) cobra.`;
+    if (!ids.has(item.productId)) return 'O produto de um dos itens não é deste orçamento.';
+  }
+  if (body.papers.some((p) => p.productId && !ids.has(p.productId))) return 'O produto de uma das linhas de papel não é deste orçamento.';
+  return null;
+}
+
+/**
  * As instruções que gravam os itens e o papel da proposta, no lugar dos que havia. O papel é achado na tabela pelo
  * nome; o papel novo entra na tabela com o preço por kg digitado. O preço da proposta fica como digitado (o da
  * tabela vem sugerido na tela, e dá para ajustar).
@@ -409,7 +627,16 @@ async function offerLines(env: Env, offerId: string, body: OfferInput, session: 
   const statements: D1PreparedStatement[] = [env.DB.prepare('DELETE FROM br_offer_items WHERE offer_id = ?').bind(offerId), env.DB.prepare('DELETE FROM br_offer_papers WHERE offer_id = ?').bind(offerId)];
   body.items.forEach((item, seq) => {
     statements.push(
-      env.DB.prepare('INSERT INTO br_offer_items (id, offer_id, seq, description, quantity, unit_price_e4) VALUES (?, ?, ?, ?, ?, ?)').bind(crypto.randomUUID(), offerId, seq, item.description, item.quantity, item.unitPriceE4),
+      env.DB.prepare('INSERT INTO br_offer_items (id, offer_id, seq, product_id, description, specification, quantity, unit_price_e4) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(
+        crypto.randomUUID(),
+        offerId,
+        seq,
+        item.productId,
+        item.description,
+        item.specification,
+        item.quantity,
+        item.unitPriceE4,
+      ),
     );
   });
   if (body.paperBy === 'editora') {
@@ -423,10 +650,11 @@ async function offerLines(env: Env, offerId: string, body: OfferInput, session: 
         statements.push(env.DB.prepare('INSERT INTO papers (id, name, price_per_kg_e4, notes, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?)').bind(id, line.paper, line.pricePerKgE4, '', now.toISOString(), session.user.id));
       }
       statements.push(
-        env.DB.prepare('INSERT INTO br_offer_papers (id, offer_id, seq, part, paper_id, paper_name, grams, price_per_kg_e4) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(
+        env.DB.prepare('INSERT INTO br_offer_papers (id, offer_id, seq, product_id, part, paper_id, paper_name, grams, price_per_kg_e4) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
           crypto.randomUUID(),
           offerId,
           seq,
+          line.productId,
           line.part,
           id,
           line.paper,
@@ -445,9 +673,13 @@ async function addOffer(request: Request, env: Env, session: Session, quoteId: s
   const quote = await findQuote(env, quoteId);
   if (!quote) return error(404, 'Orçamento não encontrado.');
   if (quote.status !== 'aberto') return error(409, 'As propostas só mudam com o orçamento aberto.');
+  const { products, statements: ensure } = await ensureProducts(env, quoteId);
+  const problem = linkOffer(body, products);
+  if (problem) return error(400, problem);
   const printer = await printerId(env, body.printer, session, now);
   const id = crypto.randomUUID();
   await env.DB.batch([
+    ...ensure,
     ...printer.statements,
     env.DB.prepare(
       `INSERT INTO br_offers (id, quote_id, printer_id, quantity, paper_by, lead_days, proposal_number, proposal_date, valid_days, payment_terms, notes, created_at, created_by)
@@ -470,8 +702,12 @@ async function updateOffer(request: Request, env: Env, session: Session, id: str
   const body = await readBody(request, offerBody);
   const found = await offerOfOpenQuote(env, id);
   if (found instanceof Response) return found;
+  const { products, statements: ensure } = await ensureProducts(env, found.offer.quote_id);
+  const problem = linkOffer(body, products);
+  if (problem) return error(400, problem);
   const printer = await printerId(env, body.printer, session, now);
   await env.DB.batch([
+    ...ensure,
     ...printer.statements,
     env.DB.prepare(
       'UPDATE br_offers SET printer_id = ?, quantity = ?, paper_by = ?, lead_days = ?, proposal_number = ?, proposal_date = ?, valid_days = ?, payment_terms = ?, notes = ? WHERE id = ?',
@@ -590,21 +826,41 @@ async function closeQuote(request: Request, env: Env, session: Session, quoteId:
   const row = await env.DB.prepare('SELECT * FROM br_offers WHERE id = ? AND quote_id = ?').bind(body.offerId, quoteId).first<OfferRow>();
   if (!row) return error(400, 'A proposta não é deste orçamento.');
   const [items, papers] = await env.DB.batch([
-    env.DB.prepare('SELECT offer_id, description, quantity, unit_price_e4 FROM br_offer_items WHERE offer_id = ? ORDER BY seq').bind(row.id),
-    env.DB.prepare('SELECT offer_id, part, paper_id, paper_name, grams, price_per_kg_e4 FROM br_offer_papers WHERE offer_id = ? ORDER BY seq').bind(row.id),
+    env.DB.prepare('SELECT offer_id, product_id, description, specification, quantity, unit_price_e4 FROM br_offer_items WHERE offer_id = ? ORDER BY seq').bind(row.id),
+    env.DB.prepare('SELECT offer_id, product_id, part, paper_id, paper_name, grams, price_per_kg_e4 FROM br_offer_papers WHERE offer_id = ? ORDER BY seq').bind(row.id),
   ]);
-  const cost = offerCost(toOffer(row, items!.results as unknown as ItemRow[], papers!.results as unknown as PaperLineRow[], null, (v) => v))!;
+  const { products, statements: ensure } = await ensureProducts(env, quoteId);
+  const cost = offerCost(toOffer(row, items!.results as unknown as ItemRow[], papers!.results as unknown as PaperLineRow[], null, (v) => v), products)!;
+  // Cada produto do pedido fica com a quantidade que a proposta orçou e o custo dele.
+  const missing = products.filter((_, n) => cost.products[n]!.quantity === 0);
+  if (missing.length) return error(400, `A proposta não orçou ${missing.map((p) => p.title).join(', ')}. Corrija a proposta antes de fechar.`);
   const orderedAt = body.orderedAt ?? spDate(now);
   if (orderedAt > spDate(now)) return error(400, 'O fechamento não pode ser num dia que ainda não chegou.');
   const dueAt = body.dueAt !== undefined ? body.dueAt : row.lead_days !== null ? addDays(orderedAt, row.lead_days) : null;
   if (dueAt && dueAt < orderedAt) return error(400, 'A entrega prevista não pode ser antes do fechamento.');
   const id = crypto.randomUUID();
   const at = now.toISOString();
+  // A quantidade do pedido (o código de antes) soma os produtos que contam: os que não vão dentro do box.
+  const counted = products.reduce((n, p, i) => n + (p.inBox ? 0 : cost.products[i]!.quantity), 0);
   await env.DB.batch([
+    ...ensure,
     env.DB.prepare(
       `INSERT INTO br_orders (id, quote_id, offer_id, printer_id, title, isbn, quantity, printer_cents, paper_cents, ordered_at, due_at, specification, notes, created_at, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(id, quoteId, row.id, row.printer_id, quote.title, quote.isbn, row.quantity, cost.printerCents, cost.paperCents, orderedAt, dueAt, quote.specification, quote.notes, at, session.user.id),
+    ).bind(id, quoteId, row.id, row.printer_id, quote.title, quote.isbn, counted, cost.printerCents, cost.paperCents, orderedAt, dueAt, quote.specification, quote.notes, at, session.user.id),
+    ...products.map((p, seq) =>
+      env.DB.prepare('INSERT INTO br_order_products (id, order_id, product_id, seq, title, isbn, quantity, in_box, cost_cents) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
+        crypto.randomUUID(),
+        id,
+        p.id,
+        seq,
+        p.title,
+        p.isbn,
+        cost.products[seq]!.quantity,
+        p.inBox ? 1 : 0,
+        cost.products[seq]!.cents,
+      ),
+    ),
     env.DB.prepare("UPDATE br_quotes SET status = 'fechado', closed_at = ?, closed_by = ? WHERE id = ?").bind(at, session.user.id, quoteId),
   ]);
   return json({ id }, 201);
@@ -617,6 +873,7 @@ async function reopenOrder(request: Request, env: Env, id: string): Promise<Resp
   if (!order) return error(404, 'Pedido não encontrado.');
   if (order.deliveries.length > 0) return error(409, 'O pedido já tem entrega. Para desfazer o fechamento, desfaça antes as entregas.');
   await env.DB.batch([
+    env.DB.prepare('DELETE FROM br_order_products WHERE order_id = ?').bind(id),
     env.DB.prepare('DELETE FROM br_orders WHERE id = ?').bind(id),
     ...(order.quoteId ? [env.DB.prepare("UPDATE br_quotes SET status = 'aberto', closed_at = NULL, closed_by = NULL WHERE id = ?").bind(order.quoteId)] : []),
   ]);
@@ -642,20 +899,54 @@ async function addDelivery(request: Request, env: Env, session: Session, orderId
   const body = await readBody(request, deliveryBody);
   const order = await loadOrder(env, orderId);
   if (!order) return error(404, 'Pedido não encontrado.');
-  const problem = deliveryProblem(order, body, spDate(now));
+  const input = body.parts ? { deliveredAt: body.deliveredAt, parts: body.parts } : { deliveredAt: body.deliveredAt, quantity: body.quantity! };
+  const problem = deliveryProblem(order, input, spDate(now));
   if (problem) return error(400, problem);
-  const id = crypto.randomUUID();
-  await env.DB.prepare('INSERT INTO br_deliveries (id, order_id, delivered_at, quantity, is_last, notes, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .bind(id, orderId, body.deliveredAt, body.quantity, body.last ? 1 : 0, body.notes, now.toISOString(), session.user.id)
-    .run();
-  return json({ id }, 201);
+  const groupId = crypto.randomUUID();
+  const statements: D1PreparedStatement[] = [];
+  // O pedido gravado antes dos produtos ganha o produto único, para a entrega apontar para ele.
+  const stored = await env.DB.prepare('SELECT 1 FROM br_order_products WHERE order_id = ? LIMIT 1').bind(orderId).first();
+  if (!stored) {
+    const p = order.products[0]!;
+    statements.push(
+      env.DB.prepare('INSERT INTO br_order_products (id, order_id, product_id, seq, title, isbn, quantity, in_box, cost_cents) VALUES (?, ?, ?, 0, ?, ?, ?, 0, ?)').bind(
+        p.id,
+        orderId,
+        null,
+        p.title,
+        p.isbn,
+        p.quantity,
+        p.costCents ?? 0,
+      ),
+    );
+  }
+  // Cada produto que chegou é uma linha; as do mesmo registro têm o mesmo grupo (desfazer leva todas).
+  for (const part of deliveryParts(order, input)) {
+    statements.push(
+      env.DB.prepare('INSERT INTO br_deliveries (id, order_id, product_id, group_id, delivered_at, quantity, is_last, notes, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
+        crypto.randomUUID(),
+        orderId,
+        part.productId,
+        groupId,
+        body.deliveredAt,
+        part.quantity,
+        body.last ? 1 : 0,
+        body.notes,
+        now.toISOString(),
+        session.user.id,
+      ),
+    );
+  }
+  await env.DB.batch(statements);
+  return json({ id: groupId }, 201);
 }
 
+/** Desfaz a entrega: todas as linhas registradas juntas (pelo grupo ou pela própria entrega). */
 async function deleteDelivery(request: Request, env: Env, id: string): Promise<Response> {
   checkMutation(request);
-  const found = await env.DB.prepare('SELECT id FROM br_deliveries WHERE id = ?').bind(id).first();
+  const found = await env.DB.prepare('SELECT COALESCE(group_id, id) AS g FROM br_deliveries WHERE id = ? OR group_id = ? LIMIT 1').bind(id, id).first<{ g: string }>();
   if (!found) return error(404, 'Entrega não encontrada.');
-  await env.DB.prepare('DELETE FROM br_deliveries WHERE id = ?').bind(id).run();
+  await env.DB.prepare('DELETE FROM br_deliveries WHERE group_id = ? OR id = ?').bind(found.g, found.g).run();
   return json({ ok: true });
 }
 
