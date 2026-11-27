@@ -419,6 +419,89 @@ export function unitOf(r: UnitColumns): BillUnit | null {
 /** Quantos dias os embarques que chegaram continuam na tela de embarques (depois, vão para o histórico). */
 export const RECENT_ARRIVAL_DAYS = 60;
 
+/** A invoice como as telas recebem: com a unidade do BL, a packing list registrada e a prioridade. */
+const INVOICE_SELECT = `SELECT v.id, v.number, v.ref, v.supplier_id, v.bill_of_lading_id, v.eta, v.arrived_at, v.notes,
+              v.container, v.container_seal, v.container_kind, v.container_cartons, v.container_weight_grams, v.container_volume_liters,
+              v.packing_list_name, v.packing_list_at, u.name AS packing_list_by, v.priority_at, up.name AS priority_by
+         FROM invoices v LEFT JOIN bills_of_lading b ON b.id = v.bill_of_lading_id LEFT JOIN users u ON u.id = v.packing_list_by
+              LEFT JOIN users up ON up.id = v.priority_by`;
+
+type InvoiceViewRow = {
+  id: string;
+  number: string;
+  ref: string;
+  supplier_id: string | null;
+  bill_of_lading_id: string | null;
+  eta: string | null;
+  arrived_at: string | null;
+  notes: string;
+  packing_list_name: string;
+  packing_list_at: string | null;
+  packing_list_by: string | null;
+  priority_at: string | null;
+  priority_by: string | null;
+} & UnitColumns;
+
+type BillViewRow = { id: string; number: string; eta: string | null; arrived_at: string | null; notes: string };
+
+type PaymentRow = { id: string; invoice_id: string; paid_at: string | null; amount_cents: number | null; exchange_rate_e4: number | null; notes: string };
+
+/** Os arquivos do embarque já lidos do banco: o do BL, os de cada container e as notas fiscais. */
+interface ShipmentFiles {
+  bills: Map<string, { name: string; size: number }>;
+  invoices: Map<string, NonNullable<Invoice['documents']>>;
+  fiscal: ReturnType<typeof fiscalNotes>;
+}
+
+function shipmentFiles(bill: unknown[], invoice: unknown[], fiscal: unknown[]): ShipmentFiles {
+  const invoices = new Map<string, NonNullable<Invoice['documents']>>();
+  for (const d of invoice as { invoice_id: string; kind: 'invoice' | 'packing'; name: string; size: number }[]) {
+    invoices.set(d.invoice_id, { ...invoices.get(d.invoice_id), [d.kind]: { name: d.name, size: d.size } });
+  }
+  return {
+    bills: new Map((bill as { bill_of_lading_id: string; name: string; size: number }[]).map((d) => [d.bill_of_lading_id, { name: d.name, size: d.size }])),
+    invoices,
+    // As notas fiscais (27/11/2026): a de cada container e a master de cada BL.
+    fiscal: fiscalNotes(fiscal as FiscalRow[]),
+  };
+}
+
+/** O BL como as telas recebem; a nota master, só para quem vê valores. */
+function billView(r: BillViewRow, files: ShipmentFiles, seeValues: boolean): Bill {
+  return {
+    id: r.id,
+    number: r.number,
+    eta: r.eta,
+    arrivedAt: r.arrived_at,
+    notes: r.notes,
+    document: files.bills.get(r.id) ?? null,
+    ...(seeValues && files.fiscal.byBill.has(r.id) ? { fiscal: files.fiscal.byBill.get(r.id)! } : {}),
+  };
+}
+
+/** A invoice como as telas recebem; os arquivos do container e a nota fiscal, só para quem vê valores (quem baixa). */
+function invoiceView(r: InvoiceViewRow, files: ShipmentFiles, seeValues: boolean): Invoice {
+  return {
+    id: r.id,
+    number: r.number,
+    ref: r.ref,
+    supplierId: r.supplier_id,
+    billId: r.bill_of_lading_id,
+    eta: r.eta,
+    arrivedAt: r.arrived_at,
+    notes: r.notes,
+    unit: unitOf(r),
+    packingList: r.packing_list_name ? { name: r.packing_list_name, at: r.packing_list_at, by: r.packing_list_by } : null,
+    priority: r.priority_at ? { at: r.priority_at, by: r.priority_by } : null,
+    ...(seeValues && files.invoices.has(r.id) ? { documents: files.invoices.get(r.id)! } : {}),
+    ...(seeValues && files.fiscal.byInvoice.has(r.id) ? { fiscal: files.fiscal.byInvoice.get(r.id)! } : {}),
+  };
+}
+
+function paymentView(r: PaymentRow): Payment {
+  return { id: r.id, invoiceId: r.invoice_id, paidAt: r.paid_at, amountCents: r.amount_cents, exchangeRateE4: r.exchange_rate_e4, notes: r.notes };
+}
+
 /**
  * Tudo o que as telas usam numa consulta só: fornecedores, POs, itens em produção e embarcados (e os
  * que chegaram nos últimos 60 dias), BLs, invoices e pagamentos. O leitor não recebe preço, total nem
@@ -443,11 +526,7 @@ async function loadData(env: Env, session: Session, now: Date) {
     // Invoices a caminho e as que chegaram nos últimos 60 dias. As do histórico sem data de chegada
     // (itens entregues, mas o dia não está na planilha) não voltam para a tela de embarques.
     env.DB.prepare(
-      `SELECT v.id, v.number, v.ref, v.supplier_id, v.bill_of_lading_id, v.eta, v.arrived_at, v.notes,
-              v.container, v.container_seal, v.container_kind, v.container_cartons, v.container_weight_grams, v.container_volume_liters,
-              v.packing_list_name, v.packing_list_at, u.name AS packing_list_by, v.priority_at, up.name AS priority_by
-         FROM invoices v LEFT JOIN bills_of_lading b ON b.id = v.bill_of_lading_id LEFT JOIN users u ON u.id = v.packing_list_by
-              LEFT JOIN users up ON up.id = v.priority_by
+      `${INVOICE_SELECT}
         WHERE COALESCE(v.arrived_at, b.arrived_at) >= ?
            OR (COALESCE(v.arrived_at, b.arrived_at) IS NULL
                AND NOT EXISTS (SELECT 1 FROM order_items i WHERE i.invoice_id = v.id AND i.status = 'entregue' AND i.deleted_at IS NULL))`,
@@ -457,9 +536,7 @@ async function loadData(env: Env, session: Session, now: Date) {
     env.DB.prepare('SELECT invoice_id, kind, name, size FROM invoice_documents'),
     env.DB.prepare(`SELECT ${FISCAL_COLUMNS} FROM fiscal_documents`),
   ]);
-  // As notas fiscais (27/11/2026): a de cada container e a master de cada BL, só para quem vê valores.
-  const fiscal = fiscalNotes(fis!.results as FiscalRow[]);
-  const documents = new Map((docs!.results as { bill_of_lading_id: string; name: string; size: number }[]).map((d) => [d.bill_of_lading_id, { name: d.name, size: d.size }]));
+  const files = shipmentFiles(docs!.results, invDocs!.results, fis!.results);
   const suppliers: Supplier[] = s!.results as Supplier[];
   const orders: PurchaseOrder[] = (o!.results as { id: string; code: string; ordered_at: string | null; notes: string }[]).map((r) => ({
     id: r.id,
@@ -468,62 +545,59 @@ async function loadData(env: Env, session: Session, now: Date) {
     notes: r.notes,
   }));
   const items = (i!.results as ItemRow[]).map((r) => itemForViewer(toItem(r), seeValues));
-  const invoiceRows = v!.results as ({
-    id: string;
-    number: string;
-    ref: string;
-    supplier_id: string | null;
-    bill_of_lading_id: string | null;
-    eta: string | null;
-    arrived_at: string | null;
-    notes: string;
-    packing_list_name: string;
-    packing_list_at: string | null;
-    packing_list_by: string | null;
-    priority_at: string | null;
-    priority_by: string | null;
-  } & UnitColumns)[];
+  const invoiceRows = v!.results as InvoiceViewRow[];
   // BLs das invoices mostradas, e os BLs vazios ainda a caminho (todas as invoices desfeitas).
   const usedBills = new Set(invoiceRows.map((r) => r.bill_of_lading_id));
-  const allBills = b!.results as { id: string; number: string; eta: string | null; arrived_at: string | null; notes: string }[];
+  const allBills = b!.results as BillViewRow[];
   const billsWithInvoices = await env.DB.prepare('SELECT DISTINCT bill_of_lading_id AS id FROM invoices WHERE bill_of_lading_id IS NOT NULL').all<{ id: string }>();
   const hasInvoices = new Set(billsWithInvoices.results.map((r) => r.id));
-  const bills: Bill[] = allBills.filter((r) => usedBills.has(r.id) || (!hasInvoices.has(r.id) && !r.arrived_at)).map((r) => ({
-    id: r.id,
-    number: r.number,
-    eta: r.eta,
-    arrivedAt: r.arrived_at,
-    notes: r.notes,
-    document: documents.get(r.id) ?? null,
-    ...(seeValues && fiscal.byBill.has(r.id) ? { fiscal: fiscal.byBill.get(r.id)! } : {}),
-  }));
-  const invoiceFiles = new Map<string, NonNullable<Invoice['documents']>>();
-  for (const d of invDocs!.results as { invoice_id: string; kind: 'invoice' | 'packing'; name: string; size: number }[]) {
-    invoiceFiles.set(d.invoice_id, { ...invoiceFiles.get(d.invoice_id), [d.kind]: { name: d.name, size: d.size } });
-  }
-  const invoices: Invoice[] = invoiceRows.map((r) => ({
-    id: r.id,
-    number: r.number,
-    ref: r.ref,
-    supplierId: r.supplier_id,
-    billId: r.bill_of_lading_id,
-    eta: r.eta,
-    arrivedAt: r.arrived_at,
-    notes: r.notes,
-    unit: unitOf(r),
-    packingList: r.packing_list_name ? { name: r.packing_list_name, at: r.packing_list_at, by: r.packing_list_by } : null,
-    priority: r.priority_at ? { at: r.priority_at, by: r.priority_by } : null,
-    // Os arquivos do container vão só para quem baixa (quem vê valores).
-    ...(seeValues && invoiceFiles.has(r.id) ? { documents: invoiceFiles.get(r.id)! } : {}),
-    ...(seeValues && fiscal.byInvoice.has(r.id) ? { fiscal: fiscal.byInvoice.get(r.id)! } : {}),
-  }));
+  const bills: Bill[] = allBills.filter((r) => usedBills.has(r.id) || (!hasInvoices.has(r.id) && !r.arrived_at)).map((r) => billView(r, files, seeValues));
+  const invoices: Invoice[] = invoiceRows.map((r) => invoiceView(r, files, seeValues));
   const shown = new Set(invoices.map((x) => x.id));
-  const payments: Payment[] = seeValues
-    ? (pay!.results as { id: string; invoice_id: string; paid_at: string | null; amount_cents: number | null; exchange_rate_e4: number | null; notes: string }[])
-        .filter((r) => shown.has(r.invoice_id))
-        .map((r) => ({ id: r.id, invoiceId: r.invoice_id, paidAt: r.paid_at, amountCents: r.amount_cents, exchangeRateE4: r.exchange_rate_e4, notes: r.notes }))
-    : [];
+  const payments: Payment[] = seeValues ? (pay!.results as PaymentRow[]).filter((r) => shown.has(r.invoice_id)).map(paymentView) : [];
   return { today, suppliers, orders, items, bills, invoices, payments, seeValues, seeSuppliers };
+}
+
+/**
+ * Um embarque inteiro pela chave da tela ("bl:<id>" ou "inv:<id>"), também depois dos 60 dias em que fica na tela
+ * de embarques (pedido do Gabriel em 27/11/2026: no Histórico e na ficha do produto, a invoice e o BL abrem a
+ * ficha do embarque, com os arquivos). Os mesmos cortes de /api/data: o leitor sem valores, pagamentos nem
+ * arquivos. Só para quem vê as fichas de produto: o perfil Embarques, Vendas e o Agente de cargas são recusados.
+ */
+async function getShipment(env: Env, session: Session, key: string): Promise<Response> {
+  if (!can(session.user.role, 'view_all')) return error(403, 'Seu perfil não abre a ficha deste embarque.');
+  const m = /^(bl|inv):(.+)$/.exec(key);
+  if (!m) return error(404, 'Embarque não encontrado.');
+  const seeValues = can(session.user.role, 'see_values');
+  const byBill = m[1] === 'bl';
+  const id = m[2]!;
+  const { results: invoiceRows } = await env.DB.prepare(`${INVOICE_SELECT} WHERE ${byBill ? 'v.bill_of_lading_id = ?' : 'v.id = ? AND v.bill_of_lading_id IS NULL'} ORDER BY v.rowid`)
+    .bind(id)
+    .all<InvoiceViewRow>();
+  if (!invoiceRows.length) return error(404, 'Embarque não encontrado.');
+  const ids = JSON.stringify(invoiceRows.map((r) => r.id));
+  const billId = byBill ? id : '';
+  const inItems = 'SELECT supplier_id FROM order_items WHERE deleted_at IS NULL AND invoice_id IN (SELECT value FROM json_each(?))';
+  const [i, b, pay, docs, invDocs, fis, o, s] = await env.DB.batch([
+    env.DB.prepare(`${ITEM_SELECT} WHERE i.deleted_at IS NULL AND i.invoice_id IN (SELECT value FROM json_each(?)) ORDER BY i.created_at, i.rowid`).bind(ids),
+    env.DB.prepare('SELECT id, number, eta, arrived_at, notes FROM bills_of_lading WHERE id = ?').bind(billId),
+    env.DB.prepare('SELECT id, invoice_id, paid_at, amount_cents, exchange_rate_e4, notes FROM payments WHERE invoice_id IN (SELECT value FROM json_each(?)) ORDER BY created_at, rowid').bind(ids),
+    env.DB.prepare('SELECT bill_of_lading_id, name, size FROM bill_documents WHERE bill_of_lading_id = ?').bind(billId),
+    env.DB.prepare('SELECT invoice_id, kind, name, size FROM invoice_documents WHERE invoice_id IN (SELECT value FROM json_each(?))').bind(ids),
+    env.DB.prepare(`SELECT ${FISCAL_COLUMNS} FROM fiscal_documents WHERE invoice_id IN (SELECT value FROM json_each(?)) OR bill_of_lading_id = ?`).bind(ids, billId),
+    env.DB.prepare('SELECT id, code, ordered_at, notes FROM purchase_orders WHERE id IN (SELECT purchase_order_id FROM order_items WHERE deleted_at IS NULL AND invoice_id IN (SELECT value FROM json_each(?)))').bind(ids),
+    env.DB.prepare(`SELECT id, name FROM suppliers WHERE id IN (${inItems}) OR id IN (SELECT supplier_id FROM invoices WHERE id IN (SELECT value FROM json_each(?))) ORDER BY name COLLATE NOCASE`).bind(ids, ids),
+  ]);
+  const files = shipmentFiles(docs!.results, invDocs!.results, fis!.results);
+  const shipment = {
+    bills: (b!.results as BillViewRow[]).map((r) => billView(r, files, seeValues)),
+    invoices: invoiceRows.map((r) => invoiceView(r, files, seeValues)),
+    items: (i!.results as ItemRow[]).map((r) => itemForViewer(toItem(r), seeValues)),
+    payments: seeValues ? (pay!.results as PaymentRow[]).map(paymentView) : [],
+    orders: (o!.results as { id: string; code: string; ordered_at: string | null; notes: string }[]).map((r) => ({ id: r.id, code: r.code, orderedAt: r.ordered_at, notes: r.notes })),
+    suppliers: s!.results as Supplier[],
+  };
+  return json(can(session.user.role, 'see_supplier_names') ? shipment : withoutSuppliers(shipment));
 }
 
 async function getData(env: Env, session: Session, now: Date): Promise<Response> {
@@ -881,6 +955,8 @@ async function saveOrderSpecifications(request: Request, env: Env, session: Sess
 export async function routeOrders(request: Request, env: Env, session: Session, key: string, path: string, now: Date): Promise<Response | null> {
   const role = session.user.role;
   if (key === 'GET /api/data') return getData(env, session, now);
+  const shipment = /^\/api\/shipments\/([^/]+)$/.exec(path);
+  if (shipment && request.method === 'GET') return getShipment(env, session, decodeURIComponent(shipment[1]!));
   if (key === 'GET /api/sales') {
     // A lista é de toda a equipe; o Agente, que é de fora, não recebe.
     if (!can(role, 'view')) return error(403, 'Seu perfil vê só as solicitações de embarque.');

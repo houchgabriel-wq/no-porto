@@ -18,7 +18,7 @@ const base: Item = {
   createdAt: '2026-11-17T12:00:00Z',
   updatedAt: '2026-11-17T12:00:00Z',
 };
-const invoice = (id: string, arrivedAt: string | null, extra: Partial<InvoiceInfo> = {}): InvoiceInfo => ({ id, number: id.toUpperCase(), ref: '', supplierId: 's1', billNumber: null, arrivedAt, notes: '', ...extra });
+const invoice = (id: string, arrivedAt: string | null, extra: Partial<InvoiceInfo> = {}): InvoiceInfo => ({ id, number: id.toUpperCase(), ref: '', supplierId: 's1', billId: null, billNumber: null, arrivedAt, notes: '', ...extra });
 const invoices = [invoice('a', '2023-05-22', { ref: '23-1089' }), invoice('b', '2025-08-29', { billNumber: 'ROECHN25071889' }), invoice('c', null)];
 const items: Item[] = [
   { ...base, id: '1', invoiceId: 'a', description: 'Escolinha Divertida - Alfabeto', isbn: '9786560950856' },

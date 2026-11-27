@@ -2,7 +2,7 @@
 // pagamento da invoice e as regras para embarcar itens da produção, inteiros ou em parte.
 
 import type { BillUnit } from './billUnits';
-import { totalOf, type Item, type ItemStatus } from './items';
+import { totalOf, type Item, type ItemStatus, type PurchaseOrder, type Supplier } from './items';
 import { reaisCents } from './money';
 import type { FiscalNote } from './nfe';
 
@@ -320,6 +320,38 @@ export function shipmentUnits(bills: readonly Bill[], invoices: readonly Invoice
     if (a.priority > 0 !== b.priority > 0) return a.priority > 0 ? -1 : 1;
     return (a.eta ?? '').localeCompare(b.eta ?? '') || (a.bill?.number ?? a.invoices[0]?.number ?? '').localeCompare(b.bill?.number ?? b.invoices[0]?.number ?? '');
   });
+}
+
+/** Um embarque inteiro, carregado à parte: o que já saiu da tela de embarques (chegou faz mais de 60 dias). */
+export interface ShipmentSlice {
+  bills: Bill[];
+  invoices: Invoice[];
+  items: Item[];
+  payments: Payment[];
+  orders: PurchaseOrder[];
+  suppliers: Supplier[];
+}
+
+/**
+ * Os dados da tela com um embarque carregado à parte, para a ficha do embarque abrir pelo Histórico e pela ficha do
+ * produto (27/11/2026). O que já está nos dados da tela vale, porque é o mais novo; do embarque, entra o que falta
+ * (no BL com containers que chegaram em dias diferentes, a tela pode ter só uma parte dele).
+ */
+export function withShipment<T extends ShipmentSlice>(data: T, slice: ShipmentSlice): T {
+  const add = <U extends { id: string }>(mine: U[], extra: readonly U[]): U[] => {
+    const ids = new Set(mine.map((x) => x.id));
+    const missing = extra.filter((x) => !ids.has(x.id));
+    return missing.length ? [...mine, ...missing] : mine;
+  };
+  return {
+    ...data,
+    bills: add(data.bills, slice.bills),
+    invoices: add(data.invoices, slice.invoices),
+    items: add(data.items, slice.items),
+    payments: add(data.payments, slice.payments),
+    orders: add(data.orders, slice.orders),
+    suppliers: add(data.suppliers, slice.suppliers),
+  };
 }
 
 /** Quanto falta pagar, somando as invoices (as pagas e as quitadas pela planilha não entram). */

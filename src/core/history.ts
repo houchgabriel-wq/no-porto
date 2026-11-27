@@ -3,15 +3,22 @@
 
 import { NO_SUPPLIER, searchKey, totalOf, type Item, type Supplier } from './items';
 
-/** Invoice como o histórico mostra: com o número do BL e a chegada que vale. */
+/** Invoice como o histórico mostra: com o BL e a chegada que vale. */
 export interface InvoiceInfo {
   id: string;
   number: string;
   ref: string;
   supplierId: string | null;
+  /** O BL, para abrir a ficha do embarque (27/11/2026); null na invoice sem BL. */
+  billId: string | null;
   billNumber: string | null;
   arrivedAt: string | null;
   notes: string;
+}
+
+/** A chave do embarque da invoice, como na tela de embarques: "bl:<id>" ou, sem BL, "inv:<id>". */
+export function shipmentKeyOf(invoice: Pick<InvoiceInfo, 'id' | 'billId'>): string {
+  return invoice.billId ? `bl:${invoice.billId}` : `inv:${invoice.id}`;
 }
 
 export const NO_DATE = 'sem-data';
