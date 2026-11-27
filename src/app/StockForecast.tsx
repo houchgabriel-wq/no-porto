@@ -353,7 +353,7 @@ function Row({ row: r, today, onOpen }: { row: ForecastRow; today: string; onOpe
           <span>{r.isbn}</span>
           {r.imported && <span className="prev-np">No Porto</span>}
         </span>
-        {r.gapBeforeArrival && (
+        {r.gapBefore && (
           <span className="pilula critico prev-pilula">
             <Icon name="alerta" />
             Acaba antes de o embarcado chegar
@@ -413,9 +413,9 @@ function MissingList({ missing, today, onProduct }: { missing: MissingTitle[]; t
       <p className="dica">Sem estoque nem vendas na curva, não há como calcular a previsão. Pode ser um lançamento, um título sem ISBN no No Porto ou com outro código na curva.</p>
       <ul className="fora-lista">
         {missing.map((m) => (
-          <li key={m.productId}>
-            {onProduct ? (
-              <button type="button" className="abrir-item" onClick={() => onProduct(m.productId)}>
+          <li key={m.key}>
+            {onProduct && m.productId ? (
+              <button type="button" className="abrir-item" onClick={() => onProduct(m.productId!)}>
                 {m.title}
               </button>
             ) : (

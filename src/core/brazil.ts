@@ -101,6 +101,9 @@ export interface Delivery {
   notes: string;
 }
 
+/** O que as contas de entrega usam de cada entrega. */
+export type DeliveredPart = Pick<Delivery, 'deliveredAt' | 'quantity' | 'last'>;
+
 /** O pedido fechado com a gráfica: a produção no Brasil. */
 export interface BrOrder {
   id: string;
@@ -119,6 +122,21 @@ export interface BrOrder {
   specification: string;
   notes: string;
   deliveries: Delivery[];
+}
+
+/**
+ * O pedido no Brasil só com as quantidades, as datas e o nome da gráfica, sem valores: o que o terminal de consulta
+ * e a previsão de estoque usam para mostrar a produção no Brasil junto com a importação.
+ */
+export interface BrOrderSummary {
+  id: string;
+  isbn: string | null;
+  title: string;
+  printer: string;
+  quantity: number;
+  orderedAt: string;
+  dueAt: string | null;
+  deliveries: DeliveredPart[];
 }
 
 /** Preço por exemplar em reais, até quatro casas ("3,70", "0,1234", "R$ 2,5") → inteiro × 10.000; null se não servir. */
@@ -193,6 +211,13 @@ export function formatBrl(cents: number): string {
   return brl.format(cents / 100);
 }
 
+const brlWhole = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+/** Reais inteiros, para os números em destaque do painel: "R$ 53.443" (como os dólares do painel). */
+export function formatBrlWhole(cents: number): string {
+  return brlWhole.format(Math.round(cents / 100));
+}
+
 /** O preço por exemplar: "R$ 3,70", "R$ 0,1234". */
 export function formatBrlUnit(unitPriceE4: number): string {
   return brlUnit.format(unitPriceE4 / 10_000);
@@ -224,7 +249,7 @@ export function bestOffer(offers: readonly Offer[]): Offer | null {
  * quando uma entrega foi marcada como a última (a gráfica pode entregar um pouco a mais ou a menos); null enquanto
  * não foi entregue. Desfazer uma entrega reabre o pedido, se for o caso.
  */
-export function finishedAt(order: Pick<BrOrder, 'quantity' | 'deliveries'>): string | null {
+export function finishedAt(order: { quantity: number; deliveries: readonly DeliveredPart[] }): string | null {
   if (order.deliveries.length === 0) return null;
   const delivered = order.deliveries.reduce((s, d) => s + d.quantity, 0);
   if (delivered < order.quantity && !order.deliveries.some((d) => d.last)) return null;
@@ -245,7 +270,7 @@ export interface OrderState {
 }
 
 /** A situação do pedido: em produção, entregue em parte ou entregue; e se está atrasado. */
-export function orderState(order: Pick<BrOrder, 'quantity' | 'dueAt' | 'deliveries'>, today: string): OrderState {
+export function orderState(order: { quantity: number; dueAt: string | null; deliveries: readonly DeliveredPart[] }, today: string): OrderState {
   const delivered = order.deliveries.reduce((s, d) => s + d.quantity, 0);
   const done = finishedAt(order);
   const late = !done && order.dueAt !== null && order.dueAt < today;
@@ -269,8 +294,27 @@ export function orderStateText(state: OrderState, dueAt: string | null, today: s
   return `${part} · ${days === 0 ? 'entrega prevista para hoje' : days === 1 ? 'entrega prevista para amanhã' : `entrega prevista em ${days} dias`}`;
 }
 
+/** A entrega prevista em poucas palavras, para o painel e o terminal: "Atrasado há 3 dias", "Entrega em 12 dias". */
+export function dueText(state: Pick<OrderState, 'late' | 'lateDays'>, dueAt: string | null, today: string): string {
+  if (state.late) return `Atrasado há ${state.lateDays === 1 ? '1 dia' : `${state.lateDays} dias`}`;
+  if (!dueAt) return 'Sem entrega prevista';
+  const days = daysBetween(today, dueAt);
+  return days === 0 ? 'Entrega hoje' : days === 1 ? 'Entrega amanhã' : `Entrega em ${days} dias`;
+}
+
+/** Os pedidos ainda não entregues, com a situação, da entrega prevista mais próxima (os atrasados primeiro) para a mais distante. */
+export function producingOrders<T extends { quantity: number; dueAt: string | null; deliveries: readonly DeliveredPart[] }>(
+  orders: readonly T[],
+  today: string,
+): { order: T; state: OrderState }[] {
+  return orders
+    .map((order) => ({ order, state: orderState(order, today) }))
+    .filter((o) => o.state.stage !== 'entregue')
+    .sort((a, b) => (a.order.dueAt ?? '9999-12-31').localeCompare(b.order.dueAt ?? '9999-12-31'));
+}
+
 /** O que impede registrar a entrega; null quando pode. */
-export function deliveryProblem(order: Pick<BrOrder, 'quantity' | 'orderedAt' | 'deliveries'>, delivery: { deliveredAt: string; quantity: number }, today: string): string | null {
+export function deliveryProblem(order: { quantity: number; orderedAt: string; deliveries: readonly DeliveredPart[] }, delivery: { deliveredAt: string; quantity: number }, today: string): string | null {
   if (finishedAt(order)) return 'Este pedido já foi entregue. Para registrar outra entrega, desfaça a última.';
   if (!Number.isInteger(delivery.quantity) || delivery.quantity <= 0) return 'Informe quantos exemplares chegaram.';
   if (delivery.deliveredAt > today) return 'A entrega não pode ser num dia que ainda não chegou.';

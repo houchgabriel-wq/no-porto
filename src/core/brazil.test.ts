@@ -13,13 +13,16 @@ import {
   brlTotalCents,
   brlUnitInput,
   deliveryProblem,
+  dueText,
   finishedAt,
   formatBrl,
+  formatBrlWhole,
   formatBrlUnit,
   matchesBrazil,
   orderState,
   orderStateText,
   parseBrlUnitPrice,
+  producingOrders,
   type BrOrder,
   type Offer,
 } from './brazil';
@@ -80,6 +83,8 @@ describe('reais na produção no Brasil', () => {
     expect(brlTotalCents(5000, 37_000)).toBe(1_850_000);
     expect(brlTotalCents(3, 1234)).toBe(37);
     expect(formatBrl(1_850_000).replace(/\s/g, ' ')).toBe('R$ 18.500,00');
+    // No destaque do painel, reais inteiros (como os dólares).
+    expect([formatBrlWhole(5_344_330), formatBrlWhole(5_344_350), formatBrlWhole(0)].map((s) => s.replace(/\s/g, ' '))).toEqual(['R$ 53.443', 'R$ 53.444', 'R$ 0']);
     expect([formatBrlUnit(37_000), formatBrlUnit(1234)].map((s) => s.replace(/\s/g, ' '))).toEqual(['R$ 3,70', 'R$ 0,1234']);
     expect([brlUnitInput(37_000), brlUnitInput(1234), brlUnitInput(null)]).toEqual(['3,70', '0,1234', '']);
     expect(addDays('2026-11-27', 20)).toBe('2026-12-17');
@@ -143,6 +148,33 @@ describe('pedidos e entregas', () => {
     expect(orderStateText(orderState(order(), '2026-11-08'), '2026-11-20', '2026-11-08')).toBe('Em produção · entrega prevista em 12 dias');
     expect(orderStateText(orderState(order({ dueAt: null }), '2026-11-08'), null, '2026-11-08')).toBe('Em produção · sem entrega prevista');
     expect(orderStateText(orderState(order(), '2026-11-19'), '2026-11-20', '2026-11-19')).toBe('Em produção · entrega prevista para amanhã');
+  });
+
+  it('a entrega prevista em poucas palavras, para o painel e o terminal', () => {
+    const at = (today: string, dueAt: string | null = '2026-11-20') => dueText(orderState(order({ dueAt }), today), dueAt, today);
+    expect([at('2026-11-23'), at('2026-11-21'), at('2026-11-20'), at('2026-11-19'), at('2026-11-08'), at('2026-11-08', null)]).toEqual([
+      'Atrasado há 3 dias',
+      'Atrasado há 1 dia',
+      'Entrega hoje',
+      'Entrega amanhã',
+      'Entrega em 12 dias',
+      'Sem entrega prevista',
+    ]);
+  });
+
+  it('os pedidos em produção, da entrega mais próxima (os atrasados primeiro) para a mais distante; os entregues ficam de fora', () => {
+    const orders = [
+      order({ id: 'sem-data', dueAt: null }),
+      order({ id: 'dezembro', dueAt: '2026-12-10' }),
+      order({ id: 'atrasado', dueAt: '2026-11-20', deliveries: [delivery('2026-11-18', 3000)] }),
+      order({ id: 'entregue', dueAt: '2026-11-01', deliveries: [delivery('2026-11-18', 5000)] }),
+    ];
+    const list = producingOrders(orders, '2026-11-27');
+    expect(list.map((o) => [o.order.id, o.state.stage, o.state.late])).toEqual([
+      ['atrasado', 'parcial', true],
+      ['dezembro', 'producao', false],
+      ['sem-data', 'producao', false],
+    ]);
   });
 
   it('a entrega: quantidade, dia e pedido ainda não entregue', () => {
