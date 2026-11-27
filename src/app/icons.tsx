@@ -34,6 +34,7 @@ const PATHS = {
   imagem: <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="2" /><path d="m3 17 5-5 4 4 3-3 6 6" /></>,
   link: <><path d="M14 4h6v6M20 4l-9 9" /><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" /></>,
   arquivo: <><rect x="3" y="4" width="18" height="5" rx="1.5" /><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4" /></>,
+  nota: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4M9 11h6M9 14.5h6M9 18h4" /></>,
   caixa: <><path d="M3 8 12 3.5 21 8v8L12 20.5 3 16z" /><path d="M3 8l9 4.5L21 8M12 12.5v8" /></>,
   navio: <><path d="M3 15h18l-2.5 5h-13z" /><path d="M6 15V9h12v6M10 9V5h4v4" /></>,
   container: <><rect x="2.5" y="6.5" width="19" height="11" rx="1.5" /><path d="M6.5 9.5v5M10 9.5v5M13.5 9.5v5M17 9.5v5" /></>,

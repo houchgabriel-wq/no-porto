@@ -1,9 +1,10 @@
 // O texto de um PDF, para ler o BL: as unidades (pedido do Gabriel em 25/11/2026) e a data, para a
-// chegada prevista (26/11/2026). O pdf.js, da Mozilla, só é carregado quando precisa. PDF escaneado (só
-// imagem) não tem texto: as unidades e a data ficam vazias.
+// chegada prevista (26/11/2026); e, desde 27/11/2026, a chave impressa no DANFE da nota fiscal. O pdf.js, da
+// Mozilla, só é carregado quando precisa. PDF escaneado (só imagem) não tem texto: o que se lê fica vazio.
 
 import { readBillDate, type BillDate, type PdfItem } from '../core/billArrival';
 import { readBillUnits, type BillUnit } from '../core/billUnits';
+import { danfeKey } from '../core/nfe';
 
 /** O que o pdf.js entrega de cada pedaço de texto: o texto, a posição (transform[4] e [5]) e a largura. */
 interface TextPiece {
@@ -49,4 +50,9 @@ export interface BillRead {
 export async function readBillPdf(data: ArrayBuffer): Promise<BillRead> {
   const { text, items } = await readPdf(data);
   return { units: readBillUnits(text), date: readBillDate(items) };
+}
+
+/** A chave de acesso impressa no DANFE, o PDF da nota fiscal (27/11/2026); null no PDF escaneado, sem a chave. */
+export async function readDanfeKey(file: Blob): Promise<string | null> {
+  return danfeKey((await readPdf(await file.arrayBuffer())).text);
 }
